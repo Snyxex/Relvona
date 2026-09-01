@@ -1,52 +1,106 @@
-# AI Customer Support Platform
+# Multi-Tenant AI Customer Support Platform
 
-An intelligent, multi-tenant AI Customer Support Platform allowing businesses to upload documentation, FAQs, PDFs, and website URLs to create a 24/7 automated support assistant with pgvector search, human agent handoff, and live chat.
+A production-ready, multi-tenant AI Customer Support Platform enabling businesses to create intelligent 24/7 support assistants trained on their own documentation, FAQs, PDF files, and website URLs.
 
-## Tech Stack
-- **Frontend**: Next.js (App Router), Tailwind CSS, Lucide Icons, Axios, Socket.IO Client
-- **Backend**: Node.js, Express.js, TypeScript, Socket.IO
+Features RAG (Retrieval-Augmented Generation), PostgreSQL with `pgvector` semantic similarity search, Socket.IO real-time agent handoff, automated support tickets, AI suggested replies, analytics, and an embeddable customer widget.
+
+---
+
+## 🛠 Tech Stack
+
+- **Frontend**: Next.js 16 (App Router), TypeScript, Tailwind CSS, Lucide Icons, Axios, Socket.IO Client
+- **Backend**: Node.js, Express.js, TypeScript, REST APIs, Socket.IO, Multer, `pdf-parse`, Puppeteer
 - **Database & ORM**: PostgreSQL, `pgvector`, Drizzle ORM
-- **AI & Vectorization**: OpenAI API, Nvidia API, LangChain (Recursive Character Splitter & Vector Store)
-- **Infrastructure**: Docker, Redis
+- **AI & RAG**: OpenAI API (`gpt-4o-mini`, `text-embedding-3-small`), NVIDIA AI APIs, LangChain, Recursive Character Text Splitter
+- **Infrastructure**: Docker, Docker Compose, Redis for background job queues and caching
 
 ---
 
-## Core Features
-1. **24/7 AI Chat Support**: Instant RAG-powered answers using `pgvector` similarity search on ingested business data.
-2. **Knowledge Base Management**:
-   - **Website Crawling**: Automated web scraping via Puppeteer to extract documentation text.
-   - **PDF Document Chat**: PDF parsing & chunk embedding ingestion.
-   - **FAQ Ingestion**: Quick manual FAQ entry and vector indexing.
-3. **Human Agent Handoff**: Escalates complex queries to human support agent queue seamlessly.
-4. **Ticket Management & Analytics**: Complete agent inbox with ticket resolution states and sentiment analysis.
-5. **AI Suggested Replies**: Auto-suggested responses for human agents to accelerate ticket resolution times.
-6. **Multi-Language Support**: Automatic language detection and translation capabilities for global support.
-7. **Live Chat Simulator**: Embedded customer widget demo for testing real-time interaction.
+## 🚀 Key Platform Features
+
+1. **Multi-Tenant Architecture**: Strict data isolation per organization (`organizations`, `users`, `assistants`, `knowledge_bases`, `documents`, `websites`, `conversations`, `tickets`, `analytics`).
+2. **Authentication & RBAC**: JWT & API Key authentication with granular roles (`owner`, `admin`, `agent`, `viewer`).
+3. **RAG AI Chat Assistant**: Instant context-aware answers using `pgvector` similarity search. Supports configurable system prompts, temperature sliders, model selection (OpenAI & NVIDIA), and fallback responses.
+4. **PDF & Document Processing**: Upload PDFs or plaintext files; automatic text extraction, chunking, and pgvector embedding.
+5. **Website Crawler**: Crawl target URLs with SSRF protection against private IP ranges (`127.0.0.1`, `10.x.x.x`, `192.168.x.x`), HTML text cleaning, and change tracking.
+6. **Real-Time Human Agent Handoff**: Seamless state transitions (`AI_ACTIVE` → `WAITING_FOR_AGENT` → `AGENT_ACTIVE` → `RESOLVED`) using Socket.IO real-time rooms.
+7. **AI Suggested Replies**: AI generates suggested responses for human support agents without auto-sending.
+8. **Ticket Management**: Automated or manual ticket creation with priority levels, agent assignment, and internal comments.
+9. **Analytics & Insights**: Dashboard metrics for conversation volume, resolution rates, handoffs, sentiment breakdown, language stats, and unanswered questions.
+10. **Embeddable Chat Widget (`widget.js`)**: Lightweight widget script businesses can embed via `<script src=".../public/widget.js" data-assistant-id="..."></script>`.
 
 ---
 
-## Quickstart & Installation
+## 📦 Project Structure
 
-### 1. Start Infrastructure via Docker
+```
+AI_Customer_Sup/
+├── docker-compose.yml       # PostgreSQL (pgvector) & Redis containers
+├── backend/
+│   ├── src/
+│   │   ├── db/              # Drizzle ORM schema & seed scripts
+│   │   ├── middleware/      # JWT auth, tenant context, RBAC
+│   │   ├── routes/          # REST API endpoints
+│   │   ├── services/        # RAG engine, Ingestion, Conversations, Tickets, Analytics, Redis Queue
+│   │   └── index.ts         # Express server & Socket.IO real-time handler
+│   └── public/
+│       └── widget.js        # Public embeddable chat widget
+└── frontend/
+    └── src/
+        ├── app/             # Next.js 16 App Router dashboard pages
+        └── lib/             # API client with multi-tenant headers
+```
+
+---
+
+## 🏁 Quickstart Guide
+
+### 1. Start Infrastructure (PostgreSQL + pgvector & Redis)
 ```bash
 docker-compose up -d
 ```
-*Starts PostgreSQL (pgvector/pgvector:pg16) on port 5432 and Redis on port 6379.*
 
-### 2. Setup Backend Server
+### 2. Start Backend API Server
 ```bash
 cd backend
-npm install --legacy-peer-deps
-cp .env.example .env # Set your OPENAI_API_KEY / NVIDIA_API_KEY
+npm install
 npm run db:push
+npm run db:seed  # Seeds demo organization (Acme Corp) & admin user
 npm run dev
 ```
-*Runs backend API & Socket.IO server at http://localhost:5000*
+*Backend runs on `http://localhost:5000`.*
 
-### 3. Setup Frontend App
+### 3. Start Next.js Dashboard
 ```bash
-cd ../frontend
+cd frontend
 npm install
 npm run dev
 ```
-*Runs Next.js Dashboard & Simulator at http://localhost:3000*
+*Dashboard runs on `http://localhost:3000`.*
+
+---
+
+## 🔑 Default Seed Credentials (after `npm run db:seed`)
+
+- **Organization**: Acme Corporation
+- **Admin Email**: `alex@acme.com`
+- **Admin Password**: `Password123!`
+- **API Key**: Printed in terminal output
+
+---
+
+## 🔌 Embeddable Chat Widget Snippet
+
+Businesses can embed the chat assistant into any website using:
+
+```html
+<script 
+  src="http://localhost:5000/public/widget.js" 
+  data-assistant-id="YOUR_ASSISTANT_ID">
+</script>
+```
+
+---
+
+## 📄 License
+MIT License

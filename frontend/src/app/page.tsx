@@ -1,785 +1,1156 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { 
-  Bot, 
-  FileText, 
-  Globe, 
-  HelpCircle, 
-  MessageSquare, 
-  Ticket, 
-  BarChart3, 
-  Settings, 
-  Upload, 
-  Send, 
-  UserCheck, 
+import {
+  Bot,
+  FileText,
+  Globe,
+  HelpCircle,
+  MessageSquare,
+  Ticket,
+  BarChart3,
+  Settings,
+  Upload,
+  Send,
+  UserCheck,
   Sparkles,
   Plus,
   Trash2,
   ExternalLink,
   CheckCircle,
   Clock,
-  AlertCircle
+  AlertCircle,
+  Users,
+  Code,
+  Key,
+  LogOut,
+  RefreshCw,
+  Search,
+  Sliders,
+  ChevronRight,
+  Shield,
+  BookOpen
 } from "lucide-react";
-import axios from "axios";
+import { api, API_BASE_URL } from "@/lib/api";
 
-const API_BASE = "http://localhost:5000/api";
+export default function DashboardPage() {
+  const [auth, setAuth] = useState<{ user: any; organizations: any[]; token: string } | null>(null);
+  const [activeOrg, setActiveOrg] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState<
+    "overview" | "conversations" | "tickets" | "knowledge" | "websites" | "assistant" | "agents" | "customers" | "analytics" | "widget" | "settings"
+  >("overview");
 
-export default function App() {
-  const [activeTab, setActiveTab] = useState<"dashboard" | "knowledge" | "tickets" | "widget_demo" | "settings">("dashboard");
-  const [workspace, setWorkspace] = useState<any>(null);
-  const [analytics, setAnalytics] = useState<any>(null);
-  const [knowledgeList, setKnowledgeList] = useState<any[]>([]);
+  // Auth Form State
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [authName, setAuthName] = useState("");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authOrgName, setAuthOrgName] = useState("");
+  const [authError, setAuthError] = useState("");
+
+  // Data States
+  const [overviewMetrics, setOverviewMetrics] = useState<any>(null);
+  const [conversationsList, setConversationsList] = useState<any[]>([]);
+  const [selectedConv, setSelectedConv] = useState<any>(null);
+  const [convMessages, setConvMessages] = useState<any[]>([]);
+  const [agentMsgInput, setAgentMsgInput] = useState("");
+
   const [ticketsList, setTicketsList] = useState<any[]>([]);
-
-  // Modals / Inputs
-  const [faqTitle, setFaqTitle] = useState("");
-  const [faqContent, setFaqContent] = useState("");
-  const [crawlUrl, setCrawlUrl] = useState("");
-  const [crawlTitle, setCrawlTitle] = useState("");
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  // Ticket & Chat detail
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
-  const [ticketMessages, setTicketMessages] = useState<any[]>([]);
-  const [agentReplyInput, setAgentReplyInput] = useState("");
-  const [aiSuggestion, setAiSuggestion] = useState("");
+  const [ticketCommentsList, setTicketCommentsList] = useState<any[]>([]);
+  const [commentInput, setCommentInput] = useState("");
 
-  // Demo Widget State
-  const [demoTicket, setDemoTicket] = useState<any>(null);
-  const [demoChatMsgs, setDemoChatMsgs] = useState<any[]>([]);
-  const [demoInput, setDemoInput] = useState("");
-  const [isHandoffRequested, setIsHandoffRequested] = useState(false);
+  const [knowledgeBases, setKnowledgeBases] = useState<any[]>([]);
+  const [knowledgeSources, setKnowledgeSources] = useState<any[]>([]);
+  const [websitesList, setWebsitesList] = useState<any[]>([]);
+  const [assistantsList, setAssistantsList] = useState<any[]>([]);
+  const [activeAssistant, setActiveAssistant] = useState<any>(null);
+  const [agentsList, setAgentsList] = useState<any[]>([]);
+  const [customersList, setCustomersList] = useState<any[]>([]);
 
+  // Input States
+  const [newKbName, setNewKbName] = useState("");
+  const [selectedKbId, setSelectedKbId] = useState("");
+  const [docTitle, setDocTitle] = useState("");
+  const [docContent, setDocContent] = useState("");
+  const [docType, setDocType] = useState<"document" | "faq">("document");
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [crawlUrl, setCrawlUrl] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [notification, setNotification] = useState<string | null>(null);
+
+  // Check saved auth on mount
   useEffect(() => {
-    fetchInitialData();
+    const token = localStorage.getItem("token");
+    const savedUser = localStorage.getItem("user_info");
+    const savedOrgs = localStorage.getItem("orgs_info");
+    const activeOrgId = localStorage.getItem("active_org_id");
+
+    if (token && savedUser && savedOrgs) {
+      try {
+        const user = JSON.parse(savedUser);
+        const orgs = JSON.parse(savedOrgs);
+        setAuth({ user, organizations: orgs, token });
+
+        const currentOrg = orgs.find((o: any) => o.id === activeOrgId) || orgs[0];
+        if (currentOrg) {
+          setActiveOrg(currentOrg);
+          localStorage.setItem("active_org_id", currentOrg.id);
+        }
+      } catch (e) {
+        localStorage.clear();
+      }
+    }
   }, []);
 
-  const fetchInitialData = async () => {
-    try {
-      const wsRes = await axios.get(`${API_BASE}/workspace`);
-      setWorkspace(wsRes.data);
+  // Fetch tenant data when active organization changes
+  useEffect(() => {
+    if (auth && activeOrg) {
+      fetchTenantData();
+    }
+  }, [activeOrg, activeTab]);
 
-      const [anRes, knRes, tkRes] = await Promise.all([
-        axios.get(`${API_BASE}/analytics/${wsRes.data.id}`),
-        axios.get(`${API_BASE}/knowledge/${wsRes.data.id}`),
-        axios.get(`${API_BASE}/tickets/${wsRes.data.id}`),
-      ]);
-      setAnalytics(anRes.data);
-      setKnowledgeList(knRes.data);
-      setTicketsList(tkRes.data);
-    } catch (err) {
-      console.error("Failed to load initial data", err);
+  const showNotify = (msg: string) => {
+    setNotification(msg);
+    setTimeout(() => setNotification(null), 4000);
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError("");
+    try {
+      const res = await api.post("/auth/login", { email: authEmail, password: authPassword });
+      const { user, organizations, token } = res.data;
+
+      localStorage.setItem("token", token);
+      localStorage.setItem("user_info", JSON.stringify(user));
+      localStorage.setItem("orgs_info", JSON.stringify(organizations));
+
+      setAuth({ user, organizations, token });
+      if (organizations.length > 0) {
+        setActiveOrg(organizations[0]);
+        localStorage.setItem("active_org_id", organizations[0].id);
+      }
+      showNotify(`Welcome back, ${user.name}!`);
+    } catch (err: any) {
+      setAuthError(err.response?.data?.error || "Login failed. Please check your credentials.");
     }
   };
 
-  const handleIngestFaq = async (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!faqTitle || !faqContent || !workspace) return;
+    setAuthError("");
+    try {
+      const res = await api.post("/auth/register", {
+        name: authName,
+        email: authEmail,
+        password: authPassword,
+        orgName: authOrgName,
+      });
+
+      const { user, organization, token } = res.data;
+      const orgs = [organization];
+
+      localStorage.setItem("token", token);
+      localStorage.setItem("user_info", JSON.stringify(user));
+      localStorage.setItem("orgs_info", JSON.stringify(orgs));
+      localStorage.setItem("active_org_id", organization.id);
+
+      setAuth({ user, organizations: orgs, token });
+      setActiveOrg(organization);
+      showNotify(`Organization ${organization.name} created successfully!`);
+    } catch (err: any) {
+      setAuthError(err.response?.data?.error || "Registration failed. Please try again.");
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.clear();
+    setAuth(null);
+    setActiveOrg(null);
+  };
+
+  const fetchTenantData = async () => {
+    try {
+      if (activeTab === "overview" || activeTab === "analytics") {
+        const res = await api.get("/analytics/overview");
+        setOverviewMetrics(res.data);
+      }
+
+      if (activeTab === "conversations") {
+        const res = await api.get("/conversations");
+        setConversationsList(res.data);
+      }
+
+      if (activeTab === "tickets") {
+        const res = await api.get("/tickets");
+        setTicketsList(res.data);
+      }
+
+      if (activeTab === "knowledge" || activeTab === "websites") {
+        const [kbRes, srcRes, webRes] = await Promise.all([
+          api.get("/knowledge/bases"),
+          api.get("/knowledge/sources"),
+          api.get("/knowledge/websites"),
+        ]);
+        setKnowledgeBases(kbRes.data);
+        setKnowledgeSources(srcRes.data);
+        setWebsitesList(webRes.data);
+        if (kbRes.data.length > 0 && !selectedKbId) {
+          setSelectedKbId(kbRes.data[0].id);
+        }
+      }
+
+      if (activeTab === "assistant" || activeTab === "widget") {
+        const res = await api.get("/assistants");
+        setAssistantsList(res.data);
+        if (res.data.length > 0) setActiveAssistant(res.data[0]);
+      }
+
+      if (activeTab === "agents") {
+        const res = await api.get("/agents");
+        setAgentsList(res.data);
+      }
+
+      if (activeTab === "customers") {
+        const res = await api.get("/customers");
+        setCustomersList(res.data);
+      }
+    } catch (err: any) {
+      console.error("Failed to load tenant data", err);
+    }
+  };
+
+  // --- Handlers for Data Actions ---
+
+  const handleCreateKnowledgeBase = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newKbName) return;
+    try {
+      const res = await api.post("/knowledge/bases", { name: newKbName });
+      setKnowledgeBases([res.data, ...knowledgeBases]);
+      setSelectedKbId(res.data.id);
+      setNewKbName("");
+      showNotify("Knowledge Base created!");
+    } catch (err: any) {
+      showNotify(err.response?.data?.error || "Failed to create knowledge base");
+    }
+  };
+
+  const handleAddTextDocument = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedKbId || !docTitle || !docContent) return;
     setLoading(true);
     try {
-      await axios.post(`${API_BASE}/knowledge/faq`, {
-        workspaceId: workspace.id,
-        title: faqTitle,
-        content: faqContent,
+      await api.post("/knowledge/text", {
+        knowledgeBaseId: selectedKbId,
+        title: docTitle,
+        type: docType,
+        content: docContent,
       });
-      setFaqTitle("");
-      setFaqContent("");
-      fetchInitialData();
-    } catch (err) {
-      alert("Failed to add FAQ");
+      setDocTitle("");
+      setDocContent("");
+      showNotify("Document indexed successfully!");
+      fetchTenantData();
+    } catch (err: any) {
+      showNotify(err.response?.data?.error || "Ingestion failed");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCrawl = async (e: React.FormEvent) => {
+  const handleUploadPdf = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!crawlUrl || !workspace) return;
-    setLoading(true);
-    try {
-      await axios.post(`${API_BASE}/knowledge/crawl`, {
-        workspaceId: workspace.id,
-        url: crawlUrl,
-        title: crawlTitle || crawlUrl,
-      });
-      setCrawlUrl("");
-      setCrawlTitle("");
-      fetchInitialData();
-    } catch (err) {
-      alert("Crawl failed or invalid URL");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handlePdfUpload = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedFile || !workspace) return;
+    if (!selectedKbId || !pdfFile) return;
     setLoading(true);
     const formData = new FormData();
-    formData.append("workspaceId", workspace.id);
-    formData.append("file", selectedFile);
+    formData.append("file", pdfFile);
+    formData.append("knowledgeBaseId", selectedKbId);
+    formData.append("title", docTitle || pdfFile.name);
+
     try {
-      await axios.post(`${API_BASE}/knowledge/pdf`, formData, {
+      await api.post("/knowledge/pdf", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-      setSelectedFile(null);
-      fetchInitialData();
-    } catch (err) {
-      alert("PDF upload failed");
+      setPdfFile(null);
+      setDocTitle("");
+      showNotify("PDF uploaded and indexed successfully!");
+      fetchTenantData();
+    } catch (err: any) {
+      showNotify(err.response?.data?.error || "PDF Upload failed");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDeleteKnowledge = async (id: string) => {
+  const handleCrawlWebsite = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedKbId || !crawlUrl) return;
+    setLoading(true);
     try {
-      await axios.delete(`${API_BASE}/knowledge/${id}`);
-      fetchInitialData();
-    } catch (err) {
-      alert("Failed to delete knowledge item");
-    }
-  };
-
-  // Agent Operations
-  const selectTicket = async (ticket: any) => {
-    setSelectedTicket(ticket);
-    setAiSuggestion("");
-    try {
-      const res = await axios.get(`${API_BASE}/tickets/${ticket.id}/messages`);
-      setTicketMessages(res.data);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleAgentReply = async () => {
-    if (!agentReplyInput || !selectedTicket) return;
-    try {
-      const res = await axios.post(`${API_BASE}/tickets/${selectedTicket.id}/reply`, {
-        senderName: "Agent Support",
-        content: agentReplyInput,
+      await api.post("/knowledge/crawl", {
+        knowledgeBaseId: selectedKbId,
+        targetUrl: crawlUrl,
       });
-      setTicketMessages([...ticketMessages, res.data]);
-      setAgentReplyInput("");
-      fetchInitialData();
-    } catch (err) {
-      alert("Failed to send reply");
+      setCrawlUrl("");
+      showNotify("Website crawl background job started!");
+      fetchTenantData();
+    } catch (err: any) {
+      showNotify(err.response?.data?.error || "Crawl request failed");
+    } finally {
+      setLoading(false);
     }
   };
 
-  const getAiSuggestedReply = async () => {
-    if (!selectedTicket) return;
+  const handleSelectConversation = async (conv: any) => {
+    setSelectedConv(conv);
     try {
-      const res = await axios.post(`${API_BASE}/tickets/${selectedTicket.id}/suggest-reply`);
-      setAiSuggestion(res.data.suggestedReply);
-    } catch (err) {
-      console.error(err);
-    }
+      const res = await api.get(`/conversations/${conv.id}/messages`);
+      setConvMessages(res.data);
+    } catch (err) {}
   };
 
-  const handleUpdateTicketStatus = async (status: string) => {
-    if (!selectedTicket) return;
+  const handleSendAgentMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedConv || !agentMsgInput) return;
     try {
-      await axios.put(`${API_BASE}/tickets/${selectedTicket.id}/status`, { status });
-      setSelectedTicket({ ...selectedTicket, status });
-      fetchInitialData();
-    } catch (err) {
-      alert("Failed to update status");
+      const res = await api.post(`/conversations/${selectedConv.id}/messages`, { content: agentMsgInput });
+      setConvMessages([...convMessages, res.data]);
+      setAgentMsgInput("");
+      showNotify("Response sent to customer");
+    } catch (err: any) {
+      showNotify(err.response?.data?.error || "Failed to send message");
     }
   };
 
-  // Demo Widget
-  const startDemoChat = async () => {
-    if (!workspace) return;
+  const handleResolveConversation = async (convId: string) => {
     try {
-      const res = await axios.post(`${API_BASE}/chat/start`, {
-        workspaceId: workspace.id,
-        customerName: "Alex Rivera",
-        customerEmail: "alex@example.com",
-        subject: "Product Question",
-      });
-      setDemoTicket(res.data);
-      setDemoChatMsgs([
-        {
-          senderType: "ai",
-          senderName: "AI Assistant",
-          content: "Hello Alex! How can I assist you with our services today?",
-        },
-      ]);
-      setIsHandoffRequested(false);
-    } catch (err) {
-      console.error(err);
-    }
+      await api.post(`/conversations/${convId}/resolve`);
+      showNotify("Conversation resolved");
+      fetchTenantData();
+    } catch (err) {}
   };
 
-  const sendDemoMessage = async () => {
-    if (!demoInput || !demoTicket) return;
-    const userMsg = demoInput;
-    setDemoInput("");
-    setDemoChatMsgs((prev) => [...prev, { senderType: "customer", senderName: "Alex", content: userMsg }]);
-
+  const handleSaveAssistantSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeAssistant) return;
     try {
-      const res = await axios.post(`${API_BASE}/chat/message`, {
-        ticketId: demoTicket.id,
-        message: userMsg,
-      });
-      if (res.data.handOff) {
-        setIsHandoffRequested(true);
-        setDemoChatMsgs((prev) => [
-          ...prev,
-          {
-            senderType: "ai",
-            senderName: "System",
-            content: "You have been placed in the Human Agent queue. An agent will respond shortly.",
-          },
-        ]);
-      } else {
-        setDemoChatMsgs((prev) => [
-          ...prev,
-          {
-            senderType: "ai",
-            senderName: "AI Assistant",
-            content: res.data.aiReply,
-          },
-        ]);
-      }
-    } catch (err) {
-      console.error(err);
+      const res = await api.put(`/assistants/${activeAssistant.id}`, activeAssistant);
+      setActiveAssistant(res.data);
+      showNotify("Assistant settings saved!");
+    } catch (err: any) {
+      showNotify(err.response?.data?.error || "Failed to save settings");
     }
   };
 
-  const triggerHandoff = async () => {
-    if (!demoTicket) return;
+  const handleRegenerateApiKey = async () => {
     try {
-      await axios.post(`${API_BASE}/chat/handoff`, { ticketId: demoTicket.id });
-      setIsHandoffRequested(true);
-      setDemoChatMsgs((prev) => [
-        ...prev,
-        {
-          senderType: "ai",
-          senderName: "System",
-          content: "Human agent handoff requested. Standby for live agent connection...",
-        },
-      ]);
-    } catch (err) {
-      console.error(err);
-    }
+      const res = await api.post("/organizations/api-key");
+      setActiveOrg({ ...activeOrg, apiKey: res.data.apiKey });
+      showNotify("New Organization API Key generated!");
+    } catch (err) {}
   };
 
-  return (
-    <div className="flex h-screen bg-slate-900 text-slate-100 font-sans">
-      {/* Sidebar */}
-      <aside className="w-64 bg-slate-950 border-r border-slate-800 flex flex-col justify-between">
-        <div>
-          <div className="p-5 flex items-center space-x-3 border-b border-slate-800">
-            <div className="p-2 bg-indigo-600 rounded-lg">
-              <Bot className="w-6 h-6 text-white" />
+  // --- Render Authentication Screen ---
+  if (!auth) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-4 text-slate-100 font-sans">
+        <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl">
+          <div className="flex items-center justify-center gap-3 mb-6">
+            <div className="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center text-white font-bold text-2xl shadow-lg shadow-blue-500/30">
+              <Bot className="w-7 h-7" />
             </div>
             <div>
-              <h1 className="font-bold text-lg leading-tight text-indigo-400">OmniSupport AI</h1>
-              <p className="text-xs text-slate-400">Customer Assistant Platform</p>
+              <h1 className="text-xl font-bold tracking-tight">SupportAI Platform</h1>
+              <p className="text-xs text-slate-400">Multi-Tenant AI Support Engine</p>
             </div>
           </div>
 
+          {authError && (
+            <div className="mb-4 p-3 bg-red-950/80 border border-red-800 text-red-200 text-sm rounded-lg flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{authError}</span>
+            </div>
+          )}
+
+          {isRegistering ? (
+            <form onSubmit={handleRegister} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Your Full Name</label>
+                <input
+                  type="text"
+                  required
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                  value={authName}
+                  onChange={(e) => setAuthName(e.target.value)}
+                  placeholder="Jane Doe"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Company / Org Name</label>
+                <input
+                  type="text"
+                  required
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                  value={authOrgName}
+                  onChange={(e) => setAuthOrgName(e.target.value)}
+                  placeholder="Acme Corp"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Work Email</label>
+                <input
+                  type="email"
+                  required
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  placeholder="jane@acme.com"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Password</label>
+                <input
+                  type="password"
+                  required
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                  placeholder="••••••••"
+                />
+              </div>
+              <button
+                type="submit"
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-sm shadow-md transition-colors"
+              >
+                Create Account & Organization
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Work Email</label>
+                <input
+                  type="email"
+                  required
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  placeholder="admin@company.com"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Password</label>
+                <input
+                  type="password"
+                  required
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                  placeholder="••••••••"
+                />
+              </div>
+              <button
+                type="submit"
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-sm shadow-md transition-colors"
+              >
+                Sign In to Dashboard
+              </button>
+            </form>
+          )}
+
+          <div className="mt-6 pt-4 border-t border-slate-800 text-center">
+            <button
+              onClick={() => {
+                setIsRegistering(!isRegistering);
+                setAuthError("");
+              }}
+              className="text-xs text-blue-400 hover:underline"
+            >
+              {isRegistering ? "Already have an account? Sign In" : "Need an organization account? Register"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Main SaaS Dashboard Layout ---
+  return (
+    <div className="flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">
+      {/* Toast Notification */}
+      {notification && (
+        <div className="fixed top-4 right-4 z-50 bg-blue-600 text-white px-4 py-2.5 rounded-lg shadow-xl text-sm flex items-center gap-2 animate-bounce">
+          <CheckCircle className="w-4 h-4" />
+          <span>{notification}</span>
+        </div>
+      )}
+
+      {/* Sidebar Navigation */}
+      <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between shrink-0">
+        <div>
+          {/* Logo & Tenant Header */}
+          <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+            <div className="flex items-center gap-2.5 overflow-hidden">
+              <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-white shrink-0">
+                <Bot className="w-5 h-5" />
+              </div>
+              <div className="truncate">
+                <h2 className="text-sm font-bold truncate text-white">{activeOrg?.name || "Organization"}</h2>
+                <span className="text-[10px] bg-blue-950 text-blue-400 px-1.5 py-0.5 rounded font-mono border border-blue-800">
+                  {activeOrg?.role || "member"}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Org Selector if multiple */}
+          {auth.organizations.length > 1 && (
+            <div className="px-3 py-2 border-b border-slate-800">
+              <select
+                className="w-full bg-slate-800 text-xs text-slate-200 border border-slate-700 rounded px-2 py-1 focus:outline-none"
+                value={activeOrg?.id}
+                onChange={(e) => {
+                  const selected = auth.organizations.find((o) => o.id === e.target.value);
+                  if (selected) {
+                    setActiveOrg(selected);
+                    localStorage.setItem("active_org_id", selected.id);
+                  }
+                }}
+              >
+                {auth.organizations.map((org) => (
+                  <option key={org.id} value={org.id}>
+                    {org.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Nav Items */}
           <nav className="p-3 space-y-1">
-            <button
-              onClick={() => setActiveTab("dashboard")}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition ${
-                activeTab === "dashboard" ? "bg-indigo-600/20 text-indigo-400 border border-indigo-500/30" : "text-slate-400 hover:bg-slate-800"
-              }`}
-            >
-              <BarChart3 className="w-5 h-5" />
-              <span>Dashboard & Analytics</span>
-            </button>
-            <button
-              onClick={() => setActiveTab("knowledge")}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition ${
-                activeTab === "knowledge" ? "bg-indigo-600/20 text-indigo-400 border border-indigo-500/30" : "text-slate-400 hover:bg-slate-800"
-              }`}
-            >
-              <FileText className="w-5 h-5" />
-              <span>Knowledge Base</span>
-            </button>
-            <button
-              onClick={() => setActiveTab("tickets")}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition ${
-                activeTab === "tickets" ? "bg-indigo-600/20 text-indigo-400 border border-indigo-500/30" : "text-slate-400 hover:bg-slate-800"
-              }`}
-            >
-              <Ticket className="w-5 h-5" />
-              <span>Tickets & Live Handoff</span>
-            </button>
-            <button
-              onClick={() => setActiveTab("widget_demo")}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition ${
-                activeTab === "widget_demo" ? "bg-indigo-600/20 text-indigo-400 border border-indigo-500/30" : "text-slate-400 hover:bg-slate-800"
-              }`}
-            >
-              <MessageSquare className="w-5 h-5" />
-              <span>Live Chat Simulator</span>
-            </button>
+            {[
+              { id: "overview", label: "Overview", icon: BarChart3 },
+              { id: "conversations", label: "Conversations Inbox", icon: MessageSquare },
+              { id: "tickets", label: "Support Tickets", icon: Ticket },
+              { id: "knowledge", label: "Knowledge Bases", icon: BookOpen },
+              { id: "websites", label: "Web Crawler", icon: Globe },
+              { id: "assistant", label: "AI Assistant Settings", icon: Bot },
+              { id: "agents", label: "Support Agents", icon: Users },
+              { id: "customers", label: "Customer Directory", icon: UserCheck },
+              { id: "analytics", label: "Analytics & Insights", icon: Sparkles },
+              { id: "widget", label: "Embeddable Widget", icon: Code },
+              { id: "settings", label: "Organization Settings", icon: Settings },
+            ].map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id as any)}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                    isActive ? "bg-blue-600 text-white font-semibold" : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                  }`}
+                >
+                  <Icon className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{item.label}</span>
+                </button>
+              );
+            })}
           </nav>
         </div>
 
-        <div className="p-4 border-t border-slate-800">
-          <div className="flex items-center space-x-3 text-xs text-slate-400">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-            <span>Status: Engine Active</span>
+        {/* User Profile & Logout */}
+        <div className="p-3 border-t border-slate-800 flex items-center justify-between">
+          <div className="flex items-center gap-2 overflow-hidden">
+            <div className="w-7 h-7 rounded-full bg-slate-700 flex items-center justify-center font-bold text-xs">
+              {auth.user.name.charAt(0)}
+            </div>
+            <div className="truncate">
+              <p className="text-xs font-medium text-slate-200 truncate">{auth.user.name}</p>
+              <p className="text-[10px] text-slate-500 truncate">{auth.user.email}</p>
+            </div>
           </div>
+          <button
+            onClick={handleLogout}
+            title="Sign Out"
+            className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
         </div>
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto bg-slate-900">
-        {/* Top bar */}
-        <header className="px-8 py-4 bg-slate-950/50 border-b border-slate-800 flex justify-between items-center">
-          <div>
-            <h2 className="text-xl font-bold capitalize text-white">{activeTab.replace("_", " ")}</h2>
-            <p className="text-xs text-slate-400">Workspace: {workspace?.name || "Loading..."}</p>
-          </div>
-          <div className="flex items-center space-x-3">
-            <span className="bg-indigo-900/50 text-indigo-300 text-xs px-3 py-1 rounded-full border border-indigo-700">
-              AI Engine: {workspace?.aiModel || "OpenAI / Nvidia"}
-            </span>
-          </div>
-        </header>
+      <main className="flex-1 bg-slate-950 overflow-y-auto p-6">
+        {/* TAB 1: OVERVIEW */}
+        {activeTab === "overview" && (
+          <div className="space-y-6 max-w-7xl mx-auto">
+            <div>
+              <h1 className="text-xl font-bold text-white">Platform Dashboard Overview</h1>
+              <p className="text-xs text-slate-400">Multi-tenant AI support agent performance and live status</p>
+            </div>
 
-        <div className="p-8">
-          {/* TAB 1: DASHBOARD & ANALYTICS */}
-          {activeTab === "dashboard" && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <div className="p-5 bg-slate-800/60 border border-slate-700 rounded-xl">
-                  <p className="text-slate-400 text-xs font-semibold">Total Tickets</p>
-                  <h3 className="text-3xl font-extrabold text-white mt-2">{analytics?.totalTickets || 0}</h3>
-                  <p className="text-emerald-400 text-xs mt-2 flex items-center">
-                    <CheckCircle className="w-3 h-3 mr-1" /> 24/7 AI Resolution
-                  </p>
-                </div>
-
-                <div className="p-5 bg-slate-800/60 border border-slate-700 rounded-xl">
-                  <p className="text-slate-400 text-xs font-semibold">Knowledge Sources</p>
-                  <h3 className="text-3xl font-extrabold text-white mt-2">{analytics?.knowledgeSourcesCount || 0}</h3>
-                  <p className="text-indigo-400 text-xs mt-2">FAQs, PDFs, Crawls</p>
-                </div>
-
-                <div className="p-5 bg-slate-800/60 border border-slate-700 rounded-xl">
-                  <p className="text-slate-400 text-xs font-semibold">Avg AI Response Time</p>
-                  <h3 className="text-3xl font-extrabold text-white mt-2">{analytics?.avgResponseTime || "1.2s"}</h3>
-                  <p className="text-slate-400 text-xs mt-2">pgvector RAG Lookup</p>
-                </div>
-
-                <div className="p-5 bg-slate-800/60 border border-slate-700 rounded-xl">
-                  <p className="text-slate-400 text-xs font-semibold">AI Deflection Rate</p>
-                  <h3 className="text-3xl font-extrabold text-emerald-400 mt-2">{analytics?.resolutionRate || "94%"}</h3>
-                  <p className="text-slate-400 text-xs mt-2">Automated query resolution</p>
+            {/* Stat Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                <span className="text-xs text-slate-400 font-medium">Total Conversations</span>
+                <p className="text-2xl font-bold text-white mt-1">{overviewMetrics?.totalConversations || 0}</p>
+                <div className="mt-2 text-[10px] text-emerald-400 flex items-center gap-1">
+                  <CheckCircle className="w-3 h-3" /> 100% tenant isolated
                 </div>
               </div>
 
-              {/* Multi Language & Intelligence overview */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="p-6 bg-slate-800/60 border border-slate-700 rounded-xl">
-                  <h3 className="font-bold text-lg text-white mb-4 flex items-center">
-                    <Globe className="w-5 h-5 text-indigo-400 mr-2" /> Multi-Language Support
-                  </h3>
-                  <p className="text-slate-300 text-sm mb-4">
-                    The platform automatically detects customer locale and responds seamlessly in English, Spanish, French, German, Japanese, and more.
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {analytics?.supportedLanguages?.map((lang: string) => (
-                      <span key={lang} className="px-3 py-1 bg-slate-700/60 text-slate-300 rounded-lg text-xs border border-slate-600">
-                        {lang}
-                      </span>
-                    ))}
-                  </div>
-                </div>
+              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                <span className="text-xs text-slate-400 font-medium">AI Resolution Rate</span>
+                <p className="text-2xl font-bold text-emerald-400 mt-1">{overviewMetrics?.resolutionRate || 100}%</p>
+                <span className="text-[10px] text-slate-500">Autonomous resolution without handoff</span>
+              </div>
 
-                <div className="p-6 bg-slate-800/60 border border-slate-700 rounded-xl">
-                  <h3 className="font-bold text-lg text-white mb-4 flex items-center">
-                    <Sparkles className="w-5 h-5 text-amber-400 mr-2" /> Human Agent Handoff & AI Assistance
-                  </h3>
-                  <p className="text-slate-300 text-sm leading-relaxed">
-                    When complex inquiries require human intervention, the system instantly escalates tickets to the agent dashboard, auto-generating **AI Suggested Replies** to maximize support agent efficiency.
-                  </p>
-                </div>
+              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                <span className="text-xs text-slate-400 font-medium">Human Handoffs</span>
+                <p className="text-2xl font-bold text-amber-400 mt-1">{overviewMetrics?.handoffs || 0}</p>
+                <span className="text-[10px] text-slate-500">Escalated to human support</span>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                <span className="text-xs text-slate-400 font-medium">Open Support Tickets</span>
+                <p className="text-2xl font-bold text-blue-400 mt-1">{overviewMetrics?.openTickets || 0}</p>
+                <span className="text-[10px] text-slate-500">Active customer tickets</span>
               </div>
             </div>
-          )}
 
-          {/* TAB 2: KNOWLEDGE BASE */}
-          {activeTab === "knowledge" && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="lg:col-span-1 space-y-6">
-                {/* Upload FAQ */}
-                <div className="p-6 bg-slate-800/60 border border-slate-700 rounded-xl">
-                  <h3 className="font-bold text-white mb-4 flex items-center">
-                    <HelpCircle className="w-5 h-5 text-indigo-400 mr-2" /> Add FAQ / Article
-                  </h3>
-                  <form onSubmit={handleIngestFaq} className="space-y-4">
-                    <div>
-                      <label className="text-xs text-slate-400 font-medium">Question / Title</label>
-                      <input
-                        type="text"
-                        placeholder="e.g. What is your refund policy?"
-                        value={faqTitle}
-                        onChange={(e) => setFaqTitle(e.target.value)}
-                        className="w-full mt-1 p-2.5 bg-slate-900 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-slate-400 font-medium">Answer Content</label>
-                      <textarea
-                        placeholder="e.g. We offer a 30-day full refund policy..."
-                        value={faqContent}
-                        onChange={(e) => setFaqContent(e.target.value)}
-                        className="w-full mt-1 p-2.5 bg-slate-900 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500 h-24"
-                        required
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      disabled={loading}
-                      className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-medium text-sm transition"
-                    >
-                      {loading ? "Ingesting..." : "Save FAQ Chunk"}
-                    </button>
-                  </form>
-                </div>
-
-                {/* Crawl Website */}
-                <div className="p-6 bg-slate-800/60 border border-slate-700 rounded-xl">
-                  <h3 className="font-bold text-white mb-4 flex items-center">
-                    <Globe className="w-5 h-5 text-emerald-400 mr-2" /> Crawl Website
-                  </h3>
-                  <form onSubmit={handleCrawl} className="space-y-4">
-                    <div>
-                      <label className="text-xs text-slate-400 font-medium">Website Name</label>
-                      <input
-                        type="text"
-                        placeholder="e.g. Documentation Site"
-                        value={crawlTitle}
-                        onChange={(e) => setCrawlTitle(e.target.value)}
-                        className="w-full mt-1 p-2.5 bg-slate-900 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-slate-400 font-medium">Target URL</label>
-                      <input
-                        type="url"
-                        placeholder="https://example.com/docs"
-                        value={crawlUrl}
-                        onChange={(e) => setCrawlUrl(e.target.value)}
-                        className="w-full mt-1 p-2.5 bg-slate-900 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-emerald-500"
-                        required
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      disabled={loading}
-                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-medium text-sm transition"
-                    >
-                      {loading ? "Crawling & Vectorizing..." : "Start Web Crawl"}
-                    </button>
-                  </form>
-                </div>
-
-                {/* Upload PDF */}
-                <div className="p-6 bg-slate-800/60 border border-slate-700 rounded-xl">
-                  <h3 className="font-bold text-white mb-4 flex items-center">
-                    <Upload className="w-5 h-5 text-amber-400 mr-2" /> Upload PDF Document
-                  </h3>
-                  <form onSubmit={handlePdfUpload} className="space-y-4">
-                    <div>
-                      <input
-                        type="file"
-                        accept="application/pdf"
-                        onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                        className="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-slate-700 file:text-white hover:file:bg-slate-600"
-                        required
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      disabled={loading}
-                      className="w-full py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-medium text-sm transition"
-                    >
-                      {loading ? "Parsing PDF..." : "Upload & Extract Vectors"}
-                    </button>
-                  </form>
-                </div>
-              </div>
-
-              {/* Ingested Sources Table */}
-              <div className="lg:col-span-2 p-6 bg-slate-800/60 border border-slate-700 rounded-xl">
-                <h3 className="font-bold text-white mb-4">Ingested Knowledge Base Vector Index</h3>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm text-slate-300">
-                    <thead className="bg-slate-900/60 text-slate-400 uppercase text-xs">
-                      <tr>
-                        <th className="p-3">Title / Source</th>
-                        <th className="p-3">Type</th>
-                        <th className="p-3">Vector Chunks</th>
-                        <th className="p-3">Status</th>
-                        <th className="p-3 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-700">
-                      {knowledgeList.length === 0 ? (
-                        <tr>
-                          <td colSpan={5} className="p-6 text-center text-slate-500">
-                            No knowledge sources added yet. Add a FAQ, PDF, or website URL above.
-                          </td>
-                        </tr>
-                      ) : (
-                        knowledgeList.map((item) => (
-                          <tr key={item.id} className="hover:bg-slate-800/40">
-                            <td className="p-3 font-medium text-white">{item.title}</td>
-                            <td className="p-3">
-                              <span className="px-2 py-1 bg-slate-700 rounded text-xs uppercase font-semibold">
-                                {item.type}
-                              </span>
-                            </td>
-                            <td className="p-3">{item.chunkCount || 0} vectors</td>
-                            <td className="p-3">
-                              <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-900/60 text-emerald-300 border border-emerald-700">
-                                {item.status}
-                              </span>
-                            </td>
-                            <td className="p-3 text-right">
-                              <button
-                                onClick={() => handleDeleteKnowledge(item.id)}
-                                className="p-1.5 text-slate-400 hover:text-red-400 rounded-lg hover:bg-slate-700"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 3: TICKETS & HUMAN AGENT HANDOFF */}
-          {activeTab === "tickets" && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* Ticket List */}
-              <div className="lg:col-span-1 p-6 bg-slate-800/60 border border-slate-700 rounded-xl space-y-4">
-                <h3 className="font-bold text-white">Support Tickets Queue</h3>
-                <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
-                  {ticketsList.map((tk) => (
-                    <div
-                      key={tk.id}
-                      onClick={() => selectTicket(tk)}
-                      className={`p-4 rounded-xl border cursor-pointer transition ${
-                        selectedTicket?.id === tk.id
-                          ? "bg-indigo-900/40 border-indigo-500"
-                          : "bg-slate-900/60 border-slate-700 hover:border-slate-600"
-                      }`}
-                    >
-                      <div className="flex justify-between items-start">
-                        <span className="font-semibold text-white text-sm">{tk.customerName}</span>
-                        <span
-                          className={`text-xs px-2 py-0.5 rounded-full ${
-                            tk.handOffRequested ? "bg-amber-900/70 text-amber-300 border border-amber-600" : "bg-slate-700 text-slate-300"
-                          }`}
-                        >
-                          {tk.handOffRequested ? "Handoff Needed" : tk.status}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-400 mt-1 truncate">{tk.subject}</p>
-                      <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
-                        <span>Sentiment: {tk.sentiment}</span>
-                        <span>{new Date(tk.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Conversation Detail & AI Suggested Replies */}
-              <div className="lg:col-span-2 p-6 bg-slate-800/60 border border-slate-700 rounded-xl flex flex-col justify-between h-[650px]">
-                {selectedTicket ? (
-                  <>
-                    <div>
-                      <div className="pb-4 border-b border-slate-700 flex justify-between items-center">
-                        <div>
-                          <h3 className="font-bold text-white">{selectedTicket.subject}</h3>
-                          <p className="text-xs text-slate-400">Customer: {selectedTicket.customerEmail}</p>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <button
-                            onClick={() => handleUpdateTicketStatus("resolved")}
-                            className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold"
-                          >
-                            Mark Resolved
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Chat Messages */}
-                      <div className="my-4 space-y-3 max-h-[350px] overflow-y-auto pr-2">
-                        {ticketMessages.map((m, idx) => (
-                          <div
-                            key={idx}
-                            className={`p-3.5 rounded-xl max-w-[80%] text-sm ${
-                              m.senderType === "customer"
-                                ? "bg-slate-700 text-white self-start"
-                                : m.senderType === "ai"
-                                ? "bg-indigo-950/80 border border-indigo-800 text-indigo-100 ml-auto"
-                                : "bg-emerald-950/80 border border-emerald-800 text-emerald-100 ml-auto"
-                            }`}
-                          >
-                            <div className="flex justify-between items-center text-xs font-semibold mb-1 opacity-70">
-                              <span>{m.senderName}</span>
-                              <span>{new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-                            </div>
-                            <p className="leading-relaxed">{m.content}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Agent Controls & AI Suggestions */}
-                    <div className="pt-4 border-t border-slate-700 space-y-3">
-                      {/* AI Suggested Reply Box */}
-                      <div className="p-3 bg-indigo-950/40 border border-indigo-800/60 rounded-xl flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
-                          <Sparkles className="w-4 h-4 text-amber-400" />
-                          <span className="text-xs text-indigo-300 font-semibold">AI Copilot Suggested Reply:</span>
-                        </div>
-                        <button
-                          onClick={getAiSuggestedReply}
-                          className="px-2.5 py-1 bg-indigo-700 hover:bg-indigo-600 text-white rounded text-xs"
-                        >
-                          Generate AI Suggestion
-                        </button>
-                      </div>
-
-                      {aiSuggestion && (
-                        <div className="p-3 bg-slate-900 border border-indigo-700/50 rounded-lg text-xs text-slate-300">
-                          <p className="font-mono">{aiSuggestion}</p>
-                          <button
-                            onClick={() => setAgentReplyInput(aiSuggestion)}
-                            className="mt-2 text-indigo-400 font-medium hover:underline"
-                          >
-                            Use this response
-                          </button>
-                        </div>
-                      )}
-
-                      <div className="flex items-center space-x-2">
-                        <input
-                          type="text"
-                          placeholder="Type agent response..."
-                          value={agentReplyInput}
-                          onChange={(e) => setAgentReplyInput(e.target.value)}
-                          className="flex-1 p-2.5 bg-slate-900 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500"
-                        />
-                        <button
-                          onClick={handleAgentReply}
-                          className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-semibold flex items-center"
-                        >
-                          <Send className="w-4 h-4 mr-1" /> Reply
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex flex-col items-center justify-center h-full text-slate-500">
-                    <Ticket className="w-12 h-12 mb-2 stroke-1" />
-                    <p>Select a ticket from the queue to view details & respond.</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* TAB 4: LIVE CHAT SIMULATOR */}
-          {activeTab === "widget_demo" && (
-            <div className="max-w-md mx-auto bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl flex flex-col h-[600px]">
-              <div className="p-4 bg-indigo-600 flex items-center justify-between text-white">
-                <div className="flex items-center space-x-3">
-                  <div className="p-2 bg-white/20 rounded-full">
-                    <Bot className="w-5 h-5" />
+            {/* Content stats & Unanswered queries */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl">
+                <h3 className="text-sm font-semibold text-white mb-3">Knowledge Base Coverage</h3>
+                <div className="flex justify-around text-center py-4 border-y border-slate-800">
+                  <div>
+                    <span className="text-xs text-slate-400">Sources</span>
+                    <p className="text-xl font-bold text-white">{overviewMetrics?.totalKnowledgeSources || 0}</p>
                   </div>
                   <div>
-                    <h4 className="font-bold text-sm">24/7 AI Support Bot</h4>
-                    <p className="text-xs text-indigo-200">Powered by RAG & Vector Search</p>
+                    <span className="text-xs text-slate-400">pgvector Chunks</span>
+                    <p className="text-xl font-bold text-blue-400">{overviewMetrics?.totalDocumentChunks || 0}</p>
                   </div>
                 </div>
-                {!demoTicket && (
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl">
+                <h3 className="text-sm font-semibold text-white mb-3">Recent Unanswered Queries</h3>
+                <div className="space-y-2">
+                  {overviewMetrics?.unansweredQuestions?.length > 0 ? (
+                    overviewMetrics.unansweredQuestions.map((q: any) => (
+                      <div key={q.id} className="p-2.5 bg-slate-800/60 rounded text-xs text-slate-300">
+                        "{q.question}"
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-xs text-slate-500 italic py-4">No recent unanswered queries detected.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: CONVERSATIONS INBOX */}
+        {activeTab === "conversations" && (
+          <div className="h-full flex gap-4 max-w-7xl mx-auto">
+            {/* Conversation List */}
+            <div className="w-1/3 bg-slate-900 border border-slate-800 rounded-xl overflow-hidden flex flex-col">
+              <div className="p-3 border-b border-slate-800 font-semibold text-sm">Active Conversations</div>
+              <div className="flex-1 overflow-y-auto divide-y divide-slate-800/60">
+                {conversationsList.map((conv) => (
                   <button
-                    onClick={startDemoChat}
-                    className="px-3 py-1 bg-white text-indigo-600 font-semibold text-xs rounded-lg shadow hover:bg-indigo-50"
+                    key={conv.id}
+                    onClick={() => handleSelectConversation(conv)}
+                    className={`w-full p-3 text-left transition-colors flex flex-col gap-1 ${
+                      selectedConv?.id === conv.id ? "bg-blue-950/60 border-l-4 border-blue-500" : "hover:bg-slate-800/40"
+                    }`}
                   >
-                    Start Chat
-                  </button>
-                )}
-              </div>
-
-              <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-900">
-                {!demoTicket ? (
-                  <div className="flex flex-col items-center justify-center h-full text-center p-6 text-slate-400 space-y-3">
-                    <Bot className="w-10 h-10 text-indigo-400" />
-                    <p className="text-sm">Click "Start Chat" to launch the simulated customer widget.</p>
-                  </div>
-                ) : (
-                  demoChatMsgs.map((msg, i) => (
-                    <div
-                      key={i}
-                      className={`p-3 rounded-xl text-sm max-w-[85%] ${
-                        msg.senderType === "customer"
-                          ? "bg-indigo-600 text-white ml-auto"
-                          : "bg-slate-800 text-slate-200 border border-slate-700"
-                      }`}
-                    >
-                      <p className="text-xs text-slate-400 mb-1">{msg.senderName}</p>
-                      <p>{msg.content}</p>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-semibold text-slate-200">{conv.customer?.name || "Visitor"}</span>
+                      <span
+                        className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+                          conv.state === "WAITING_FOR_AGENT"
+                            ? "bg-amber-950 text-amber-400 border border-amber-800"
+                            : conv.state === "RESOLVED"
+                            ? "bg-emerald-950 text-emerald-400 border border-emerald-800"
+                            : "bg-blue-950 text-blue-400 border border-blue-800"
+                        }`}
+                      >
+                        {conv.state}
+                      </span>
                     </div>
-                  ))
-                )}
+                    <div className="flex justify-between items-center text-[10px] text-slate-500 mt-1">
+                      <span>Lang: {conv.detectedLanguage}</span>
+                      {conv.sentiment && (
+                        <span
+                          className={`capitalize font-bold ${
+                            conv.sentiment === "frustrated"
+                              ? "text-red-400 font-extrabold animate-pulse"
+                              : conv.sentiment === "negative"
+                              ? "text-amber-400"
+                              : conv.sentiment === "positive"
+                              ? "text-emerald-400"
+                              : "text-slate-400"
+                          }`}
+                        >
+                          ● {conv.sentiment}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                ))}
               </div>
+            </div>
 
-              {demoTicket && (
-                <div className="p-3 bg-slate-950 border-t border-slate-800 space-y-2">
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span>Multi-Language Auto-Detect</span>
+            {/* Conversation Detail & Live Agent Handoff Chat */}
+            <div className="w-2/3 bg-slate-900 border border-slate-800 rounded-xl flex flex-col overflow-hidden">
+              {selectedConv ? (
+                <>
+                  <div className="p-3 border-b border-slate-800 flex justify-between items-center bg-slate-900">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-200">{selectedConv.customer?.name}</h3>
+                      <p className="text-[10px] text-slate-400">{selectedConv.customer?.email}</p>
+                    </div>
                     <button
-                      onClick={triggerHandoff}
-                      className="text-amber-400 hover:underline flex items-center"
+                      onClick={() => handleResolveConversation(selectedConv.id)}
+                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded"
                     >
-                      <UserCheck className="w-3 h-3 mr-1" /> Request Human Agent
+                      Mark Resolved
                     </button>
                   </div>
-                  <div className="flex items-center space-x-2">
+
+                  <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-950/40">
+                    {convMessages.map((m) => (
+                      <div
+                        key={m.id}
+                        className={`max-w-md p-3 rounded-xl text-xs ${
+                          m.senderType === "customer"
+                            ? "bg-blue-600 text-white ml-auto rounded-br-none"
+                            : m.senderType === "agent"
+                            ? "bg-purple-700 text-white ml-auto rounded-br-none"
+                            : "bg-slate-800 text-slate-200 mr-auto rounded-bl-none border border-slate-700"
+                        }`}
+                      >
+                        <div className="font-semibold text-[10px] opacity-75 mb-1">{m.senderName || m.senderType}</div>
+                        <p className="leading-relaxed">{m.content}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <form onSubmit={handleSendAgentMessage} className="p-3 border-t border-slate-800 bg-slate-900 flex gap-2">
                     <input
                       type="text"
-                      placeholder="Ask AI support..."
-                      value={demoInput}
-                      onChange={(e) => setDemoInput(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && sendDemoMessage()}
-                      className="flex-1 p-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500"
+                      className="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-blue-500"
+                      placeholder="Type agent response..."
+                      value={agentMsgInput}
+                      onChange={(e) => setAgentMsgInput(e.target.value)}
                     />
-                    <button
-                      onClick={sendDemoMessage}
-                      className="p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500"
-                    >
-                      <Send className="w-4 h-4" />
+                    <button type="submit" className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded">
+                      Send Reply
                     </button>
-                  </div>
+                  </form>
+                </>
+              ) : (
+                <div className="flex-1 flex items-center justify-center text-slate-500 text-xs">
+                  Select a conversation from the left inbox to respond
                 </div>
               )}
             </div>
-          )}
-        </div>
+          </div>
+        )}
+
+        {/* TAB 3: TICKETS */}
+        {activeTab === "tickets" && (
+          <div className="space-y-4 max-w-7xl mx-auto">
+            <h1 className="text-xl font-bold text-white">Customer Support Tickets</h1>
+
+            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-slate-800/80 text-slate-400 uppercase text-[10px] font-semibold">
+                  <tr>
+                    <th className="p-3"># Ticket</th>
+                    <th className="p-3">Subject</th>
+                    <th className="p-3">Customer</th>
+                    <th className="p-3">Priority</th>
+                    <th className="p-3">Status</th>
+                    <th className="p-3">Created</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {ticketsList.map((tk) => (
+                    <tr key={tk.id} className="hover:bg-slate-800/40">
+                      <td className="p-3 font-mono font-bold text-blue-400">#{tk.ticketNumber}</td>
+                      <td className="p-3 font-medium text-slate-200">{tk.subject}</td>
+                      <td className="p-3">{tk.customer?.name || "Visitor"}</td>
+                      <td className="p-3">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
+                            tk.priority === "urgent"
+                              ? "bg-red-950 text-red-400 border border-red-800"
+                              : tk.priority === "high"
+                              ? "bg-amber-950 text-amber-400 border border-amber-800"
+                              : "bg-slate-800 text-slate-300"
+                          }`}
+                        >
+                          {tk.priority}
+                        </span>
+                      </td>
+                      <td className="p-3">
+                        <span className="px-2 py-0.5 bg-blue-950 text-blue-400 rounded text-[10px] border border-blue-800 uppercase font-semibold">
+                          {tk.status}
+                        </span>
+                      </td>
+                      <td className="p-3 text-slate-500">{new Date(tk.createdAt).toLocaleDateString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: KNOWLEDGE BASES & DOCUMENTS */}
+        {activeTab === "knowledge" && (
+          <div className="space-y-6 max-w-7xl mx-auto">
+            <div className="flex justify-between items-center">
+              <div>
+                <h1 className="text-xl font-bold text-white">Knowledge Base & PDF Processing</h1>
+                <p className="text-xs text-slate-400">Upload documentation, FAQs, and PDFs to train your AI assistant</p>
+              </div>
+
+              {/* Create KB form */}
+              <form onSubmit={handleCreateKnowledgeBase} className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="New Knowledge Base Name"
+                  className="bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+                  value={newKbName}
+                  onChange={(e) => setNewKbName(e.target.value)}
+                />
+                <button type="submit" className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded flex items-center gap-1">
+                  <Plus className="w-3.5 h-3.5" /> Create KB
+                </button>
+              </form>
+            </div>
+
+            {/* Active KB Selector */}
+            {knowledgeBases.length > 0 && (
+              <div className="flex gap-2 border-b border-slate-800 pb-2">
+                {knowledgeBases.map((kb) => (
+                  <button
+                    key={kb.id}
+                    onClick={() => setSelectedKbId(kb.id)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                      selectedKbId === kb.id ? "bg-blue-600 text-white" : "bg-slate-900 text-slate-400 hover:bg-slate-800"
+                    }`}
+                  >
+                    {kb.name}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Manual Document / FAQ Ingestion */}
+              <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-4">
+                <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-blue-400" /> Manual Text / FAQ Ingestion
+                </h3>
+                <form onSubmit={handleAddTextDocument} className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">Title</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Refund Policy FAQ"
+                      className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none"
+                      value={docTitle}
+                      onChange={(e) => setDocTitle(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">Content</label>
+                    <textarea
+                      rows={5}
+                      required
+                      placeholder="Enter documentation body or FAQ answers..."
+                      className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none"
+                      value={docContent}
+                      onChange={(e) => setDocContent(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded text-xs transition-colors"
+                  >
+                    {loading ? "Processing pgvector Embeddings..." : "Chunk & Embed Content"}
+                  </button>
+                </form>
+              </div>
+
+              {/* PDF Ingestion Pipeline */}
+              <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-4">
+                <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                  <Upload className="w-4 h-4 text-emerald-400" /> PDF Document Processing
+                </h3>
+                <form onSubmit={handleUploadPdf} className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">PDF File</label>
+                    <input
+                      type="file"
+                      accept=".pdf"
+                      required
+                      onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
+                      className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs focus:outline-none text-slate-300"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={loading || !pdfFile}
+                    className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded text-xs transition-colors"
+                  >
+                    {loading ? "Extracting & Embedding PDF..." : "Upload & Process PDF"}
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            {/* Indexed Sources Table */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+              <div className="p-4 border-b border-slate-800 font-semibold text-sm">Indexed Knowledge Sources</div>
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-slate-800/80 text-slate-400 uppercase text-[10px] font-semibold">
+                  <tr>
+                    <th className="p-3">Title</th>
+                    <th className="p-3">Type</th>
+                    <th className="p-3">Chunks</th>
+                    <th className="p-3">Status</th>
+                    <th className="p-3">Created</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {knowledgeSources.map((src) => (
+                    <tr key={src.id} className="hover:bg-slate-800/40">
+                      <td className="p-3 font-medium text-slate-200">{src.title}</td>
+                      <td className="p-3 uppercase font-mono text-[10px] text-blue-400">{src.type}</td>
+                      <td className="p-3 font-bold">{src.chunkCount}</td>
+                      <td className="p-3">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] uppercase font-semibold ${
+                            src.status === "completed" ? "bg-emerald-950 text-emerald-400 border border-emerald-800" : "bg-amber-950 text-amber-400"
+                          }`}
+                        >
+                          {src.status}
+                        </span>
+                      </td>
+                      <td className="p-3 text-slate-500">{new Date(src.createdAt).toLocaleDateString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 5: WEBSITE CRAWLER */}
+        {activeTab === "websites" && (
+          <div className="space-y-6 max-w-7xl mx-auto">
+            <div>
+              <h1 className="text-xl font-bold text-white">Recursive Website Crawler</h1>
+              <p className="text-xs text-slate-400">Crawl public web pages with SSRF protection and automatic chunk indexing</p>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl max-w-xl space-y-4">
+              <form onSubmit={handleCrawlWebsite} className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Target Website Root URL</label>
+                  <input
+                    type="url"
+                    required
+                    placeholder="https://docs.yourcompany.com"
+                    className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none"
+                    value={crawlUrl}
+                    onChange={(e) => setCrawlUrl(e.target.value)}
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1">SSRF Protected: Private IP ranges are automatically blocked.</p>
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded text-xs transition-colors"
+                >
+                  {loading ? "Launching Crawl Worker..." : "Start Website Crawl"}
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 6: AI ASSISTANT SETTINGS */}
+        {activeTab === "assistant" && activeAssistant && (
+          <div className="space-y-6 max-w-4xl mx-auto">
+            <div>
+              <h1 className="text-xl font-bold text-white">AI Assistant Configuration</h1>
+              <p className="text-xs text-slate-400">Customize model selection, temperature, system prompts, and handoff triggers</p>
+            </div>
+
+            <form onSubmit={handleSaveAssistantSettings} className="bg-slate-900 border border-slate-800 p-6 rounded-xl space-y-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Assistant Name</label>
+                  <input
+                    type="text"
+                    className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none"
+                    value={activeAssistant.name || ""}
+                    onChange={(e) => setActiveAssistant({ ...activeAssistant, name: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">AI Provider Gateway</label>
+                  <select
+                    className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none font-semibold text-blue-400"
+                    value={activeAssistant.modelProvider || "openai"}
+                    onChange={(e) => setActiveAssistant({ ...activeAssistant, modelProvider: e.target.value })}
+                  >
+                    <option value="openai">OpenAI (GPT-4o / GPT-4o-mini)</option>
+                    <option value="anthropic">Anthropic (Claude 3.5 Sonnet / Haiku / Opus)</option>
+                    <option value="google">Google Gemini (Gemini 1.5 Flash / Pro / 2.0)</option>
+                    <option value="nvidia">NVIDIA NIM (Llama 3.1 8B / 70B)</option>
+                    <option value="local">Local / Ollama / LocalAI (OpenAI-compatible)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Model Name</label>
+                  <input
+                    type="text"
+                    placeholder={
+                      activeAssistant.modelProvider === "anthropic"
+                        ? "claude-3-5-sonnet-20241022"
+                        : activeAssistant.modelProvider === "google"
+                        ? "gemini-1.5-flash"
+                        : activeAssistant.modelProvider === "nvidia"
+                        ? "nvidia/llama-3.1-8b-instruct"
+                        : activeAssistant.modelProvider === "local"
+                        ? "llama3"
+                        : "gpt-4o-mini"
+                    }
+                    className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none font-mono text-slate-200"
+                    value={activeAssistant.modelName || ""}
+                    onChange={(e) => setActiveAssistant({ ...activeAssistant, modelName: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Custom API Key (Optional Override)</label>
+                  <input
+                    type="password"
+                    placeholder="sk-..."
+                    className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none font-mono text-slate-200"
+                    value={activeAssistant.apiKey || ""}
+                    onChange={(e) => setActiveAssistant({ ...activeAssistant, apiKey: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              {activeAssistant.modelProvider === "local" && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Custom Endpoint Base URL (Local/Ollama/LocalAI)</label>
+                  <input
+                    type="text"
+                    placeholder="http://localhost:11434/v1"
+                    className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none font-mono text-amber-400"
+                    value={activeAssistant.baseUrl || ""}
+                    onChange={(e) => setActiveAssistant({ ...activeAssistant, baseUrl: e.target.value })}
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">Specify your custom Ollama or LocalAI OpenAI-compatible API base URL.</p>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Temperature ({activeAssistant.temperature})</label>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  className="w-full"
+                  value={activeAssistant.temperature || 0.2}
+                  onChange={(e) => setActiveAssistant({ ...activeAssistant, temperature: parseFloat(e.target.value) })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">System Prompt Guardrails</label>
+                <textarea
+                  rows={4}
+                  className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none"
+                  value={activeAssistant.systemPrompt || ""}
+                  onChange={(e) => setActiveAssistant({ ...activeAssistant, systemPrompt: e.target.value })}
+                />
+              </div>
+
+              <button type="submit" className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded text-xs">
+                Save Universal AI Gateway Settings
+              </button>
+            </form>
+          </div>
+        )}
+
+        {/* TAB 7: EMBEDDABLE WIDGET */}
+        {activeTab === "widget" && activeOrg && (
+          <div className="space-y-6 max-w-4xl mx-auto">
+            <div>
+              <h1 className="text-xl font-bold text-white">Embeddable Customer Chat Widget</h1>
+              <p className="text-xs text-slate-400">Copy & paste this script tag into any HTML page to deploy your AI assistant</p>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-3">
+              <label className="block text-xs font-semibold text-slate-300 uppercase">Integration Snippet</label>
+              <pre className="bg-slate-950 p-4 rounded-lg border border-slate-800 text-xs font-mono text-blue-300 overflow-x-auto">
+                {`<script \n  src="${API_BASE_URL.replace("/api/v1", "")}/public/widget.js" \n  data-assistant-id="${activeAssistant?.id || "default"}"\n></script>`}
+              </pre>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 8: SETTINGS */}
+        {activeTab === "settings" && activeOrg && (
+          <div className="space-y-6 max-w-4xl mx-auto">
+            <div>
+              <h1 className="text-xl font-bold text-white">Organization Settings</h1>
+              <p className="text-xs text-slate-400">Manage tenant identity and API keys</p>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-4">
+              <div>
+                <span className="text-xs font-semibold text-slate-400 uppercase">Organization API Key</span>
+                <div className="flex gap-2 mt-1">
+                  <input
+                    type="text"
+                    readOnly
+                    className="flex-1 bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs font-mono text-amber-400"
+                    value={activeOrg.apiKey || "sk_live_..."}
+                  />
+                  <button
+                    onClick={handleRegenerateApiKey}
+                    className="px-3 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded flex items-center gap-1"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" /> Regenerate
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
