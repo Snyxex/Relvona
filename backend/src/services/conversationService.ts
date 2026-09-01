@@ -4,6 +4,12 @@ import { eq, and, desc, sql } from "drizzle-orm";
 import { RAGService } from "./ragService.js";
 
 export class ConversationService {
+  private static compactHistory(messages: { senderType: string; content: string }[]): string {
+    return messages
+      .map((message) => `${message.senderType === "customer" ? "Customer" : "Support"}: ${RAGService.normalizeCustomerInput(message.content).slice(0, 220)}`)
+      .join("\n")
+      .slice(-1_500);
+  }
   // Find or Create Customer
   static async getOrCreateCustomer(data: {
     organizationId: string;
@@ -134,12 +140,20 @@ export class ConversationService {
       .from(conversationMessages)
       .where(eq(conversationMessages.conversationId, conv.id))
       .orderBy(desc(conversationMessages.createdAt))
-      .limit(6);
+      .limit(12);
 
-    const formattedHistory = historyMsgs.reverse().map((m) => ({
+    const chronologicalHistory = historyMsgs.reverse();
+    // The current message was saved immediately before this query and is appended by
+    // RAGService itself, so do not pay to send it twice.
+    const historyBeforeCurrentMessage = chronologicalHistory.slice(0, -1);
+    const recentHistory = historyBeforeCurrentMessage.slice(-4);
+    const formattedHistory = recentHistory.map((m) => ({
       role: m.senderType,
       content: m.content,
     }));
+    const rollingSummary = historyBeforeCurrentMessage.length > 4
+      ? this.compactHistory(historyBeforeCurrentMessage.slice(0, -4))
+      : conv.summary;
 
     // Execute RAG Engine
     const ragResult = await RAGService.generateRAGAnswer({
@@ -147,6 +161,7 @@ export class ConversationService {
       assistantId: conv.assistantId!,
       customerQuery: data.content,
       conversationHistory: formattedHistory,
+      conversationSummary: rollingSummary,
     });
 
     const sentiment = RAGService.analyzeSentiment(data.content);
@@ -157,6 +172,7 @@ export class ConversationService {
       .set({
         detectedLanguage: ragResult.detectedLanguage,
         sentiment,
+        summary: rollingSummary,
         updatedAt: new Date(),
       })
       .where(eq(conversations.id, conv.id));

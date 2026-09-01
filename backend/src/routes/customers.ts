@@ -2,7 +2,7 @@ import { Router } from "express";
 import { authenticate, tenantContext, AuthRequest } from "../middleware/auth.js";
 import { db } from "../db/index.js";
 import { customers } from "../db/schema.js";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 
 const router = Router();
 router.use(authenticate);
@@ -29,7 +29,7 @@ router.get("/:id", async (req: AuthRequest, res) => {
     const [customer] = await db
       .select()
       .from(customers)
-      .where(eq(customers.id, req.params.id))
+      .where(and(eq(customers.id, req.params.id), eq(customers.organizationId, req.organization!.id)))
       .limit(1);
 
     if (!customer) return res.status(404).json({ error: "Customer not found" });

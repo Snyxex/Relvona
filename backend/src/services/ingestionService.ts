@@ -52,6 +52,18 @@ export async function generateEmbeddings(
 }
 
 export class IngestionService {
+  /** Keep retrieval chunks in the 300–500 token range and remove indexing noise once. */
+  private static readonly chunking = { chunkSize: 1800, chunkOverlap: 180 };
+
+  private static cleanIndexText(text: string): string {
+    return text
+      .replace(/\r\n/g, "\n")
+      .replace(/[\t ]+/g, " ")
+      .replace(/\n{3,}/g, "\n\n")
+      .replace(/(?:privacy policy|cookie policy|all rights reserved)\s*$/gim, "")
+      .trim();
+  }
+
   // Process Manual Document / Text / FAQ
   static async processTextDocument(data: {
     organizationId: string;
@@ -74,12 +86,9 @@ export class IngestionService {
       .returning();
 
     try {
-      const splitter = new RecursiveCharacterTextSplitter({
-        chunkSize: 1000,
-        chunkOverlap: 200,
-      });
+      const splitter = new RecursiveCharacterTextSplitter(this.chunking);
 
-      const chunks = await splitter.splitText(data.content);
+      const chunks = await splitter.splitText(this.cleanIndexText(data.content));
       if (chunks.length === 0) {
         throw new Error("No text content found to process");
       }
@@ -144,16 +153,13 @@ export class IngestionService {
 
     try {
       const pdfData = await pdfParse(data.buffer);
-      const cleanedText = pdfData.text.replace(/\r\n/g, "\n").replace(/[^\S\r\n]+/g, " ");
+      const cleanedText = this.cleanIndexText(pdfData.text);
 
       if (!cleanedText.trim()) {
         throw new Error("Extracted text from PDF is empty");
       }
 
-      const splitter = new RecursiveCharacterTextSplitter({
-        chunkSize: 1000,
-        chunkOverlap: 200,
-      });
+      const splitter = new RecursiveCharacterTextSplitter(this.chunking);
 
       const chunks = await splitter.splitText(cleanedText);
       const embeddings = await generateEmbeddings(chunks);
@@ -270,10 +276,7 @@ export class IngestionService {
         status: "completed",
       });
 
-      const splitter = new RecursiveCharacterTextSplitter({
-        chunkSize: 1000,
-        chunkOverlap: 200,
-      });
+      const splitter = new RecursiveCharacterTextSplitter(this.chunking);
 
       const chunks = await splitter.splitText(bodyText);
       const embeddings = await generateEmbeddings(chunks);

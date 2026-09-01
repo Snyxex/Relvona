@@ -5,12 +5,16 @@ export type AIProvider = "openai" | "anthropic" | "google" | "nvidia" | "local";
 export interface CompletionRequest {
   provider: AIProvider;
   model: string;
+  /** Stable provider/tenant instructions, sent before request-specific context. */
+  cachedSystemPrompt?: string;
   systemPrompt?: string;
   messages: { role: "user" | "assistant" | "system"; content: string }[];
   apiKey?: string | null;
   baseUrl?: string | null;
   temperature?: number;
   maxTokens?: number;
+  /** Cache static instructions on providers that expose explicit prompt caching. */
+  cacheSystemPrompt?: boolean;
 }
 
 export interface EmbeddingRequest {
@@ -39,6 +43,9 @@ export class UniversalAIGateway {
         const endpoint = req.baseUrl ? `${req.baseUrl.replace(/\/$/, "")}/chat/completions` : "https://api.openai.com/v1/chat/completions";
 
         const formattedMessages = [];
+        if (req.cachedSystemPrompt) {
+          formattedMessages.push({ role: "system", content: req.cachedSystemPrompt });
+        }
         if (req.systemPrompt) {
           formattedMessages.push({ role: "system", content: req.systemPrompt });
         }
@@ -81,6 +88,13 @@ export class UniversalAIGateway {
             content: m.content,
           }));
 
+        const system = [
+          ...(req.cachedSystemPrompt
+            ? [{ type: "text", text: req.cachedSystemPrompt, ...(req.cacheSystemPrompt ? { cache_control: { type: "ephemeral" } } : {}) }]
+            : []),
+          ...(req.systemPrompt ? [{ type: "text", text: req.systemPrompt }] : []),
+        ];
+
         const response = await fetch(endpoint, {
           method: "POST",
           headers: {
@@ -90,7 +104,7 @@ export class UniversalAIGateway {
           },
           body: JSON.stringify({
             model: req.model || "claude-3-5-sonnet-20241022",
-            system: req.systemPrompt || undefined,
+            system: system.length ? system : undefined,
             messages: formattedMessages,
             max_tokens: maxTokens,
             temperature,

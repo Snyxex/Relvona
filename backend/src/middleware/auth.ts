@@ -4,7 +4,11 @@ import { db } from "../db/index.js";
 import { users, organizationMembers, organizations, apiKeys } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 
-const JWT_SECRET = process.env.JWT_SECRET || "super-secret-jwt-key-change-in-production";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (process.env.NODE_ENV === "production" && !JWT_SECRET) {
+  throw new Error("JWT_SECRET must be configured in production");
+}
+const jwtSecret = JWT_SECRET || "development-only-jwt-secret-do-not-use-in-production";
 
 export interface AuthRequest extends Request {
   user?: {
@@ -22,11 +26,11 @@ export interface AuthRequest extends Request {
 }
 
 export function generateToken(payload: { userId: string; email: string; systemRole: string }) {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
+  return jwt.sign(payload, jwtSecret, { expiresIn: "7d" });
 }
 
 export function verifyToken(token: string) {
-  return jwt.verify(token, JWT_SECRET) as { userId: string; email: string; systemRole: string };
+  return jwt.verify(token, jwtSecret) as { userId: string; email: string; systemRole: string };
 }
 
 // Middleware: Authenticate User JWT

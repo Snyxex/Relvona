@@ -123,6 +123,7 @@ export default function DashboardPage() {
       const { user, organizations, token } = res.data;
 
       localStorage.setItem("token", token);
+      document.cookie = `support_auth_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax`;
       localStorage.setItem("user_info", JSON.stringify(user));
       localStorage.setItem("orgs_info", JSON.stringify(organizations));
 
@@ -152,6 +153,7 @@ export default function DashboardPage() {
       const orgs = [organization];
 
       localStorage.setItem("token", token);
+      document.cookie = `support_auth_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax`;
       localStorage.setItem("user_info", JSON.stringify(user));
       localStorage.setItem("orgs_info", JSON.stringify(orgs));
       localStorage.setItem("active_org_id", organization.id);
@@ -165,6 +167,7 @@ export default function DashboardPage() {
   };
 
   const handleLogout = () => {
+    document.cookie = "support_auth_token=; Path=/; Max-Age=0; SameSite=Lax";
     localStorage.clear();
     setAuth(null);
     setActiveOrg(null);
@@ -650,6 +653,72 @@ export default function DashboardPage() {
                   )}
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ANALYTICS & INSIGHTS */}
+        {activeTab === "analytics" && (
+          <div className="space-y-6 max-w-7xl mx-auto">
+            <div>
+              <h1 className="text-xl font-bold text-white">Analytics & Insights</h1>
+              <p className="text-xs text-slate-400">Measure support workload, AI resolution, handoffs, and knowledge-base coverage.</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {[
+                ["Conversations", overviewMetrics?.totalConversations || 0, "text-blue-400"],
+                ["AI Resolution Rate", `${overviewMetrics?.resolutionRate ?? 0}%`, "text-emerald-400"],
+                ["Human Handoffs", overviewMetrics?.handoffs || 0, "text-amber-400"],
+                ["Open Tickets", overviewMetrics?.openTickets || 0, "text-purple-400"],
+              ].map(([label, value, color]) => (
+                <div key={label as string} className="rounded-xl border border-slate-800 bg-slate-900 p-5">
+                  <p className="text-xs text-slate-400">{label}</p>
+                  <p className={`mt-2 text-3xl font-bold ${color}`}>{value}</p>
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
+                <h2 className="text-sm font-semibold text-white">Conversation states</h2>
+                <div className="mt-4 space-y-3">
+                  {Object.entries(overviewMetrics?.stateBreakdown || {}).map(([state, count]) => {
+                    const total = overviewMetrics?.totalConversations || 1;
+                    const width = Math.max(3, (Number(count) / total) * 100);
+                    return <div key={state}><div className="mb-1 flex justify-between text-xs text-slate-400"><span>{state.replaceAll("_", " ")}</span><span>{String(count)}</span></div><div className="h-2 overflow-hidden rounded bg-slate-800"><div className="h-full rounded bg-blue-500" style={{ width: `${width}%` }} /></div></div>;
+                  })}
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
+                <h2 className="text-sm font-semibold text-white">Detected languages</h2>
+                <div className="mt-4 space-y-3">
+                  {overviewMetrics?.languageBreakdown?.length ? overviewMetrics.languageBreakdown.map((entry: any) => <div key={entry.language} className="flex justify-between rounded bg-slate-800/60 px-3 py-2 text-xs"><span className="uppercase text-slate-300">{entry.language}</span><span className="font-semibold text-white">{entry.count}</span></div>) : <p className="text-xs text-slate-500">No conversation data yet.</p>}
+                </div>
+              </div>
+            </div>
+            <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
+              <h2 className="text-sm font-semibold text-white">Questions needing attention</h2>
+              <div className="mt-3 space-y-2">{overviewMetrics?.unansweredQuestions?.length ? overviewMetrics.unansweredQuestions.map((question: any) => <div key={question.id} className="rounded bg-amber-950/30 px-3 py-2 text-xs text-amber-200">{question.question}</div>) : <p className="text-xs text-slate-500">No unanswered questions or pending handoffs.</p>}</div>
+            </div>
+          </div>
+        )}
+
+        {/* SUPPORT AGENTS */}
+        {activeTab === "agents" && (
+          <div className="space-y-6 max-w-5xl mx-auto">
+            <div><h1 className="text-xl font-bold text-white">Support Agents</h1><p className="text-xs text-slate-400">Team members who can handle escalated customer conversations.</p></div>
+            <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
+              <table className="w-full text-left text-xs"><thead className="bg-slate-800/80 text-slate-400"><tr><th className="p-3">Agent</th><th className="p-3">Email</th><th className="p-3">Role</th><th className="p-3">Access</th></tr></thead><tbody className="divide-y divide-slate-800">{agentsList.length ? agentsList.map((agent) => <tr key={agent.id} className="text-slate-300"><td className="p-3 font-medium text-white">{agent.name}</td><td className="p-3">{agent.email}</td><td className="p-3 uppercase">{agent.role}</td><td className="p-3"><span className="rounded bg-emerald-950 px-2 py-1 text-[10px] text-emerald-300">ACTIVE</span></td></tr>) : <tr><td colSpan={4} className="p-8 text-center text-slate-500">No support agents have been added to this organization.</td></tr>}</tbody></table>
+            </div>
+            <p className="rounded-lg border border-blue-900 bg-blue-950/30 p-3 text-xs text-blue-200">Agents can claim and reply to conversations from the Conversations Inbox. Add users to the organization with an <code>agent</code>, <code>admin</code>, or <code>owner</code> membership role.</p>
+          </div>
+        )}
+
+        {/* CUSTOMER DIRECTORY */}
+        {activeTab === "customers" && (
+          <div className="space-y-6 max-w-6xl mx-auto">
+            <div><h1 className="text-xl font-bold text-white">Customer Directory</h1><p className="text-xs text-slate-400">Customers are created automatically when they start a widget session.</p></div>
+            <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
+              <table className="w-full text-left text-xs"><thead className="bg-slate-800/80 text-slate-400"><tr><th className="p-3">Customer</th><th className="p-3">Email</th><th className="p-3">External ID</th><th className="p-3">Joined</th></tr></thead><tbody className="divide-y divide-slate-800">{customersList.length ? customersList.map((customer) => <tr key={customer.id} className="text-slate-300"><td className="p-3 font-medium text-white">{customer.name || "Website visitor"}</td><td className="p-3">{customer.email || "—"}</td><td className="p-3 font-mono text-slate-500">{customer.externalId || "—"}</td><td className="p-3 text-slate-500">{new Date(customer.createdAt).toLocaleDateString()}</td></tr>) : <tr><td colSpan={4} className="p-8 text-center text-slate-500">No customers yet. Embed the widget or create a test session to see customers here.</td></tr>}</tbody></table>
             </div>
           </div>
         )}

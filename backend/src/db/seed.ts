@@ -1,5 +1,5 @@
 import { db } from "./index.js";
-import { organizations, users, organizationMembers, assistants, knowledgeBases, knowledgeSources, documentChunks, customers, conversations, tickets } from "./schema.js";
+import { organizations, users, organizationMembers, assistants, knowledgeBases, knowledgeSources, documentChunks, customers, conversations, tickets, organizationSettings } from "./schema.js";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 
@@ -19,6 +19,20 @@ async function seed() {
       plan: "enterprise",
     })
     .returning();
+
+  await db.insert(organizationSettings).values({
+    organizationId: org.id,
+    primaryModel: "gpt-4o-mini",
+    fallbackModel: "gpt-4o-mini",
+    simpleModel: "gpt-4o-mini",
+    temperature: 0.2,
+    maxTokens: 500,
+    costAlertThreshold: 50,
+    sessionTimeout: 60,
+    apiKeyExpiryDays: 90,
+    primaryLanguage: "de",
+    fallbackLanguages: ["en"],
+  });
 
   console.log(`✅ Created Demo Organization: ${org.name} (API Key: ${org.apiKey})`);
 
@@ -48,7 +62,7 @@ async function seed() {
     .values({
       organizationId: org.id,
       name: "Acme Helper AI",
-      systemPrompt: "You are Acme Corp's official AI Customer Support Assistant. Provide accurate, helpful answers based strictly on Acme's knowledge base. If unsure, politely escalate to a human agent.",
+      systemPrompt: "Du bist ein KI-Support-Assistent für Acme Corp. Antworte präzise, hilfreich und auf Deutsch, es sei denn, der Nutzer schreibt in einer anderen Sprache. Nutze nur bereitgestellte Kontext-Informationen aus der Wissensdatenbank. Bei keiner passenden Antwort antworte exakt: \"Ich habe dazu keine Informationen. Möchten Sie, dass wir ein Ticket erstellen?\". Maximal 3 Sätze, außer technische Details erfordern mehr. Keine Floskeln oder Entschuldigungen. Stelle bei Mehrdeutigkeit höchstens eine Rückfrage. Nutze Aufzählungen nur bei mehreren Schritten oder Optionen und kein Markdown außer bei Code oder technischen Begriffen. Biete bei Frustration, komplexen technischen Problemen oder wiederholten Fragen menschlichen Support an.",
       modelProvider: "openai",
       modelName: "gpt-4o-mini",
       temperature: 0.2,

@@ -67,7 +67,6 @@ export class AuthService {
         name: newOrg.name,
         slug: newOrg.slug,
         role: "owner",
-        apiKey: newOrg.apiKey,
       },
       token,
     };
@@ -108,7 +107,6 @@ export class AuthService {
         name: m.org.name,
         slug: m.org.slug,
         role: m.member.role,
-        apiKey: m.org.apiKey,
       })),
       token,
     };

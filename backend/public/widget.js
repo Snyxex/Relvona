@@ -1,7 +1,7 @@
 (function () {
   const scriptTag = document.currentScript || document.querySelector("script[data-assistant-id]");
   const assistantId = scriptTag ? scriptTag.getAttribute("data-assistant-id") : null;
-  const apiBase = scriptTag ? scriptTag.getAttribute("data-api-base") || "http://localhost:5000" : "http://localhost:5000";
+  const apiBase = scriptTag ? scriptTag.getAttribute("data-api-base") || "http://localhost:8080" : "http://localhost:8080";
 
   let config = {
     name: "Support Assistant",
@@ -223,7 +223,14 @@
   }
 
   async function sendMessage() {
-    const text = inputField.value.trim();
+    // Email/ticket forms often paste signatures and quoted history. Remove that UI noise
+    // before it becomes model input; the original remains in the host application.
+    const text = inputField.value
+      .replace(/\n?--\s*\n[\s\S]*$/m, "")
+      .replace(/(?:^|\n)>.*(?:\n>.*)*/g, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim()
+      .slice(0, 6000);
     if (!text || state.loading) return;
 
     inputField.value = "";

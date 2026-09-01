@@ -3,6 +3,12 @@ import { authenticate, tenantContext, requireRole, AuthRequest } from "../middle
 import { db } from "../db/index.js";
 import { assistants } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
+import { encryptSecret } from "../utils/crypto.js";
+
+function withoutSecrets(assistant: typeof assistants.$inferSelect) {
+  const { apiKey, embeddingApiKey, ...safe } = assistant;
+  return { ...safe, apiKeyConfigured: Boolean(apiKey), embeddingApiKeyConfigured: Boolean(embeddingApiKey) };
+}
 
 const router = Router();
 router.use(authenticate);
@@ -25,10 +31,10 @@ router.get("/", async (req: AuthRequest, res) => {
         })
         .returning();
 
-      return res.json([newAssistant]);
+      return res.json([withoutSecrets(newAssistant)]);
     }
 
-    return res.json(list);
+    return res.json(list.map(withoutSecrets));
   } catch (error) {
     return res.status(500).json({ error: (error as Error).message });
   }
@@ -62,11 +68,11 @@ router.put("/:id", requireRole(["owner", "admin"]), async (req: AuthRequest, res
         systemPrompt: systemPrompt !== undefined ? systemPrompt : undefined,
         modelProvider: modelProvider !== undefined ? modelProvider : undefined,
         modelName: modelName !== undefined ? modelName : undefined,
-        apiKey: apiKey !== undefined ? apiKey : undefined,
+        apiKey: apiKey !== undefined ? encryptSecret(apiKey) : undefined,
         baseUrl: baseUrl !== undefined ? baseUrl : undefined,
         embeddingProvider: embeddingProvider !== undefined ? embeddingProvider : undefined,
         embeddingModel: embeddingModel !== undefined ? embeddingModel : undefined,
-        embeddingApiKey: embeddingApiKey !== undefined ? embeddingApiKey : undefined,
+        embeddingApiKey: embeddingApiKey !== undefined ? encryptSecret(embeddingApiKey) : undefined,
         embeddingBaseUrl: embeddingBaseUrl !== undefined ? embeddingBaseUrl : undefined,
         temperature: temperature !== undefined ? parseFloat(temperature) : undefined,
         handoffEnabled: handoffEnabled !== undefined ? Boolean(handoffEnabled) : undefined,
@@ -82,7 +88,7 @@ router.put("/:id", requireRole(["owner", "admin"]), async (req: AuthRequest, res
       return res.status(404).json({ error: "Assistant not found" });
     }
 
-    return res.json(updated);
+    return res.json(withoutSecrets(updated));
   } catch (error) {
     return res.status(500).json({ error: (error as Error).message });
   }

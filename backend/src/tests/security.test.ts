@@ -28,7 +28,7 @@ async function runSecurityTests() {
   assert(CrawlerSecurity.isPrivateIP("8.8.8.8") === false, "Allow Public IP 8.8.8.8");
 
   try {
-    await CrawlerSecurity.validateAndResolveUrl("http://localhost:5000/api/v1/auth/me");
+    await CrawlerSecurity.validateAndResolveUrl("http://localhost:8080/api/v1/auth/me");
     assert(false, "Reject Localhost URL");
   } catch (e) {
     assert(true, "Reject Localhost URL (SSRF Blocked)");

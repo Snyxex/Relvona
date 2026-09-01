@@ -1,8 +1,11 @@
 import crypto from "crypto";
 
+if (process.env.NODE_ENV === "production" && !process.env.ENCRYPTION_SECRET) {
+  throw new Error("ENCRYPTION_SECRET must be configured in production");
+}
 const ENCRYPTION_KEY = process.env.ENCRYPTION_SECRET
   ? crypto.scryptSync(process.env.ENCRYPTION_SECRET, "salt", 32)
-  : crypto.scryptSync("default-production-encryption-secret-key-32bytes!", "salt", 32);
+  : crypto.scryptSync("development-only-encryption-secret", "salt", 32);
 
 const ALGORITHM = "aes-256-gcm";
 

@@ -66,7 +66,7 @@ export const assistants = pgTable("assistants", {
   organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
   name: text("name").default("Support AI").notNull(),
   avatarUrl: text("avatar_url"),
-  systemPrompt: text("system_prompt").default("You are a helpful, empathetic, and professional AI customer support assistant. Answer the user's questions based strictly on the provided knowledge base context. If you do not know the answer, politely offer to connect them to a human support agent.").notNull(),
+  systemPrompt: text("system_prompt").default("Du bist ein KI-Support-Assistent für {organization_name}. Antworte präzise, hilfreich und auf Deutsch, es sei denn, der Nutzer schreibt in einer anderen Sprache. Nutze nur bereitgestellte Kontext-Informationen aus der Wissensdatenbank. Bei keiner passenden Antwort antworte exakt: \"Ich habe dazu keine Informationen. Möchten Sie, dass wir ein Ticket erstellen?\". Maximal 3 Sätze, außer technische Details erfordern mehr. Keine Floskeln oder Entschuldigungen. Stelle bei Mehrdeutigkeit höchstens eine Rückfrage. Nutze Aufzählungen nur bei mehreren Schritten oder Optionen und kein Markdown außer bei Code oder technischen Begriffen. Biete bei Frustration, komplexen technischen Problemen oder wiederholten Fragen menschlichen Support an.").notNull(),
   modelProvider: text("model_provider").default("openai").notNull(), // 'openai' | 'anthropic' | 'google' | 'nvidia' | 'local'
   modelName: text("model_name").default("gpt-4o-mini").notNull(),
   apiKey: text("api_key"), // Custom API Key override
@@ -247,4 +247,40 @@ export const auditLogs = pgTable("audit_logs", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   auditOrgIdx: index("audit_org_idx").on(table.organizationId, table.action, table.createdAt),
+}));
+
+// 18. Per-tenant operational settings. Secrets are AES-256-GCM encrypted before persistence.
+export const organizationSettings = pgTable("organization_settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull().unique(),
+  primaryModel: text("primary_model").default("gpt-4o-mini").notNull(),
+  fallbackModel: text("fallback_model").default("gpt-4o-mini").notNull(),
+  simpleModel: text("simple_model").default("gpt-4o-mini").notNull(),
+  temperature: real("temperature").default(0.2).notNull(),
+  maxTokens: integer("max_tokens").default(500).notNull(),
+  openaiKeyEncrypted: text("openai_key_encrypted"),
+  nvidiaKeyEncrypted: text("nvidia_key_encrypted"),
+  costAlertThreshold: real("cost_alert_threshold").default(50).notNull(),
+  sessionTimeout: integer("session_timeout").default(60).notNull(),
+  apiKeyExpiryDays: integer("api_key_expiry_days").default(90).notNull(),
+  ipWhitelist: jsonb("ip_whitelist").default([]),
+  supportEmail: text("support_email"),
+  businessHours: jsonb("business_hours").default({}),
+  primaryLanguage: text("primary_language").default("de").notNull(),
+  fallbackLanguages: jsonb("fallback_languages").default(["en"]),
+  logoUrl: text("logo_url"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const modelRoutingRules = pgTable("model_routing_rules", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
+  keywords: text("keywords").array().notNull(),
+  targetModel: text("target_model").notNull(),
+  priority: integer("priority").default(0).notNull(),
+  enabled: boolean("enabled").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  routingOrgIdx: index("routing_org_priority_idx").on(table.organizationId, table.priority),
 }));

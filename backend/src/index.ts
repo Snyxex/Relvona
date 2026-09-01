@@ -7,7 +7,7 @@ import dotenv from "dotenv";
 import apiRouter from "./routes/api.js";
 import { applySecurityHeaders } from "./middleware/security.js";
 import { db } from "./db/index.js";
-import { conversations } from "./db/schema.js";
+import { conversations, organizationMembers } from "./db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { verifyToken } from "./middleware/auth.js";
 
@@ -18,13 +18,18 @@ const server = http.createServer(app);
 
 const io = new SocketIOServer(server, {
   cors: {
-    origin: "*",
+    origin: (process.env.CORS_ORIGIN || "http://localhost:3000").split(",").map((value) => value.trim()),
     methods: ["GET", "POST"],
   },
 });
 
+const allowedOrigins = (process.env.CORS_ORIGIN || "http://localhost:3000").split(",").map((value) => value.trim()).filter(Boolean);
+app.set("trust proxy", 1);
 app.use(applySecurityHeaders);
-app.use(cors());
+app.use(cors({ origin: (origin, callback) => {
+  if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+  return callback(new Error("Origin is not allowed by CORS"));
+}, methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], allowedHeaders: ["Authorization", "Content-Type", "X-Organization-Id", "X-Organization-Slug", "X-API-Key"] }));
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true, limit: "20mb" }));
 
@@ -66,6 +71,10 @@ io.on("connection", (socket) => {
       }
 
       if (targetConvId) {
+        if (!userPayload?.userId) {
+          socket.emit("error", { message: "Authentication is required to join a conversation" });
+          return;
+        }
         // Validate conversation belongs to the requested organization
         const [conv] = await db
           .select()
@@ -82,6 +91,16 @@ io.on("connection", (socket) => {
           socket.emit("error", { message: "Access denied: Cross-tenant room join attempt blocked" });
           return;
         }
+
+        const [membership] = await db
+          .select({ id: organizationMembers.id })
+          .from(organizationMembers)
+          .where(and(eq(organizationMembers.organizationId, conv.organizationId), eq(organizationMembers.userId, userPayload.userId)))
+          .limit(1);
+        if (!membership) {
+          socket.emit("error", { message: "Access denied: You are not a member of this organization" });
+          return;
+        }
       }
 
       socket.join(room);
@@ -93,11 +112,19 @@ io.on("connection", (socket) => {
 
   // Agent claims conversation / handoff
   socket.on("claim_conversation", (data: { conversationId: string; agentId: string; agentName: string }) => {
+    if (!userPayload?.userId || !socket.rooms.has(`conv:${data.conversationId}`)) {
+      socket.emit("error", { message: "Access denied: Join the authorized conversation room first" });
+      return;
+    }
     io.to(`conv:${data.conversationId}`).emit("handoff_claimed", data);
   });
 
   // Send real-time chat message
   socket.on("send_message", (data: { conversationId: string; senderType: string; content: string }) => {
+    if (!userPayload?.userId || !socket.rooms.has(`conv:${data.conversationId}`)) {
+      socket.emit("error", { message: "Access denied: Join the authorized conversation room first" });
+      return;
+    }
     io.to(`conv:${data.conversationId}`).emit("new_message", data);
   });
 
@@ -106,7 +133,7 @@ io.on("connection", (socket) => {
   });
 });
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 8080;
 
 server.listen(PORT, () => {
   console.log(`🚀 Multi-Tenant AI Customer Support Backend running on port ${PORT}`);
