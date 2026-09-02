@@ -12,10 +12,12 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks: [data]
   redis:
     image: redis:7-alpine
     restart: unless-stopped
     volumes: ["redisdata:/data"]
+    networks: [data]
   backend:
     build: ./backend
     restart: unless-stopped
@@ -26,15 +28,14 @@ services:
     environment:
       NODE_ENV: production
       PORT: 8080
-      DATABASE_URL: postgres://${POSTGRES_USER:-support}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-support}
-      REDIS_URL: redis://redis:6379
-      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
-      ENCRYPTION_SECRET: ${ENCRYPTION_SECRET:?set ENCRYPTION_SECRET in .env}
-      CORS_ORIGIN: ${CORS_ORIGIN:?set CORS_ORIGIN in .env}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-    ports: ["${BACKEND_PORT:-8080}:8080"]
+      INFISICAL_TOKEN: ${INFISICAL_TOKEN:?authenticate with Infisical before deployment}
+      INFISICAL_PROJECT_ID: ${INFISICAL_PROJECT_ID:?set the Infisical project id}
+      INFISICAL_ENVIRONMENT: ${INFISICAL_ENVIRONMENT:-production}
+      INFISICAL_DOMAIN: ${INFISICAL_DOMAIN:-}
+    expose: ["8080"]
+    networks: [edge, data]
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -47,8 +48,28 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-support}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-support}
-    command: ["npm", "run", "db:push"]
+      INFISICAL_TOKEN: ${INFISICAL_TOKEN:?authenticate with Infisical before deployment}
+      INFISICAL_PROJECT_ID: ${INFISICAL_PROJECT_ID:?set the Infisical project id}
+      INFISICAL_ENVIRONMENT: ${INFISICAL_ENVIRONMENT:-production}
+      INFISICAL_DOMAIN: ${INFISICAL_DOMAIN:-}
+    command: ["npm", "run", "db:migrate"]
+    networks: [data]
+  worker:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+      migrate: { condition: service_completed_successfully }
+    environment:
+      NODE_ENV: production
+      INFISICAL_TOKEN: ${INFISICAL_TOKEN:?authenticate with Infisical before deployment}
+      INFISICAL_PROJECT_ID: ${INFISICAL_PROJECT_ID:?set the Infisical project id}
+      INFISICAL_ENVIRONMENT: ${INFISICAL_ENVIRONMENT:-production}
+      INFISICAL_DOMAIN: ${INFISICAL_DOMAIN:-}
+      INGESTION_WORKER_CONCURRENCY: ${INGESTION_WORKER_CONCURRENCY:-2}
+    command: ["node", "dist/worker.js"]
+    networks: [edge, data]
   frontend:
     build:
       context: ./frontend
@@ -59,7 +80,8 @@ services:
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?set NEXT_PUBLIC_API_URL in .env}
-    ports: ["${FRONTEND_PORT:-3000}:3000"]
+    expose: ["3000"]
+    networks: [edge]
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 15s
@@ -69,3 +91,8 @@ services:
 volumes:
   pgdata:
   redisdata:
+networks:
+  edge:
+    name: supportai-edge
+  data:
+    internal: true

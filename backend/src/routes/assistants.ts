@@ -4,6 +4,20 @@ import { db } from "../db/index.js";
 import { assistants } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { encryptSecret } from "../utils/crypto.js";
+import crypto from "crypto";
+
+const newWidgetApiKey = () => `wpk_${crypto.randomBytes(24).toString("base64url")}`;
+
+function normalizeWidgetOrigins(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 20) throw new Error("widgetAllowedOrigins must contain at most 20 origins");
+  return [...new Set(value.map((entry) => {
+    if (typeof entry !== "string") throw new Error("Every widget origin must be a string");
+    const url = new URL(entry.trim());
+    if (!/^https?:$/.test(url.protocol) || url.origin !== entry.trim().replace(/\/$/, "")) throw new Error("Widget origins must be exact http(s) origins");
+    return url.origin;
+  }))];
+}
 
 function withoutSecrets(assistant: typeof assistants.$inferSelect) {
   const { apiKey, embeddingApiKey, ...safe } = assistant;
@@ -28,13 +42,20 @@ router.get("/", async (req: AuthRequest, res) => {
         .values({
           organizationId: req.organization!.id,
           name: "Support AI",
+          widgetApiKey: newWidgetApiKey(),
         })
         .returning();
 
       return res.json([withoutSecrets(newAssistant)]);
     }
 
-    return res.json(list.map(withoutSecrets));
+    // Backfill assistants that existed before public widget keys were added.
+    const readyList = await Promise.all(list.map(async (assistant) => {
+      if (assistant.widgetApiKey) return assistant;
+      const [updated] = await db.update(assistants).set({ widgetApiKey: newWidgetApiKey(), updatedAt: new Date() }).where(eq(assistants.id, assistant.id)).returning();
+      return updated;
+    }));
+    return res.json(readyList.map(withoutSecrets));
   } catch (error) {
     return res.status(500).json({ error: (error as Error).message });
   }
@@ -59,7 +80,11 @@ router.put("/:id", requireRole(["owner", "admin"]), async (req: AuthRequest, res
       handoffKeywords,
       primaryColor,
       welcomeMessage,
+      widgetAllowedOrigins,
+      chatPageEnabled,
     } = req.body;
+
+    const normalizedOrigins = widgetAllowedOrigins === undefined ? undefined : normalizeWidgetOrigins(widgetAllowedOrigins);
 
     const [updated] = await db
       .update(assistants)
@@ -79,6 +104,8 @@ router.put("/:id", requireRole(["owner", "admin"]), async (req: AuthRequest, res
         handoffKeywords: handoffKeywords !== undefined ? handoffKeywords : undefined,
         primaryColor: primaryColor !== undefined ? primaryColor : undefined,
         welcomeMessage: welcomeMessage !== undefined ? welcomeMessage : undefined,
+        widgetAllowedOrigins: normalizedOrigins,
+        chatPageEnabled: chatPageEnabled !== undefined ? Boolean(chatPageEnabled) : undefined,
         updatedAt: new Date(),
       })
       .where(and(eq(assistants.id, req.params.id), eq(assistants.organizationId, req.organization!.id)))
@@ -88,6 +115,20 @@ router.put("/:id", requireRole(["owner", "admin"]), async (req: AuthRequest, res
       return res.status(404).json({ error: "Assistant not found" });
     }
 
+    return res.json(withoutSecrets(updated));
+  } catch (error) {
+    return res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// Rotating this key immediately invalidates the previous public browser integration.
+router.post("/:id/widget-key/rotate", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
+  try {
+    const [updated] = await db.update(assistants)
+      .set({ widgetApiKey: newWidgetApiKey(), updatedAt: new Date() })
+      .where(and(eq(assistants.id, req.params.id), eq(assistants.organizationId, req.organization!.id)))
+      .returning();
+    if (!updated) return res.status(404).json({ error: "Assistant not found" });
     return res.json(withoutSecrets(updated));
   } catch (error) {
     return res.status(500).json({ error: (error as Error).message });

@@ -6,6 +6,8 @@ import { eq } from "drizzle-orm";
 import crypto from "crypto";
 import URL from "url";
 import { UniversalAIGateway, AIProvider } from "./aiGateway.js";
+import { CrawlerSecurity } from "./crawlerSecurity.js";
+import { PiiRedactionService } from "./piiRedactionService.js";
 
 // SSRF Protection Helper
 export function validateUrlForSSRF(targetUrl: string): boolean {
@@ -64,6 +66,10 @@ export class IngestionService {
       .trim();
   }
 
+  private static redactChunks(chunks: string[]) {
+    return chunks.map((chunk) => PiiRedactionService.redact(chunk).text).filter(Boolean);
+  }
+
   // Process Manual Document / Text / FAQ
   static async processTextDocument(data: {
     organizationId: string;
@@ -88,7 +94,7 @@ export class IngestionService {
     try {
       const splitter = new RecursiveCharacterTextSplitter(this.chunking);
 
-      const chunks = await splitter.splitText(this.cleanIndexText(data.content));
+      const chunks = this.redactChunks(await splitter.splitText(this.cleanIndexText(data.content)));
       if (chunks.length === 0) {
         throw new Error("No text content found to process");
       }
@@ -161,7 +167,7 @@ export class IngestionService {
 
       const splitter = new RecursiveCharacterTextSplitter(this.chunking);
 
-      const chunks = await splitter.splitText(cleanedText);
+      const chunks = this.redactChunks(await splitter.splitText(cleanedText));
       const embeddings = await generateEmbeddings(chunks);
 
       const chunkRecords = chunks.map((chunkText, idx) => ({
@@ -208,9 +214,7 @@ export class IngestionService {
     maxPages?: number;
     maxDepth?: number;
   }) {
-    if (!validateUrlForSSRF(data.targetUrl)) {
-      throw new Error("Invalid or prohibited target URL (SSRF protection)");
-    }
+    await CrawlerSecurity.validateAndResolveUrl(data.targetUrl);
 
     const maxPages = data.maxPages || 20;
 
@@ -238,15 +242,7 @@ export class IngestionService {
       .returning();
 
     try {
-      const response = await fetch(data.targetUrl, {
-        headers: { "User-Agent": "AICustomerSupportBot/1.0" },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch website. HTTP Status: ${response.status}`);
-      }
-
-      const html = await response.text();
+      const html = await CrawlerSecurity.safeFetch(data.targetUrl);
 
       const pageTitleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
       const pageTitle = pageTitleMatch ? pageTitleMatch[1].trim() : data.targetUrl;
@@ -278,7 +274,7 @@ export class IngestionService {
 
       const splitter = new RecursiveCharacterTextSplitter(this.chunking);
 
-      const chunks = await splitter.splitText(bodyText);
+      const chunks = this.redactChunks(await splitter.splitText(bodyText));
       const embeddings = await generateEmbeddings(chunks);
 
       const chunkRecords = chunks.map((chunkText, idx) => ({

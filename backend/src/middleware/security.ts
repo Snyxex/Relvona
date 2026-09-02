@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { AuthRequest } from "./auth.js";
+import Redis from "ioredis";
 
 // In-Memory Token Bucket Rate Limiter
 class RateLimiter {
@@ -24,6 +25,24 @@ class RateLimiter {
 }
 
 const limiter = new RateLimiter();
+const redisUrl = process.env.REDIS_URL;
+const redisLimiter = redisUrl ? new Redis(redisUrl, { maxRetriesPerRequest: 1, retryStrategy: () => null, lazyConnect: true }) : null;
+
+async function consumeDistributedLimit(key: string, limit: number, windowMs: number): Promise<{ limited: boolean; retryAfterSeconds: number }> {
+  if (!redisLimiter) {
+    if (process.env.NODE_ENV === "production") throw new Error("REDIS_URL is required for public rate limiting");
+    return { limited: limiter.isRateLimited(key, limit, windowMs), retryAfterSeconds: Math.ceil(windowMs / 1000) };
+  }
+  if (redisLimiter.status === "wait") await redisLimiter.connect();
+  const bucket = `rate-limit:${key}`;
+  const [count, ttl] = await redisLimiter.eval(
+    "local count=redis.call('INCR', KEYS[1]); if count == 1 then redis.call('PEXPIRE', KEYS[1], ARGV[1]); end; return {count, redis.call('PTTL', KEYS[1])}",
+    1,
+    bucket,
+    windowMs
+  ) as [number, number];
+  return { limited: count > limit, retryAfterSeconds: Math.max(1, Math.ceil(ttl / 1000)) };
+}
 
 // Middleware: Express Security Headers
 export function applySecurityHeaders(req: Request, res: Response, next: NextFunction) {
@@ -37,22 +56,25 @@ export function applySecurityHeaders(req: Request, res: Response, next: NextFunc
 
 // Middleware: Dynamic Rate Limiter
 export function createRateLimiter(options: { limit: number; windowMs: number; keyPrefix: string }) {
-  return (req: AuthRequest, res: Response, next: NextFunction) => {
+  return async (req: AuthRequest, res: Response, next: NextFunction) => {
     const ip = req.ip || req.socket.remoteAddress || "unknown_ip";
     const orgId = req.organization?.id || "public_org";
     const userId = req.user?.id || "anon";
 
     const key = `${options.keyPrefix}:${ip}:${orgId}:${userId}`;
 
-    if (limiter.isRateLimited(key, options.limit, options.windowMs)) {
+    try {
+      const { limited, retryAfterSeconds } = await consumeDistributedLimit(key, options.limit, options.windowMs);
+      if (!limited) return next();
+      res.setHeader("Retry-After", retryAfterSeconds);
       return res.status(429).json({
         error: "Too Many Requests",
         message: "Rate limit exceeded. Please wait before retrying.",
-        retryAfterMs: options.windowMs,
+        retryAfterMs: retryAfterSeconds * 1000,
       });
+    } catch (error) {
+      return res.status(503).json({ error: "Rate limit service unavailable" });
     }
-
-    next();
   };
 }
 

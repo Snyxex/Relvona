@@ -2,6 +2,10 @@ import { db } from "../db/index.js";
 import { conversations, conversationMessages, customers, tickets, analyticsEvents, assistants } from "../db/schema.js";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { RAGService } from "./ragService.js";
+import { TenantQuotaService, TenantQuotaExceededError } from "./tenantQuotaService.js";
+import { organizationSettings } from "../db/schema.js";
+import { PiiRedactionService } from "./piiRedactionService.js";
+import { TicketService } from "./ticketService.js";
 
 export class ConversationService {
   private static compactHistory(messages: { senderType: string; content: string }[]): string {
@@ -100,12 +104,20 @@ export class ConversationService {
     organizationId: string;
     conversationId: string;
     content: string;
+    onToken?: (token: string) => void | Promise<void>;
   }) {
     // 1. Fetch Conversation
-    const [conv] = await db.select().from(conversations).where(eq(conversations.id, data.conversationId)).limit(1);
+    const [conv] = await db.select().from(conversations).where(and(eq(conversations.id, data.conversationId), eq(conversations.organizationId, data.organizationId))).limit(1);
     if (!conv) throw new Error("Conversation not found");
+    const [settings] = await db.select({ widgetRequestsPerMinute: organizationSettings.widgetRequestsPerMinute }).from(organizationSettings).where(eq(organizationSettings.organizationId, data.organizationId)).limit(1);
+    await TenantQuotaService.consumeWidgetRequest(data.organizationId, settings?.widgetRequestsPerMinute ?? 120);
+    await TenantQuotaService.consumeWidgetEndUserRequest(data.organizationId, conv.customerId, settings?.widgetRequestsPerMinute ?? 120);
 
-    // 2. Save Customer Message
+    // 2. Redact accidental PII before persistence, embeddings, and provider calls.
+    const redactedInput = PiiRedactionService.redact(data.content);
+    if (redactedInput.detected.length) await db.insert(analyticsEvents).values({ organizationId: data.organizationId, eventType: "pii_redacted", metadata: { conversationId: conv.id, types: redactedInput.detected } });
+
+    // 3. Save Customer Message
     const [custMsg] = await db
       .insert(conversationMessages)
       .values({
@@ -113,7 +125,7 @@ export class ConversationService {
         organizationId: data.organizationId,
         senderType: "customer",
         senderId: conv.customerId,
-        content: data.content,
+        content: redactedInput.text,
       })
       .returning();
 
@@ -122,7 +134,7 @@ export class ConversationService {
       // Generate suggested reply for agent
       const suggested = await RAGService.generateSuggestedReply({
         organizationId: data.organizationId,
-        customerQuery: data.content,
+        customerQuery: redactedInput.text,
         conversationHistory: [],
       });
 
@@ -156,15 +168,27 @@ export class ConversationService {
       : conv.summary;
 
     // Execute RAG Engine
-    const ragResult = await RAGService.generateRAGAnswer({
-      organizationId: data.organizationId,
-      assistantId: conv.assistantId!,
-      customerQuery: data.content,
-      conversationHistory: formattedHistory,
-      conversationSummary: rollingSummary,
-    });
+    let ragResult;
+    try {
+      ragResult = await RAGService.generateRAGAnswer({
+        organizationId: data.organizationId,
+        assistantId: conv.assistantId!,
+        customerQuery: redactedInput.text,
+        conversationHistory: formattedHistory,
+        conversationSummary: rollingSummary,
+        onToken: data.onToken,
+      });
+    } catch (error) {
+      // Spend is enforced before provider calls. When the daily budget is spent,
+      // preserve the request and queue a human handoff instead of silently failing.
+      if (!(error instanceof TenantQuotaExceededError) || error.message === "Widget request quota exceeded") throw error;
+      await db.update(conversations).set({ state: "WAITING_FOR_AGENT", updatedAt: new Date() }).where(eq(conversations.id, conv.id));
+      const ticket = await TicketService.createTicket({ organizationId: data.organizationId, customerId: conv.customerId, conversationId: conv.id, subject: "AI budget exhausted - customer needs assistance", description: "Created automatically because the tenant's daily AI token budget is exhausted.", priority: "normal", tags: ["budget-fallback"] });
+      await db.insert(analyticsEvents).values({ organizationId: data.organizationId, eventType: "budget_handoff_requested", metadata: { conversationId: conv.id, ticketId: ticket.id } });
+      return { customerMessage: custMsg, aiResponse: null, state: "WAITING_FOR_AGENT", handoffTriggered: true, budgetFallback: true, fallbackMessage: "Unser KI-Support ist für heute ausgeschöpft. Wir haben Ihre Anfrage an unser Support-Team weitergegeben." };
+    }
 
-    const sentiment = RAGService.analyzeSentiment(data.content);
+    const sentiment = RAGService.analyzeSentiment(redactedInput.text);
 
     // Update conversation metadata
     await db

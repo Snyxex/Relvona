@@ -1,7 +1,10 @@
 (function () {
   const scriptTag = document.currentScript || document.querySelector("script[data-assistant-id]");
   const assistantId = scriptTag ? scriptTag.getAttribute("data-assistant-id") : null;
+  const widgetKey = scriptTag ? scriptTag.getAttribute("data-widget-key") : null;
   const apiBase = scriptTag ? scriptTag.getAttribute("data-api-base") || "http://localhost:8080" : "http://localhost:8080";
+  const autoOpen = scriptTag ? scriptTag.getAttribute("data-auto-open") === "true" : false;
+  const storageSuffix = assistantId || "default";
 
   let config = {
     name: "Support Assistant",
@@ -12,8 +15,8 @@
 
   let state = {
     isOpen: false,
-    customerId: localStorage.getItem("ai_chat_customer_id") || null,
-    conversationId: localStorage.getItem("ai_chat_conv_id") || null,
+    customerId: localStorage.getItem(`ai_chat_customer_id_${storageSuffix}`) || null,
+    conversationId: localStorage.getItem(`ai_chat_conv_id_${storageSuffix}`) || null,
     messages: [],
     loading: false,
     handoff: false,
@@ -152,16 +155,21 @@
   const msgContainer = document.getElementById("ai-chat-msg-container");
   const inputField = document.getElementById("ai-chat-input-field");
   const sendBtn = document.getElementById("ai-chat-send-btn");
+  function integrationParams() { return new URLSearchParams({ assistantId: assistantId || "", widgetKey: widgetKey || "" }); }
+  function showError(message) {
+    const errorEl = document.createElement("div"); errorEl.className = "ai-chat-msg ai"; errorEl.textContent = message;
+    msgContainer.appendChild(errorEl); msgContainer.scrollTop = msgContainer.scrollHeight;
+  }
 
   // Fetch Config
   async function initWidget() {
     try {
-      const res = await fetch(`${apiBase}/api/v1/widget/config?assistantId=${assistantId || ""}`);
-      if (res.ok) {
-        config = await res.json();
-        document.documentElement.style.setProperty("--primary-color", config.primaryColor || "#3B82F6");
-        nameLabel.textContent = config.name || "Support Assistant";
-      }
+      if (!assistantId || !widgetKey) throw new Error("Missing public widget key");
+      const res = await fetch(`${apiBase}/api/v1/widget/config?${integrationParams()}`);
+      if (!res.ok) throw new Error("Widget integration was rejected");
+      config = await res.json();
+      document.documentElement.style.setProperty("--primary-color", config.primaryColor || "#3B82F6");
+      nameLabel.textContent = config.name || "Support Assistant";
 
       // Session setup
       const sessionRes = await fetch(`${apiBase}/api/v1/widget/session`, {
@@ -169,6 +177,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           assistantId: config.assistantId,
+          widgetKey,
           organizationId: config.organizationId,
         }),
       });
@@ -177,14 +186,15 @@
         const session = await sessionRes.json();
         state.customerId = session.customerId;
         state.conversationId = session.conversationId;
-        localStorage.setItem("ai_chat_customer_id", session.customerId);
-        localStorage.setItem("ai_chat_conv_id", session.conversationId);
+        localStorage.setItem(`ai_chat_customer_id_${storageSuffix}`, session.customerId);
+        localStorage.setItem(`ai_chat_conv_id_${storageSuffix}`, session.conversationId);
 
         // Fetch history
         loadMessages();
-      }
+      } else throw new Error("Unable to start a chat session");
     } catch (e) {
       console.warn("AI Chat Widget init failed:", e);
+      showError("Der Chat ist derzeit nicht verfügbar. Bitte versuchen Sie es später erneut.");
     }
   }
 
@@ -192,7 +202,7 @@
     if (!state.conversationId || !config.organizationId) return;
     try {
       const res = await fetch(
-        `${apiBase}/api/v1/widget/messages?conversationId=${state.conversationId}&organizationId=${config.organizationId}`
+        `${apiBase}/api/v1/widget/messages?conversationId=${state.conversationId}&organizationId=${config.organizationId}&${integrationParams()}`
       );
       if (res.ok) {
         const msgs = await res.json();
@@ -217,9 +227,24 @@
       msgEl.className = `ai-chat-msg ${m.senderType}`;
       msgEl.textContent = m.content;
       msgContainer.appendChild(msgEl);
+      if (m.senderType === "ai" && m.id) {
+        const feedback = document.createElement("div");
+        feedback.className = "ai-chat-feedback";
+        [ [1, "👍", "Helpful"], [-1, "👎", "Not helpful"] ].forEach(([rating, label, title]) => {
+          const button = document.createElement("button"); button.type = "button"; button.textContent = label; button.title = title;
+          button.addEventListener("click", () => submitFeedback(m.id, rating)); feedback.appendChild(button);
+        });
+        msgContainer.appendChild(feedback);
+      }
     });
 
     msgContainer.scrollTop = msgContainer.scrollHeight;
+  }
+
+  async function submitFeedback(messageId, rating) {
+    try {
+      await fetch(`${apiBase}/api/v1/widget/feedback`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assistantId: config.assistantId, widgetKey, organizationId: config.organizationId, conversationId: state.conversationId, messageId, rating }) });
+    } catch (e) {}
   }
 
   async function sendMessage() {
@@ -241,25 +266,34 @@
     renderMessages();
 
     try {
-      const res = await fetch(`${apiBase}/api/v1/widget/message`, {
+      const res = await fetch(`${apiBase}/api/v1/widget/message/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          assistantId: config.assistantId,
+          widgetKey,
           organizationId: config.organizationId,
           conversationId: state.conversationId,
           content: text,
         }),
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        if (data.aiResponse) {
-          state.messages.push({ senderType: "ai", content: data.aiResponse.content });
+      if (!res.ok || !res.body) throw new Error("Streaming response unavailable");
+      const reader = res.body.getReader(); const decoder = new TextDecoder(); let buffer = ""; let aiMessage = null;
+      while (true) {
+        const { value, done } = await reader.read(); if (done) break;
+        buffer += decoder.decode(value, { stream: true }); const events = buffer.split("\n\n"); buffer = events.pop() || "";
+        for (const event of events) {
+          const type = event.match(/^event: (.+)$/m)?.[1]; const raw = event.match(/^data: (.+)$/m)?.[1]; if (!raw) continue;
+          const data = JSON.parse(raw);
+          if (type === "token") { if (!aiMessage) { aiMessage = { senderType: "ai", content: "" }; state.messages.push(aiMessage); } aiMessage.content += data.content; renderMessages(); }
+          if (type === "complete" && aiMessage) { aiMessage.id = data.messageId; renderMessages(); }
+          if (type === "error") throw new Error(data.error || "Unable to process the message");
         }
-        renderMessages();
       }
     } catch (e) {
       console.error(e);
+      showError("Die Nachricht konnte nicht gesendet werden. Bitte erneut versuchen.");
     } finally {
       state.loading = false;
     }
@@ -279,4 +313,5 @@
   });
 
   initWidget();
+  if (autoOpen) { state.isOpen = true; windowBox.classList.add("open"); }
 })();

@@ -15,6 +15,11 @@ export interface CompletionRequest {
   maxTokens?: number;
   /** Cache static instructions on providers that expose explicit prompt caching. */
   cacheSystemPrompt?: boolean;
+  /** Receives provider tokens as they arrive. Supported by OpenAI-compatible providers. */
+  onToken?: (token: string) => void | Promise<void>;
+  retryAttempt?: number;
+  /** Allows one explicitly configured fallback-model attempt while a provider circuit is open. */
+  bypassCircuit?: boolean;
 }
 
 export interface EmbeddingRequest {
@@ -26,10 +31,68 @@ export interface EmbeddingRequest {
 }
 
 export class UniversalAIGateway {
+  private static readonly circuits = new Map<AIProvider, { failures: number; openUntil: number }>();
+  private static readonly maxRetries = 2;
+  private static readonly failureThreshold = 3;
+  private static readonly cooldownMs = 30_000;
+
+  private static circuitFor(provider: AIProvider) { return this.circuits.get(provider) || { failures: 0, openUntil: 0 }; }
+  private static transient(error: unknown) { return /\b(408|409|425|429|500|502|503|504)\b|fetch failed|network|timeout/i.test((error as Error).message || ""); }
+
+  static async generateCompletion(req: CompletionRequest): Promise<string> {
+    const provider = req.provider || "openai";
+    const circuit = this.circuitFor(provider);
+    if (!req.bypassCircuit && circuit.openUntil > Date.now()) throw new Error(`LLM provider '${provider}' circuit is open`);
+    try {
+      const answer = await this.generateCompletionOnce(req);
+      this.circuits.set(provider, { failures: 0, openUntil: 0 });
+      return answer;
+    } catch (error) {
+      const failures = circuit.failures + 1;
+      this.circuits.set(provider, { failures, openUntil: failures >= this.failureThreshold ? Date.now() + this.cooldownMs : 0 });
+      const attempt = req.retryAttempt || 0;
+      if (attempt < this.maxRetries && this.transient(error)) {
+        await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt));
+        return this.generateCompletion({ ...req, retryAttempt: attempt + 1 });
+      }
+      throw error;
+    }
+  }
+
+  private static async readOpenAiCompatibleStream(response: Response, onToken: NonNullable<CompletionRequest["onToken"]>): Promise<string> {
+    if (!response.body) throw new Error("Provider returned an empty streaming response");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let answer = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.startsWith("data:")) continue;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === "[DONE]") continue;
+        try {
+          const token = JSON.parse(payload).choices?.[0]?.delta?.content;
+          if (typeof token === "string" && token) {
+            answer += token;
+            await onToken(token);
+          }
+        } catch {
+          // Providers may send comments or non-token events in the SSE stream.
+        }
+      }
+    }
+    return answer;
+  }
+
   // ----------------------------------------------------
   // 1. UNIVERSAL CHAT COMPLETION
   // ----------------------------------------------------
-  static async generateCompletion(req: CompletionRequest): Promise<string> {
+  private static async generateCompletionOnce(req: CompletionRequest): Promise<string> {
     const provider = req.provider || "openai";
     const temperature = req.temperature ?? 0.2;
     const maxTokens = req.maxTokens || 1024;
@@ -62,6 +125,7 @@ export class UniversalAIGateway {
             messages: formattedMessages,
             temperature,
             max_tokens: maxTokens,
+            stream: Boolean(req.onToken),
           }),
         });
 
@@ -70,6 +134,7 @@ export class UniversalAIGateway {
           throw new Error(`OpenAI API error (${response.status}): ${errText}`);
         }
 
+        if (req.onToken) return this.readOpenAiCompatibleStream(response, req.onToken);
         const data = await response.json();
         return data.choices?.[0]?.message?.content || "";
       }
@@ -117,7 +182,9 @@ export class UniversalAIGateway {
         }
 
         const data = await response.json();
-        return data.content?.[0]?.text || "";
+        const answer = data.content?.[0]?.text || "";
+        if (req.onToken && answer) await req.onToken(answer);
+        return answer;
       }
 
       // --- PROVIDER 3: GOOGLE GEMINI ---
@@ -156,7 +223,9 @@ export class UniversalAIGateway {
         }
 
         const data = await response.json();
-        return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        const answer = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        if (req.onToken && answer) await req.onToken(answer);
+        return answer;
       }
 
       // --- PROVIDER 4: NVIDIA NIM ---
@@ -183,6 +252,7 @@ export class UniversalAIGateway {
             messages: formattedMessages,
             temperature,
             max_tokens: maxTokens,
+            stream: Boolean(req.onToken),
           }),
         });
 
@@ -191,6 +261,7 @@ export class UniversalAIGateway {
           throw new Error(`NVIDIA API error (${response.status}): ${errText}`);
         }
 
+        if (req.onToken) return this.readOpenAiCompatibleStream(response, req.onToken);
         const data = await response.json();
         return data.choices?.[0]?.message?.content || "";
       }
@@ -219,6 +290,7 @@ export class UniversalAIGateway {
             messages: formattedMessages,
             temperature,
             max_tokens: maxTokens,
+            stream: Boolean(req.onToken),
           }),
         });
 
@@ -227,6 +299,7 @@ export class UniversalAIGateway {
           throw new Error(`Local AI API error (${response.status}): ${errText}`);
         }
 
+        if (req.onToken) return this.readOpenAiCompatibleStream(response, req.onToken);
         const data = await response.json();
         return data.choices?.[0]?.message?.content || "";
       }

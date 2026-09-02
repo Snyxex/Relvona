@@ -1,74 +1,20 @@
-import Redis from "ioredis";
-import { IngestionService } from "./ingestionService.js";
+import { Queue } from "bullmq";
 
-const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+const redisUrl = process.env.REDIS_URL;
+if (process.env.NODE_ENV === "production" && !redisUrl) throw new Error("REDIS_URL is required for ingestion jobs");
+const connection = { url: redisUrl || "redis://localhost:6379", maxRetriesPerRequest: null };
+
+export type IngestionJob =
+  | { type: "document"; organizationId: string; knowledgeBaseId: string; title: string; sourceType: "faq" | "document"; content: string; securityStatus: "SAFE" | "SUSPICIOUS" | "QUARANTINED" }
+  | { type: "pdf"; organizationId: string; knowledgeBaseId: string; title: string; filePath: string; bufferBase64: string; securityStatus: "SAFE" | "SUSPICIOUS" | "QUARANTINED" }
+  | { type: "crawl"; organizationId: string; knowledgeBaseId: string; targetUrl: string; maxPages?: number };
+
+export const ingestionQueue = new Queue<IngestionJob>("ingestion", { connection, defaultJobOptions: { attempts: 3, backoff: { type: "exponential", delay: 5_000 }, removeOnComplete: 500, removeOnFail: 1_000 } });
 
 class QueueService {
-  private redis: Redis | null = null;
-  private isConnected = false;
-
-  constructor() {
-    try {
-      this.redis = new Redis(REDIS_URL, {
-        maxRetriesPerRequest: 1,
-        retryStrategy: () => null, // don't crash on connection refusal
-      });
-
-      this.redis.on("connect", () => {
-        this.isConnected = true;
-        console.log("Redis connected for background job queue");
-      });
-
-      this.redis.on("error", (err) => {
-        this.isConnected = false;
-        // Silent catch for dev/standalone mode
-      });
-    } catch (e) {
-      this.isConnected = false;
-    }
-  }
-
-  // Dispatch Document Ingestion Task
-  async enqueueDocumentIngestion(taskData: {
-    organizationId: string;
-    knowledgeBaseId: string;
-    title: string;
-    type: "faq" | "document";
-    content: string;
-  }) {
-    if (this.isConnected && this.redis) {
-      await this.redis.rpush("queue:ingestion", JSON.stringify({ type: "doc", payload: taskData }));
-    }
-
-    // Execute asynchronously without blocking request
-    setImmediate(async () => {
-      try {
-        await IngestionService.processTextDocument(taskData);
-      } catch (err) {
-        console.error("Background document ingestion error:", (err as Error).message);
-      }
-    });
-  }
-
-  // Dispatch Website Crawl Task
-  async enqueueWebsiteCrawl(taskData: {
-    organizationId: string;
-    knowledgeBaseId: string;
-    targetUrl: string;
-    maxPages?: number;
-  }) {
-    if (this.isConnected && this.redis) {
-      await this.redis.rpush("queue:ingestion", JSON.stringify({ type: "crawl", payload: taskData }));
-    }
-
-    setImmediate(async () => {
-      try {
-        await IngestionService.crawlWebsite(taskData);
-      } catch (err) {
-        console.error("Background website crawl error:", (err as Error).message);
-      }
-    });
-  }
+  async enqueueDocumentIngestion(job: Omit<Extract<IngestionJob, { type: "document" }>, "type">) { return ingestionQueue.add("document", { type: "document", ...job }); }
+  async enqueuePdfIngestion(job: Omit<Extract<IngestionJob, { type: "pdf" }>, "type">) { return ingestionQueue.add("pdf", { type: "pdf", ...job }); }
+  async enqueueWebsiteCrawl(job: Omit<Extract<IngestionJob, { type: "crawl" }>, "type">) { return ingestionQueue.add("crawl", { type: "crawl", ...job }); }
 }
 
 export const queueService = new QueueService();

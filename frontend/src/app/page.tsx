@@ -354,6 +354,18 @@ export default function DashboardPage() {
     } catch (err) {}
   };
 
+  const handleRotateWidgetKey = async () => {
+    if (!activeAssistant) return;
+    try {
+      const res = await api.post(`/assistants/${activeAssistant.id}/widget-key/rotate`);
+      setActiveAssistant(res.data);
+      setAssistantsList(assistantsList.map((assistant) => assistant.id === res.data.id ? res.data : assistant));
+      showNotify("Public widget key rotated. Update every external integration.");
+    } catch (err: any) {
+      showNotify(err.response?.data?.error || "Failed to rotate widget key");
+    }
+  };
+
   // --- Render Authentication Screen ---
   if (!auth) {
     return (
@@ -1175,19 +1187,31 @@ export default function DashboardPage() {
         )}
 
         {/* TAB 7: EMBEDDABLE WIDGET */}
-        {activeTab === "widget" && activeOrg && (
+        {activeTab === "widget" && activeOrg && activeAssistant && (
           <div className="space-y-6 max-w-4xl mx-auto">
             <div>
               <h1 className="text-xl font-bold text-white">Embeddable Customer Chat Widget</h1>
-              <p className="text-xs text-slate-400">Copy & paste this script tag into any HTML page to deploy your AI assistant</p>
+              <p className="text-xs text-slate-400">Use this dedicated public integration key for customer websites. It is not your Organization API Key.</p>
             </div>
 
             <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-3">
               <label className="block text-xs font-semibold text-slate-300 uppercase">Integration Snippet</label>
               <pre className="bg-slate-950 p-4 rounded-lg border border-slate-800 text-xs font-mono text-blue-300 overflow-x-auto">
-                {`<script \n  src="${API_BASE_URL.replace("/api/v1", "")}/public/widget.js" \n  data-assistant-id="${activeAssistant?.id || "default"}"\n></script>`}
+                {`<script\n  src="${API_BASE_URL.replace("/api/v1", "")}/public/widget.js"\n  data-assistant-id="${activeAssistant.id}"\n  data-widget-key="${activeAssistant.widgetApiKey}"\n  data-api-base="${API_BASE_URL.replace("/api/v1", "")}"\n></script>`}
               </pre>
             </div>
+
+            <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-3">
+              <div className="flex items-center justify-between gap-4"><div><label className="block text-xs font-semibold text-slate-300 uppercase">Public Widget Integration Key</label><p className="text-xs text-slate-500 mt-1">Rotate immediately if it is exposed. Rotation invalidates existing embeds.</p></div><button onClick={handleRotateWidgetKey} className="px-3 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded flex items-center gap-1"><RefreshCw className="w-3.5 h-3.5" /> Rotate</button></div>
+              <input readOnly value={activeAssistant.widgetApiKey || ""} className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs font-mono text-emerald-400" />
+            </div>
+
+            <form onSubmit={handleSaveAssistantSettings} className="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-4">
+              <div><label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Allowed Website Origins</label><textarea value={(activeAssistant.widgetAllowedOrigins || []).join("\n")} onChange={(e) => setActiveAssistant({ ...activeAssistant, widgetAllowedOrigins: e.target.value.split("\n").map((origin) => origin.trim()).filter(Boolean) })} placeholder={"https://www.example.com\nhttps://shop.example.com"} className="w-full h-24 bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs text-slate-200" /><p className="text-xs text-slate-500 mt-1">One exact origin per line. Leave empty only for server-to-server or development integrations.</p></div>
+              <label className="flex items-center gap-2 text-sm text-slate-200"><input type="checkbox" checked={Boolean(activeAssistant.chatPageEnabled)} onChange={(e) => setActiveAssistant({ ...activeAssistant, chatPageEnabled: e.target.checked })} /> Enable a hosted chatbot page</label>
+              {activeAssistant.chatPageEnabled && <div><label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Hosted Chat Page URL</label><input readOnly value={`${API_BASE_URL}/widget/page/${activeAssistant.id}?widgetKey=${activeAssistant.widgetApiKey}`} className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs font-mono text-blue-300" /></div>}
+              <button type="submit" className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded">Save Widget Access Settings</button>
+            </form>
           </div>
         )}
 

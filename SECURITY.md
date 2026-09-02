@@ -23,9 +23,9 @@ User Input ──► Rate Limiting & Validation ──► Authentication (JWT/Ke
 - Text content is pre-scanned during upload for poisoning patterns (e.g. `ignore previous instructions`, `reveal system prompt`, `output admin password`). Suspicious sources are marked `SUSPICIOUS` in database.
 
 ### 3. Web Crawler SSRF Prevention
-- URLs are pre-parsed and DNS is pre-resolved before making HTTP connections.
-- Private IPv4/v6 ranges (`127.0.0.1`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), cloud metadata endpoints (`169.254.169.254`), and non-HTTP/HTTPS protocols (`file://`, `gopher://`, `data://`) are blocked.
-- HTTP redirects are manually inspected and re-validated against IP filters.
+- URLs are limited to HTTP/HTTPS, all DNS A/AAAA answers are checked, and the validated IP is pinned for the outbound connection to prevent DNS rebinding.
+- Loopback, private, link-local/cloud-metadata (`169.254.169.254`), CGNAT, documentation, multicast, reserved IPv4 and local IPv6 ranges are blocked. `localhost`, `.local`, and `.internal` names are blocked.
+- Redirects are manual, limited to three hops, and each target is resolved and checked again. Responses must be HTML/plain text, finish within ten seconds, and remain below 5 MiB.
 
 ### 4. File Upload & Magic Byte Hardening
 - Uploaded files are validated against magic byte headers (`%PDF-1.x` for PDFs).
@@ -38,6 +38,33 @@ User Input ──► Rate Limiting & Validation ──► Authentication (JWT/Ke
 
 ### 6. Persistent Audit Logging
 - Privileged operations (`organization.update`, `ai.configure`, `api_key.regenerate`, `knowledge_base.delete`, `website.crawl_requested`) are logged to the `audit_logs` table with actor user IDs, IP addresses, and user agents.
+
+### 7. Public Widget Abuse Controls
+- `/public/widget.js` is cacheable static content. Widget configuration, sessions, messages, and especially LLM-backed messages are rate-limited in Redis across replicas and return `429` plus `Retry-After` when exhausted.
+- Production fails closed for public rate limiting if Redis is unavailable. Provider spend limits remain an additional tenant-level control.
+
+### 8. Scale-Out Controls
+- Socket.IO uses the Redis adapter so room events reach every API replica; the reverse proxy must retain WebSocket session affinity.
+- PDF, text, website, and embedding work is processed by retrying BullMQ workers rather than request handlers. pgvector similarity search is backed by a cosine HNSW index while tenant filters remain mandatory.
+
+### 9. Observability and Health
+- HTTP, Express, Redis, and background work are instrumented with OpenTelemetry. Set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` to export traces; structured JSON logs include only correlation metadata, never message content or secrets.
+- `/health/live` reports process liveness. `/health/ready` verifies PostgreSQL and Redis and returns `503` when the API must not receive traffic; `/health` remains a readiness-compatible alias.
+
+### 10. Tenant Quotas
+- `daily_token_budget` is a hard Redis-enforced budget per organization. Input estimates and maximum output tokens are reserved atomically before embedding and completion calls; exhaustion returns `429` and a reset time.
+- `widget_requests_per_minute` is an independent, tenant-scoped public-widget limit. Reservations can be reconciled downward when the AI gateway exposes actual provider usage metadata.
+
+### 11. Chat Streaming and Feedback
+- Widget streaming uses an SSE response with no-cache and proxy-buffering headers. Errors and quota exhaustion are represented as stream events without exposing provider details.
+- Feedback is bound to a tenant, conversation, and persisted AI message; the API validates all three before storing a rating. Operator feedback triage remains tenant-scoped.
+
+### 12. Privacy, retention, and provider resilience
+- Incoming widget messages are PII-redacted before they are persisted, embedded, logged, or sent to a provider. Detected categories are recorded only as event types, never as raw values.
+- Ingestion applies the same redaction before chunks and embeddings are stored. RAG context is delimited as untrusted data and cannot supersede system instructions.
+- Streaming responses are intercepted before emission; a trailing safety buffer permits cross-token secret detection and policy violations terminate the provider stream before unsafe text reaches the browser.
+- `DELETE /api/v1/customers/:id` is an owner/admin right-to-be-forgotten workflow. Foreign-key cascades remove the customer, conversations, messages, tickets, and comments. Knowledge-base embeddings are organization-owned rather than customer-owned and are deliberately not deleted by this request.
+- The Universal AI Gateway retries transient provider failures twice with exponential backoff. Three consecutive failures open a 30-second provider circuit; the configured fallback model is then attempted by the RAG layer without bypassing tenant quotas.
 
 ---
 

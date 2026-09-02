@@ -1,6 +1,7 @@
 import { CrawlerSecurity } from "../services/crawlerSecurity.js";
 import { FileSecurity } from "../services/fileSecurity.js";
 import { OutputSanitizer } from "../services/outputSanitizer.js";
+import { PiiRedactionService } from "../services/piiRedactionService.js";
 import { RAGService } from "../services/ragService.js";
 
 async function runSecurityTests() {
@@ -25,6 +26,9 @@ async function runSecurityTests() {
   assert(CrawlerSecurity.isPrivateIP("169.254.169.254") === true, "Block AWS Cloud Metadata IP 169.254.169.254");
   assert(CrawlerSecurity.isPrivateIP("10.0.0.1") === true, "Block Private IPv4 10.0.0.1");
   assert(CrawlerSecurity.isPrivateIP("192.168.1.1") === true, "Block Private IPv4 192.168.1.1");
+  assert(CrawlerSecurity.isPrivateIP("100.64.0.1") === true, "Block CGNAT IPv4");
+  assert(CrawlerSecurity.isPrivateIP("203.0.113.10") === true, "Block Documentation IPv4");
+  assert(CrawlerSecurity.isPrivateIP("fc00::1") === true, "Block Private IPv6");
   assert(CrawlerSecurity.isPrivateIP("8.8.8.8") === false, "Allow Public IP 8.8.8.8");
 
   try {
@@ -65,6 +69,8 @@ async function runSecurityTests() {
   const textWithSecret = "My API Key is sk-1234567890abcdef1234567890abcdef and token is eyJhbGciOiJIUzI1NiJ9.test.sig";
   const redactedText = OutputSanitizer.redactPIIAndSecrets(textWithSecret);
   assert(redactedText.includes("[REDACTED_API_KEY]") && redactedText.includes("[REDACTED_JWT]"), "Redact API Keys & JWT Secrets from AI Output");
+  const incomingPii = PiiRedactionService.redact("card 4242 4242 4242 4242 password: hunter2 email jane@example.com");
+  assert(incomingPii.text.includes("[REDACTED_CREDIT_CARD]") && incomingPii.text.includes("[REDACTED_PASSWORD]") && incomingPii.text.includes("[REDACTED_EMAIL]"), "Redact incoming support PII before LLM processing");
 
   // --- TEST GROUP 4: SENTIMENT & FRUSTRATION ESCALATION ---
   console.log("\n--- Test Group 4: Sentiment Analysis & Frustration Escalation ---");

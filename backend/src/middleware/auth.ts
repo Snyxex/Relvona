@@ -3,12 +3,15 @@ import jwt from "jsonwebtoken";
 import { db } from "../db/index.js";
 import { users, organizationMembers, organizations, apiKeys } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
+import { setLogContext } from "../observability/logger.js";
 
-const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET_CURRENT || process.env.JWT_SECRET;
+const PREVIOUS_JWT_SECRET = process.env.JWT_SECRET_PREVIOUS;
 if (process.env.NODE_ENV === "production" && !JWT_SECRET) {
-  throw new Error("JWT_SECRET must be configured in production");
+  throw new Error("JWT_SECRET_CURRENT must be injected in production");
 }
 const jwtSecret = JWT_SECRET || "development-only-jwt-secret-do-not-use-in-production";
+const verificationSecrets = [jwtSecret, PREVIOUS_JWT_SECRET].filter((secret): secret is string => Boolean(secret));
 
 export interface AuthRequest extends Request {
   user?: {
@@ -30,7 +33,15 @@ export function generateToken(payload: { userId: string; email: string; systemRo
 }
 
 export function verifyToken(token: string) {
-  return jwt.verify(token, jwtSecret) as { userId: string; email: string; systemRole: string };
+  let lastError: unknown;
+  for (const secret of verificationSecrets) {
+    try {
+      return jwt.verify(token, secret) as { userId: string; email: string; systemRole: string };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error("Invalid token");
 }
 
 // Middleware: Authenticate User JWT
@@ -94,6 +105,7 @@ export async function tenantContext(req: AuthRequest, res: Response, next: NextF
         slug: firstMembership.org.slug,
         role: firstMembership.member.role,
       };
+      setLogContext({ organizationId: req.organization.id });
 
       return next();
     }
@@ -134,6 +146,7 @@ export async function tenantContext(req: AuthRequest, res: Response, next: NextF
       slug: membership.org.slug,
       role: membership.member.role,
     };
+    setLogContext({ organizationId: req.organization.id });
 
     next();
   } catch (error) {
@@ -174,6 +187,7 @@ export async function authenticateApiKey(req: AuthRequest, res: Response, next: 
     slug: org.slug,
     role: "admin",
   };
+  setLogContext({ organizationId: org.id });
 
   next();
 }

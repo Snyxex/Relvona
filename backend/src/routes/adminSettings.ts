@@ -1,10 +1,11 @@
 import { Router } from "express";
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { analyticsEvents, auditLogs, modelRoutingRules, organizationSettings, organizations } from "../db/schema.js";
+import { analyticsEvents, auditLogs, messageFeedback, modelRoutingRules, organizationSettings, organizations, conversationMessages } from "../db/schema.js";
 import { authenticate, AuthRequest, requireRole, tenantContext } from "../middleware/auth.js";
 import { decryptSecret, encryptSecret } from "../utils/crypto.js";
 import { AuditService } from "../services/auditService.js";
+import { TenantQuotaService } from "../services/tenantQuotaService.js";
 
 const router = Router();
 const allowedModels = new Set(["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo", "nvidia-mistral", "nvidia/llama-3.1-8b-instruct"]);
@@ -63,6 +64,14 @@ router.put("/settings/models", async (req: AuthRequest, res) => {
   return res.json({ settings: publicSettings(settings) });
 });
 
+router.put("/settings/quotas", async (req: AuthRequest, res) => {
+  const body = req.body || {};
+  if (!Number.isInteger(body.dailyTokenBudget) || body.dailyTokenBudget < 1_000 || body.dailyTokenBudget > 100_000_000 || !Number.isInteger(body.widgetRequestsPerMinute) || body.widgetRequestsPerMinute < 1 || body.widgetRequestsPerMinute > 100_000) return res.status(400).json({ error: "Ungültige Quoten." });
+  const [settings] = await db.update(organizationSettings).set({ dailyTokenBudget: body.dailyTokenBudget, widgetRequestsPerMinute: body.widgetRequestsPerMinute, updatedAt: new Date() }).where(eq(organizationSettings.organizationId, req.organization!.id)).returning();
+  await AuditService.logAction({ organizationId: req.organization!.id, actorUserId: req.user!.id, action: "settings.quotas.update", resourceType: "organization_settings", resourceId: settings.id, metadata: { dailyTokenBudget: settings.dailyTokenBudget, widgetRequestsPerMinute: settings.widgetRequestsPerMinute }, ipAddress: ipOf(req) });
+  return res.json({ settings: publicSettings(settings) });
+});
+
 router.put("/settings/api-keys", async (req: AuthRequest, res) => {
   const body = req.body || {};
   if (body.openaiKey !== undefined && (typeof body.openaiKey !== "string" || body.openaiKey.length > 500)) return res.status(400).json({ error: "Ungültiger OpenAI-Key." });
@@ -87,12 +96,19 @@ router.post("/settings/test-key", async (req: AuthRequest, res) => {
 router.get("/settings/usage", async (req: AuthRequest, res) => {
   const since = new Date(); since.setDate(since.getDate() - (req.query.days === "30" ? 30 : 7));
   const events = await db.select({ eventType: analyticsEvents.eventType, count: sql<number>`count(*)` }).from(analyticsEvents).where(and(eq(analyticsEvents.organizationId, req.organization!.id), gte(analyticsEvents.createdAt, since))).groupBy(analyticsEvents.eventType);
-  return res.json({ periodDays: req.query.days === "30" ? 30 : 7, events, tokenUsageAvailable: false, message: "Token-Zähler werden erst angezeigt, sobald Provider-Nutzungsevents gespeichert werden." });
+  const settings = await settingsFor(req.organization!.id);
+  const reservedTokensToday = await TenantQuotaService.currentDailyTokenUsage(req.organization!.id);
+  return res.json({ periodDays: req.query.days === "30" ? 30 : 7, events, tokenUsageAvailable: reservedTokensToday !== null, reservedTokensToday, dailyTokenBudget: settings.dailyTokenBudget, usageAccounting: "reserved-estimate", message: "Provider usage is reconciled when the gateway exposes provider token metadata." });
 });
 
 router.get("/settings/audit-logs", async (req: AuthRequest, res) => {
   const logs = await db.select().from(auditLogs).where(eq(auditLogs.organizationId, req.organization!.id)).orderBy(desc(auditLogs.createdAt)).limit(100);
   return res.json(logs);
+});
+
+router.get("/settings/answer-feedback", async (req: AuthRequest, res) => {
+  const feedback = await db.select({ id: messageFeedback.id, rating: messageFeedback.rating, reason: messageFeedback.reason, createdAt: messageFeedback.createdAt, messageId: messageFeedback.messageId, answer: conversationMessages.content }).from(messageFeedback).innerJoin(conversationMessages, eq(messageFeedback.messageId, conversationMessages.id)).where(eq(messageFeedback.organizationId, req.organization!.id)).orderBy(desc(messageFeedback.createdAt)).limit(100);
+  return res.json(feedback);
 });
 
 router.put("/settings/organization", async (req: AuthRequest, res) => {

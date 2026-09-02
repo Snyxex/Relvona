@@ -4,7 +4,6 @@ import { authenticate, tenantContext, requireRole, AuthRequest } from "../middle
 import { db } from "../db/index.js";
 import { knowledgeBases, knowledgeSources, websites } from "../db/schema.js";
 import { eq, and, desc } from "drizzle-orm";
-import { IngestionService } from "../services/ingestionService.js";
 import { queueService } from "../services/queueService.js";
 import { FileSecurity } from "../services/fileSecurity.js";
 import { CrawlerSecurity } from "../services/crawlerSecurity.js";
@@ -128,22 +127,15 @@ router.post("/text", requireRole(["owner", "admin", "agent"]), async (req: AuthR
     // File/Text Poisoning Scan
     const scan = FileSecurity.scanForPoisoningPatterns(content);
 
-    const result = await IngestionService.processTextDocument({
+    const job = await queueService.enqueueDocumentIngestion({
       organizationId: req.organization!.id,
       knowledgeBaseId,
       title,
-      type: type === "faq" ? "faq" : "document",
+      sourceType: type === "faq" ? "faq" : "document",
       content,
+      securityStatus: scan.isSuspicious ? "SUSPICIOUS" : "SAFE",
     });
-
-    if (scan.isSuspicious) {
-      await db
-        .update(knowledgeSources)
-        .set({ securityStatus: "SUSPICIOUS" })
-        .where(eq(knowledgeSources.id, result.sourceId));
-    }
-
-    return res.status(201).json({ ...result, securityStatus: scan.isSuspicious ? "SUSPICIOUS" : "SAFE" });
+    return res.status(202).json({ jobId: job.id, status: "queued", securityStatus: scan.isSuspicious ? "SUSPICIOUS" : "SAFE" });
   } catch (error) {
     return res.status(500).json({ error: (error as Error).message });
   }
@@ -177,22 +169,15 @@ router.post("/pdf", requireRole(["owner", "admin", "agent"]), upload.single("fil
 
     const docTitle = title || validation.sanitizedFilename;
 
-    const result = await IngestionService.processPdfBuffer({
+    const job = await queueService.enqueuePdfIngestion({
       organizationId: req.organization!.id,
       knowledgeBaseId,
       title: docTitle,
-      buffer: req.file.buffer,
       filePath: validation.sanitizedFilename,
+      bufferBase64: req.file.buffer.toString("base64"),
+      securityStatus: validation.securityStatus,
     });
-
-    if (validation.securityStatus === "SUSPICIOUS") {
-      await db
-        .update(knowledgeSources)
-        .set({ securityStatus: "SUSPICIOUS" })
-        .where(eq(knowledgeSources.id, result.sourceId));
-    }
-
-    return res.status(201).json({ ...result, securityStatus: validation.securityStatus });
+    return res.status(202).json({ jobId: job.id, status: "queued", securityStatus: validation.securityStatus });
   } catch (error) {
     return res.status(500).json({ error: (error as Error).message });
   }
@@ -210,7 +195,7 @@ router.post("/crawl", requireRole(["owner", "admin"]), async (req: AuthRequest, 
     const { safeUrl } = await CrawlerSecurity.validateAndResolveUrl(targetUrl);
 
     // Queue crawl task
-    await queueService.enqueueWebsiteCrawl({
+    const job = await queueService.enqueueWebsiteCrawl({
       organizationId: req.organization!.id,
       knowledgeBaseId,
       targetUrl: safeUrl,
@@ -225,7 +210,7 @@ router.post("/crawl", requireRole(["owner", "admin"]), async (req: AuthRequest, 
       metadata: { targetUrl: safeUrl },
     });
 
-    return res.json({ message: "Website crawl queued successfully", targetUrl: safeUrl });
+    return res.status(202).json({ message: "Website crawl queued successfully", jobId: job.id, targetUrl: safeUrl });
   } catch (error) {
     return res.status(400).json({ error: (error as Error).message });
   }

@@ -4,6 +4,7 @@ import { db } from "../db/index.js";
 import { users, organizations, organizationMembers, assistants, knowledgeBases } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { generateToken } from "../middleware/auth.js";
+import { setDatabaseTenant } from "../db/tenantContext.js";
 
 export class AuthService {
   static async registerUser(data: { name: string; email: string; password: string; orgName: string }) {
@@ -39,11 +40,16 @@ export class AuthService {
       role: "owner",
     });
 
+    // The organization has just been created. Bind it before writing any
+    // tenant-owned rows so PostgreSQL RLS accepts only this new tenant.
+    setDatabaseTenant(newOrg.id);
+
     // 4. Create Default AI Assistant for Organization
     await db.insert(assistants).values({
       organizationId: newOrg.id,
       name: `${data.orgName} Support AI`,
       welcomeMessage: `Welcome to ${data.orgName}! How can we assist you today?`,
+      widgetApiKey: `wpk_${crypto.randomBytes(24).toString("base64url")}`,
     });
 
     // 5. Create Default Knowledge Base

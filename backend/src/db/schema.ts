@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uuid, integer, jsonb, boolean, vector, real, index } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, uuid, integer, jsonb, boolean, vector, real, index, uniqueIndex } from "drizzle-orm/pg-core";
 
 // 1. Organizations (Tenants)
 export const organizations = pgTable("organizations", {
@@ -80,6 +80,11 @@ export const assistants = pgTable("assistants", {
   handoffKeywords: jsonb("handoff_keywords").default(["human", "agent", "representative", "support person", "speak to someone", "operator"]),
   primaryColor: text("primary_color").default("#3B82F6").notNull(),
   welcomeMessage: text("welcome_message").default("Hello! How can I help you today?").notNull(),
+  // This identifies a browser integration; it is intentionally distinct from the
+  // organization API key, which must never be embedded in a customer website.
+  widgetApiKey: text("widget_api_key").unique(),
+  widgetAllowedOrigins: jsonb("widget_allowed_origins").default([]).notNull(),
+  chatPageEnabled: boolean("chat_page_enabled").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -192,6 +197,20 @@ export const conversationMessages = pgTable("conversation_messages", {
   convMsgIdx: index("conv_msg_idx").on(table.conversationId, table.createdAt),
 }));
 
+// Customer feedback for AI answers, used by tenant operators to improve sources.
+export const messageFeedback = pgTable("message_feedback", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
+  conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "cascade" }).notNull(),
+  messageId: uuid("message_id").references(() => conversationMessages.id, { onDelete: "cascade" }).notNull(),
+  rating: integer("rating").notNull(), // 1 = helpful, -1 = not helpful
+  reason: text("reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  feedbackMessageIdx: index("feedback_message_idx").on(table.organizationId, table.messageId),
+  feedbackMessageUnique: uniqueIndex("feedback_message_unique").on(table.organizationId, table.conversationId, table.messageId),
+}));
+
 // 14. Support Tickets
 export const tickets = pgTable("tickets", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -258,6 +277,8 @@ export const organizationSettings = pgTable("organization_settings", {
   simpleModel: text("simple_model").default("gpt-4o-mini").notNull(),
   temperature: real("temperature").default(0.2).notNull(),
   maxTokens: integer("max_tokens").default(500).notNull(),
+  dailyTokenBudget: integer("daily_token_budget").default(100000).notNull(),
+  widgetRequestsPerMinute: integer("widget_requests_per_minute").default(120).notNull(),
   openaiKeyEncrypted: text("openai_key_encrypted"),
   nvidiaKeyEncrypted: text("nvidia_key_encrypted"),
   costAlertThreshold: real("cost_alert_threshold").default(50).notNull(),
