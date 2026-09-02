@@ -18,6 +18,8 @@ export interface AuthRequest extends Request {
     id: string;
     email: string;
     name: string;
+    avatarUrl: string | null;
+    preferredLanguage: string;
     systemRole: string;
   };
   organization?: {
@@ -64,6 +66,8 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
       id: user.id,
       email: user.email,
       name: user.name,
+      avatarUrl: user.avatarUrl,
+      preferredLanguage: user.preferredLanguage,
       systemRole: user.systemRole,
     };
 

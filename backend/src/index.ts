@@ -57,7 +57,7 @@ app.use(express.urlencoded({ extended: true, limit: "20mb" }));
 
 // Serve static widget JS files
 const publicDir = path.join(process.cwd(), "public");
-app.use("/public", express.static(publicDir, { maxAge: "1h", immutable: true }));
+app.use("/public", express.static(publicDir, { maxAge: "5m" }));
 
 // API Routes
 app.use("/api", apiRouter);

@@ -10,6 +10,9 @@ async function main() {
     await client.query("ALTER TABLE public.assistants ADD COLUMN IF NOT EXISTS widget_api_key text");
     await client.query("ALTER TABLE public.assistants ADD COLUMN IF NOT EXISTS widget_allowed_origins jsonb NOT NULL DEFAULT '[]'::jsonb");
     await client.query("ALTER TABLE public.assistants ADD COLUMN IF NOT EXISTS chat_page_enabled boolean NOT NULL DEFAULT false");
+    await client.query("ALTER TABLE public.assistants ADD COLUMN IF NOT EXISTS widget_settings jsonb NOT NULL DEFAULT '{}'::jsonb");
+    await client.query("ALTER TABLE public.assistants ADD COLUMN IF NOT EXISTS model_profiles jsonb NOT NULL DEFAULT '[]'::jsonb");
+    await client.query("ALTER TABLE public.assistants ADD COLUMN IF NOT EXISTS active_model_profile_id text");
     await client.query("CREATE UNIQUE INDEX IF NOT EXISTS assistants_widget_api_key_unique ON public.assistants (widget_api_key)");
     console.log("Verified widget integration schema.");
   } finally {

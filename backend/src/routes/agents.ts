@@ -2,7 +2,7 @@ import { Router } from "express";
 import { authenticate, tenantContext, AuthRequest } from "../middleware/auth.js";
 import { db } from "../db/index.js";
 import { organizationMembers, users } from "../db/schema.js";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 const router = Router();
 router.use(authenticate);
@@ -20,7 +20,7 @@ router.get("/", async (req: AuthRequest, res) => {
       })
       .from(organizationMembers)
       .innerJoin(users, eq(organizationMembers.userId, users.id))
-      .where(eq(organizationMembers.organizationId, req.organization!.id));
+      .where(and(eq(organizationMembers.organizationId, req.organization!.id), eq(organizationMembers.role, "agent")));
 
     return res.json(agents);
   } catch (error) {

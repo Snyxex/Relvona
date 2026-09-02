@@ -32,12 +32,32 @@ import {
   BookOpen
 } from "lucide-react";
 import { api, API_BASE_URL } from "@/lib/api";
+import { DashboardLanguage, localizeDashboard } from "@/lib/dashboard-i18n";
+
+const DEFAULT_WIDGET_SETTINGS = {
+  primaryColor: "#3B82F6",
+  backgroundColor: "#F8FAFC",
+  surfaceColor: "#FFFFFF",
+  agentBubbleColor: "#E2E8F0",
+  textColor: "#0F172A",
+  borderRadius: 16,
+  launcherRadius: 30,
+  launcherSize: 60,
+  windowWidth: 380,
+  offset: 24,
+  position: "bottom-right",
+  fontFamily: "sans",
+  launcherIcon: "💬",
+  headerTitle: "",
+  inputPlaceholder: "Wie können wir helfen?",
+  sendLabel: "Senden",
+};
 
 export default function DashboardPage() {
   const [auth, setAuth] = useState<{ user: any; organizations: any[]; token: string } | null>(null);
   const [activeOrg, setActiveOrg] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<
-    "overview" | "conversations" | "tickets" | "knowledge" | "websites" | "assistant" | "agents" | "customers" | "analytics" | "widget" | "settings"
+    "overview" | "conversations" | "tickets" | "knowledge" | "websites" | "assistant" | "agents" | "customers" | "analytics" | "widget" | "settings" | "profile"
   >("overview");
 
   // Auth Form State
@@ -78,6 +98,10 @@ export default function DashboardPage() {
   const [crawlUrl, setCrawlUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
+  const [preferredLanguage, setPreferredLanguage] = useState("de");
+  const [translations, setTranslations] = useState<Record<string, string>>({});
+  const [profileName, setProfileName] = useState("");
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState<string | null>(null);
 
   // Check saved auth on mount
   useEffect(() => {
@@ -91,6 +115,9 @@ export default function DashboardPage() {
         const user = JSON.parse(savedUser);
         const orgs = JSON.parse(savedOrgs);
         setAuth({ user, organizations: orgs, token });
+        setPreferredLanguage(user.preferredLanguage || "de");
+        setProfileName(user.name || "");
+        setProfileAvatarUrl(user.avatarUrl || null);
 
         const currentOrg = orgs.find((o: any) => o.id === activeOrgId) || orgs[0];
         if (currentOrg) {
@@ -102,6 +129,15 @@ export default function DashboardPage() {
       }
     }
   }, []);
+
+  useEffect(() => {
+    const language = preferredLanguage as DashboardLanguage;
+    const updateLanguage = () => localizeDashboard(language);
+    updateLanguage();
+    const observer = new MutationObserver(updateLanguage);
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    return () => observer.disconnect();
+  }, [preferredLanguage]);
 
   // Fetch tenant data when active organization changes
   useEffect(() => {
@@ -128,6 +164,9 @@ export default function DashboardPage() {
       localStorage.setItem("orgs_info", JSON.stringify(organizations));
 
       setAuth({ user, organizations, token });
+      setPreferredLanguage(user.preferredLanguage || "de");
+      setProfileName(user.name || "");
+      setProfileAvatarUrl(user.avatarUrl || null);
       if (organizations.length > 0) {
         setActiveOrg(organizations[0]);
         localStorage.setItem("active_org_id", organizations[0].id);
@@ -159,6 +198,9 @@ export default function DashboardPage() {
       localStorage.setItem("active_org_id", organization.id);
 
       setAuth({ user, organizations: orgs, token });
+      setPreferredLanguage(user.preferredLanguage || "de");
+      setProfileName(user.name || "");
+      setProfileAvatarUrl(user.avatarUrl || null);
       setActiveOrg(organization);
       showNotify(`Organization ${organization.name} created successfully!`);
     } catch (err: any) {
@@ -311,6 +353,58 @@ export default function DashboardPage() {
       const res = await api.get(`/conversations/${conv.id}/messages`);
       setConvMessages(res.data);
     } catch (err) {}
+  };
+
+  const handlePreferredLanguageChange = async (language: string) => {
+    try {
+      await api.patch("/auth/me/preferences", { preferredLanguage: language });
+      setPreferredLanguage(language);
+      if (auth) {
+        const user = { ...auth.user, preferredLanguage: language };
+        const nextAuth = { ...auth, user };
+        setAuth(nextAuth);
+        localStorage.setItem("user_info", JSON.stringify(user));
+      }
+      showNotify("Dashboard language saved");
+    } catch (err: any) {
+      showNotify(err.response?.data?.error || "Could not save dashboard language");
+    }
+  };
+
+  const handleProfileImage = (file: File | undefined) => {
+    if (!file) return;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 1024 * 1024) {
+      showNotify("Use a PNG, JPEG, or WebP image up to 1 MB");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setProfileAvatarUrl(typeof reader.result === "string" ? reader.result : null);
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveProfile = async (event: React.FormEvent) => {
+    event.preventDefault();
+    try {
+      const res = await api.patch("/auth/me/preferences", { name: profileName, avatarUrl: profileAvatarUrl, preferredLanguage });
+      if (auth) {
+        const user = { ...auth.user, ...res.data };
+        setAuth({ ...auth, user });
+        localStorage.setItem("user_info", JSON.stringify(user));
+      }
+      showNotify("Profile saved");
+    } catch (err: any) {
+      showNotify(err.response?.data?.error || "Could not save profile");
+    }
+  };
+
+  const handleTranslateMessage = async (message: any) => {
+    if (!selectedConv || translations[message.id]) return;
+    try {
+      const res = await api.post(`/conversations/${selectedConv.id}/messages/${message.id}/translation`, { targetLanguage: preferredLanguage });
+      setTranslations((current) => ({ ...current, [message.id]: res.data.translatedContent }));
+    } catch (err: any) {
+      showNotify(err.response?.data?.error || "Translation failed");
+    }
   };
 
   const handleSendAgentMessage = async (e: React.FormEvent) => {
@@ -490,6 +584,12 @@ export default function DashboardPage() {
     );
   }
 
+  const widgetSettings = { ...DEFAULT_WIDGET_SETTINGS, ...(activeAssistant?.widgetSettings || {}) };
+  const updateWidgetSetting = (key: string, value: string | number) => {
+    if (!activeAssistant) return;
+    setActiveAssistant({ ...activeAssistant, widgetSettings: { ...widgetSettings, [key]: value } });
+  };
+
   // --- Main SaaS Dashboard Layout ---
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">
@@ -554,8 +654,9 @@ export default function DashboardPage() {
               { id: "agents", label: "Support Agents", icon: Users },
               { id: "customers", label: "Customer Directory", icon: UserCheck },
               { id: "analytics", label: "Analytics & Insights", icon: Sparkles },
-              { id: "widget", label: "Embeddable Widget", icon: Code },
+              { id: "widget", label: "Widget Designer", icon: Sliders },
               { id: "settings", label: "Organization Settings", icon: Settings },
+              { id: "profile", label: "My Profile", icon: UserCheck },
             ].map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
@@ -578,8 +679,8 @@ export default function DashboardPage() {
         {/* User Profile & Logout */}
         <div className="p-3 border-t border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2 overflow-hidden">
-            <div className="w-7 h-7 rounded-full bg-slate-700 flex items-center justify-center font-bold text-xs">
-              {auth.user.name.charAt(0)}
+            <div className="w-7 h-7 overflow-hidden rounded-full bg-slate-700 flex items-center justify-center font-bold text-xs">
+              {auth.user.avatarUrl ? <img src={auth.user.avatarUrl} alt="" className="h-full w-full object-cover" /> : auth.user.name.charAt(0)}
             </div>
             <div className="truncate">
               <p className="text-xs font-medium text-slate-200 truncate">{auth.user.name}</p>
@@ -598,6 +699,32 @@ export default function DashboardPage() {
 
       {/* Main Content Area */}
       <main className="flex-1 bg-slate-950 overflow-y-auto p-6">
+        {activeTab === "profile" && (
+          <div className="mx-auto max-w-2xl space-y-6">
+            <div><h1 className="text-xl font-bold text-white">My Profile</h1><p className="text-xs text-slate-400">Manage your name, profile image, and preferred dashboard language.</p></div>
+            <form onSubmit={handleSaveProfile} className="space-y-5 rounded-xl border border-slate-800 bg-slate-900 p-6">
+              <div className="flex items-center gap-4">
+                <div className="h-16 w-16 overflow-hidden rounded-full bg-slate-700 text-xl font-bold flex items-center justify-center">
+                  {profileAvatarUrl ? <img src={profileAvatarUrl} alt="Profile preview" className="h-full w-full object-cover" /> : (profileName || auth.user.name).charAt(0)}
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-xs font-semibold text-slate-300">Profile image</label>
+                  <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => handleProfileImage(event.target.files?.[0])} className="block text-xs text-slate-400 file:mr-3 file:rounded file:border-0 file:bg-slate-700 file:px-3 file:py-1.5 file:text-xs file:text-slate-100" />
+                  {profileAvatarUrl && <button type="button" onClick={() => setProfileAvatarUrl(null)} className="text-xs text-red-300 hover:text-red-200">Remove image</button>}
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-300">Name</label>
+                <input required minLength={2} maxLength={100} value={profileName} onChange={(event) => setProfileName(event.target.value)} className="w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-300">Preferred language</label>
+                <select value={preferredLanguage} onChange={(event) => setPreferredLanguage(event.target.value)} className="w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"><option value="de">Deutsch</option><option value="en">English</option><option value="es">Español</option><option value="fr">Français</option></select>
+              </div>
+              <button type="submit" className="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500">Save profile</button>
+            </form>
+          </div>
+        )}
         {/* TAB 1: OVERVIEW */}
         {activeTab === "overview" && (
           <div className="space-y-6 max-w-7xl mx-auto">
@@ -672,9 +799,12 @@ export default function DashboardPage() {
         {/* ANALYTICS & INSIGHTS */}
         {activeTab === "analytics" && (
           <div className="space-y-6 max-w-7xl mx-auto">
-            <div>
-              <h1 className="text-xl font-bold text-white">Analytics & Insights</h1>
-              <p className="text-xs text-slate-400">Measure support workload, AI resolution, handoffs, and knowledge-base coverage.</p>
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h1 className="text-xl font-bold text-white">Analytics & Insights</h1>
+                <p className="text-xs text-slate-400">Measure support workload, AI resolution, handoffs, and knowledge-base coverage.</p>
+              </div>
+              <button onClick={fetchTenantData} className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800">Refresh data</button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               {[
@@ -689,6 +819,29 @@ export default function DashboardPage() {
                 </div>
               ))}
             </div>
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+              <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
+                <p className="text-xs font-medium text-slate-400">AI resolution</p>
+                <div className="mt-4 flex items-center gap-5">
+                  <div className="grid h-24 w-24 place-items-center rounded-full" style={{ background: `conic-gradient(#10b981 ${(overviewMetrics?.resolutionRate ?? 0) * 3.6}deg, #1e293b 0deg)` }}>
+                    <div className="grid h-16 w-16 place-items-center rounded-full bg-slate-900 text-center"><span className="text-lg font-bold text-white">{overviewMetrics?.resolutionRate ?? 0}%</span></div>
+                  </div>
+                  <p className="max-w-[160px] text-xs leading-relaxed text-slate-400">Share of conversations resolved without waiting for a human agent.</p>
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
+                <p className="text-xs font-medium text-slate-400">Human workload</p>
+                <p className="mt-3 text-3xl font-bold text-amber-400">{overviewMetrics?.handoffs || 0}</p>
+                <p className="mt-1 text-xs text-slate-500">conversations currently requiring agent attention</p>
+                <div className="mt-4 h-2 overflow-hidden rounded bg-slate-800"><div className="h-full rounded bg-amber-400" style={{ width: `${Math.min(100, ((overviewMetrics?.handoffs || 0) / Math.max(overviewMetrics?.totalConversations || 1, 1)) * 100)}%` }} /></div>
+              </div>
+              <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
+                <p className="text-xs font-medium text-slate-400">Knowledge readiness</p>
+                <p className="mt-3 text-3xl font-bold text-blue-400">{overviewMetrics?.totalKnowledgeSources || 0}</p>
+                <p className="mt-1 text-xs text-slate-500">sources indexed into {overviewMetrics?.totalDocumentChunks || 0} searchable chunks</p>
+                <div className="mt-4 flex gap-1">{Array.from({ length: 10 }).map((_, index) => <span key={index} className={`h-2 flex-1 rounded ${index < Math.min(10, overviewMetrics?.totalKnowledgeSources || 0) ? "bg-blue-400" : "bg-slate-800"}`} />)}</div>
+              </div>
+            </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
                 <h2 className="text-sm font-semibold text-white">Conversation states</h2>
@@ -696,20 +849,22 @@ export default function DashboardPage() {
                   {Object.entries(overviewMetrics?.stateBreakdown || {}).map(([state, count]) => {
                     const total = overviewMetrics?.totalConversations || 1;
                     const width = Math.max(3, (Number(count) / total) * 100);
-                    return <div key={state}><div className="mb-1 flex justify-between text-xs text-slate-400"><span>{state.replaceAll("_", " ")}</span><span>{String(count)}</span></div><div className="h-2 overflow-hidden rounded bg-slate-800"><div className="h-full rounded bg-blue-500" style={{ width: `${width}%` }} /></div></div>;
+                    const stateLabels: Record<string, string> = { AI_ACTIVE: "AI active", WAITING_FOR_AGENT: "Waiting for agent", AGENT_ACTIVE: "Agent active", RESOLVED: "Resolved" };
+                    const colors: Record<string, string> = { AI_ACTIVE: "bg-blue-500", WAITING_FOR_AGENT: "bg-amber-400", AGENT_ACTIVE: "bg-violet-500", RESOLVED: "bg-emerald-500" };
+                    return <div key={state}><div className="mb-1 flex justify-between text-xs text-slate-400"><span>{stateLabels[state] || state.replaceAll("_", " ")}</span><span>{String(count)} · {Math.round((Number(count) / total) * 100)}%</span></div><div className="h-2 overflow-hidden rounded bg-slate-800"><div className={`h-full rounded ${colors[state] || "bg-slate-500"}`} style={{ width: `${width}%` }} /></div></div>;
                   })}
                 </div>
               </div>
               <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
                 <h2 className="text-sm font-semibold text-white">Detected languages</h2>
                 <div className="mt-4 space-y-3">
-                  {overviewMetrics?.languageBreakdown?.length ? overviewMetrics.languageBreakdown.map((entry: any) => <div key={entry.language} className="flex justify-between rounded bg-slate-800/60 px-3 py-2 text-xs"><span className="uppercase text-slate-300">{entry.language}</span><span className="font-semibold text-white">{entry.count}</span></div>) : <p className="text-xs text-slate-500">No conversation data yet.</p>}
+                  {overviewMetrics?.languageBreakdown?.length ? overviewMetrics.languageBreakdown.map((entry: any) => { const total = overviewMetrics?.totalConversations || 1; const share = Math.round((entry.count / total) * 100); return <div key={entry.language} className="rounded bg-slate-800/60 px-3 py-2 text-xs"><div className="flex justify-between"><span className="uppercase text-slate-300">{entry.language}</span><span className="font-semibold text-white">{entry.count} · {share}%</span></div><div className="mt-2 h-1.5 overflow-hidden rounded bg-slate-700"><div className="h-full rounded bg-cyan-400" style={{ width: `${share}%` }} /></div></div>; }) : <p className="text-xs text-slate-500">No conversation data yet.</p>}
                 </div>
               </div>
             </div>
             <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
-              <h2 className="text-sm font-semibold text-white">Questions needing attention</h2>
-              <div className="mt-3 space-y-2">{overviewMetrics?.unansweredQuestions?.length ? overviewMetrics.unansweredQuestions.map((question: any) => <div key={question.id} className="rounded bg-amber-950/30 px-3 py-2 text-xs text-amber-200">{question.question}</div>) : <p className="text-xs text-slate-500">No unanswered questions or pending handoffs.</p>}</div>
+              <div className="flex items-center justify-between"><h2 className="text-sm font-semibold text-white">Questions needing attention</h2><span className="rounded bg-amber-950 px-2 py-1 text-[10px] font-semibold text-amber-300">{overviewMetrics?.unansweredQuestions?.length || 0} open</span></div>
+              <div className="mt-3 space-y-2">{overviewMetrics?.unansweredQuestions?.length ? overviewMetrics.unansweredQuestions.map((question: any) => <div key={question.id} className="flex items-start justify-between gap-4 rounded border border-amber-900/50 bg-amber-950/30 px-3 py-3 text-xs text-amber-100"><span>{question.question}</span><span className="shrink-0 text-[10px] text-amber-400">{question.timestamp ? new Date(question.timestamp).toLocaleString() : ""}</span></div>) : <p className="text-xs text-slate-500">No unanswered questions or pending handoffs.</p>}</div>
             </div>
           </div>
         )}
@@ -818,6 +973,15 @@ export default function DashboardPage() {
                       >
                         <div className="font-semibold text-[10px] opacity-75 mb-1">{m.senderName || m.senderType}</div>
                         <p className="leading-relaxed">{m.content}</p>
+                        {m.senderType === "customer" && (
+                          <div className="mt-2 border-t border-white/15 pt-2">
+                            {translations[m.id] ? (
+                              <p className="leading-relaxed text-white/80"><span className="mr-1 text-[10px] font-semibold uppercase opacity-70">{preferredLanguage}</span>{translations[m.id]}</p>
+                            ) : (
+                              <button type="button" onClick={() => handleTranslateMessage(m)} className="text-[10px] font-medium text-blue-200 hover:text-white">Übersetzen ({preferredLanguage.toUpperCase()})</button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1077,7 +1241,15 @@ export default function DashboardPage() {
           <div className="space-y-6 max-w-4xl mx-auto">
             <div>
               <h1 className="text-xl font-bold text-white">AI Assistant Configuration</h1>
-              <p className="text-xs text-slate-400">Customize model selection, temperature, system prompts, and handoff triggers</p>
+              <p className="text-xs text-slate-400">Richte mehrere Provider und Modelle ein und wähle die aktive Konfiguration für Kundenanfragen.</p>
+            </div>
+
+            <div className="rounded-xl border border-blue-800/70 bg-blue-950/30 p-4 flex items-center justify-between gap-4"><div><p className="text-[11px] font-semibold uppercase tracking-wide text-blue-300">Aktiv für neue Antworten</p><p className="mt-1 text-sm font-semibold text-white">{(activeAssistant.modelProfiles || []).find((profile: any) => profile.id === activeAssistant.activeModelProfileId)?.label || "Standard-Konfiguration"}</p><p className="text-xs text-slate-400">{(activeAssistant.modelProfiles || []).find((profile: any) => profile.id === activeAssistant.activeModelProfileId)?.provider || activeAssistant.modelProvider} · {(activeAssistant.modelProfiles || []).find((profile: any) => profile.id === activeAssistant.activeModelProfileId)?.modelName || activeAssistant.modelName}</p></div><span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-300">Live</span></div>
+
+            <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between gap-4"><div><h2 className="text-sm font-semibold text-white">Modell- & Provider-Konfigurationen</h2><p className="mt-1 text-xs text-slate-500">API-Schlüssel werden verschlüsselt gespeichert und nach dem Speichern nicht erneut angezeigt.</p></div><button type="button" disabled={(activeAssistant.modelProfiles || []).length >= 8} onClick={() => { const id = `model_${Date.now().toString(36)}`; setActiveAssistant({ ...activeAssistant, modelProfiles: [...(activeAssistant.modelProfiles || []), { id, label: "Neue Konfiguration", provider: "openai", modelName: "gpt-4o-mini", baseUrl: "", apiKey: "" }] }); }} className="shrink-0 rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600 disabled:opacity-50"><Plus className="mr-1 inline h-3.5 w-3.5" /> Hinzufügen</button></div>
+              {(activeAssistant.modelProfiles || []).length === 0 && <div className="rounded-lg border border-dashed border-slate-700 p-4 text-xs text-slate-400">Zurzeit wird die Standard-Konfiguration unten verwendet. Füge eine Konfiguration hinzu, um etwa OpenAI, Claude, Gemini oder ein lokales Modell hinterlegen zu können.</div>}
+              {(activeAssistant.modelProfiles || []).map((profile: any, index: number) => <div key={profile.id} className={`rounded-lg border p-4 ${activeAssistant.activeModelProfileId === profile.id ? "border-blue-600 bg-blue-950/20" : "border-slate-700 bg-slate-800/50"}`}><div className="mb-3 flex items-center justify-between gap-2"><label className="flex items-center gap-2 text-xs font-semibold text-slate-200"><input type="radio" name="active-model-profile" checked={activeAssistant.activeModelProfileId === profile.id} onChange={() => setActiveAssistant({ ...activeAssistant, activeModelProfileId: profile.id })} /> Diese Konfiguration aktiv verwenden</label><button type="button" onClick={() => { const modelProfiles = (activeAssistant.modelProfiles || []).filter((item: any) => item.id !== profile.id); setActiveAssistant({ ...activeAssistant, modelProfiles, activeModelProfileId: activeAssistant.activeModelProfileId === profile.id ? null : activeAssistant.activeModelProfileId }); }} className="text-slate-500 hover:text-red-300" title="Konfiguration entfernen"><Trash2 className="h-4 w-4" /></button></div><div className="grid gap-3 md:grid-cols-2"><label><span className="mb-1 block text-[11px] font-medium text-slate-400">Name der Konfiguration</span><input value={profile.label || ""} maxLength={60} onChange={(e) => setActiveAssistant({ ...activeAssistant, modelProfiles: (activeAssistant.modelProfiles || []).map((item: any) => item.id === profile.id ? { ...item, label: e.target.value } : item) })} className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100" /></label><label><span className="mb-1 block text-[11px] font-medium text-slate-400">Provider</span><select value={profile.provider} onChange={(e) => setActiveAssistant({ ...activeAssistant, modelProfiles: (activeAssistant.modelProfiles || []).map((item: any) => item.id === profile.id ? { ...item, provider: e.target.value } : item) })} className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="google">Google Gemini</option><option value="nvidia">NVIDIA NIM</option><option value="local">Local / Ollama / LocalAI</option></select></label><label><span className="mb-1 block text-[11px] font-medium text-slate-400">Modell</span><input value={profile.modelName || ""} maxLength={160} placeholder="z. B. gpt-4o-mini" onChange={(e) => setActiveAssistant({ ...activeAssistant, modelProfiles: (activeAssistant.modelProfiles || []).map((item: any) => item.id === profile.id ? { ...item, modelName: e.target.value } : item) })} className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 font-mono text-xs text-slate-100" /></label><label><span className="mb-1 block text-[11px] font-medium text-slate-400">API-Schlüssel {profile.apiKeyConfigured ? "(gespeichert)" : ""}</span><input type="password" value={profile.apiKey || ""} placeholder={profile.apiKeyConfigured ? "Unverändert lassen" : "API-Schlüssel eingeben"} onChange={(e) => setActiveAssistant({ ...activeAssistant, modelProfiles: (activeAssistant.modelProfiles || []).map((item: any) => item.id === profile.id ? { ...item, apiKey: e.target.value } : item) })} className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 font-mono text-xs text-slate-100" /></label>{profile.provider === "local" && <label className="md:col-span-2"><span className="mb-1 block text-[11px] font-medium text-slate-400">Lokale Base URL</span><input value={profile.baseUrl || ""} placeholder="http://localhost:11434/v1" onChange={(e) => setActiveAssistant({ ...activeAssistant, modelProfiles: (activeAssistant.modelProfiles || []).map((item: any) => item.id === profile.id ? { ...item, baseUrl: e.target.value } : item) })} className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 font-mono text-xs text-slate-100" /></label>}</div><p className="mt-3 text-[10px] text-slate-500">Konfiguration {index + 1} · Änderungen mit „Save Universal AI Gateway Settings“ speichern.</p></div>)}
             </div>
 
             <form onSubmit={handleSaveAssistantSettings} className="bg-slate-900 border border-slate-800 p-6 rounded-xl space-y-5">
@@ -1190,8 +1362,32 @@ export default function DashboardPage() {
         {activeTab === "widget" && activeOrg && activeAssistant && (
           <div className="space-y-6 max-w-4xl mx-auto">
             <div>
-              <h1 className="text-xl font-bold text-white">Embeddable Customer Chat Widget</h1>
-              <p className="text-xs text-slate-400">Use this dedicated public integration key for customer websites. It is not your Organization API Key.</p>
+              <h1 className="text-xl font-bold text-white">Widget Designer</h1>
+              <p className="text-xs text-slate-400">Gestalte das Kunden-Chatfenster und sieh jede Änderung sofort in der Vorschau.</p>
+            </div>
+
+            <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
+              <form onSubmit={handleSaveAssistantSettings} className="rounded-xl border border-slate-800 bg-slate-900 p-5 space-y-5">
+                <div className="flex items-center justify-between"><div><h2 className="text-sm font-semibold text-white">Erscheinungsbild</h2><p className="text-xs text-slate-500 mt-1">Die Einstellungen gelten für alle eingebundenen Widgets dieses Assistenten.</p></div><button type="submit" className="rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-500">Design speichern</button></div>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {[
+                    ["primaryColor", "Akzentfarbe"], ["backgroundColor", "Chat-Hintergrund"], ["surfaceColor", "Flächen"], ["agentBubbleColor", "KI-Nachrichten"], ["textColor", "Textfarbe"],
+                  ].map(([key, label]) => <label key={key} className="space-y-1"><span className="block text-[11px] font-medium text-slate-400">{label}</span><div className="flex rounded border border-slate-700 bg-slate-800 p-1"><input type="color" value={String(widgetSettings[key as keyof typeof widgetSettings])} onChange={(e) => updateWidgetSetting(key, e.target.value)} className="h-7 w-9 cursor-pointer bg-transparent" /><input value={String(widgetSettings[key as keyof typeof widgetSettings])} onChange={(e) => updateWidgetSetting(key, e.target.value)} className="min-w-0 flex-1 bg-transparent px-1 text-xs text-slate-200 outline-none" /></div></label>)}
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="space-y-1"><span className="block text-[11px] font-medium text-slate-400">Schriftart</span><select value={widgetSettings.fontFamily} onChange={(e) => updateWidgetSetting("fontFamily", e.target.value)} className="w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-100"><option value="sans">Modern Sans</option><option value="serif">Klassisch Serif</option><option value="mono">Monospace</option></select></label>
+                  <label className="space-y-1"><span className="block text-[11px] font-medium text-slate-400">Position</span><select value={widgetSettings.position} onChange={(e) => updateWidgetSetting("position", e.target.value)} className="w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-100"><option value="bottom-right">Unten rechts</option><option value="bottom-left">Unten links</option></select></label>
+                  <label className="space-y-1"><span className="block text-[11px] font-medium text-slate-400">Überschrift</span><input maxLength={80} value={widgetSettings.headerTitle} placeholder={activeAssistant.name} onChange={(e) => updateWidgetSetting("headerTitle", e.target.value)} className="w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-100" /></label>
+                  <label className="space-y-1"><span className="block text-[11px] font-medium text-slate-400">Launcher-Symbol</span><input maxLength={4} value={widgetSettings.launcherIcon} onChange={(e) => updateWidgetSetting("launcherIcon", e.target.value)} className="w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-100" /></label>
+                  <label className="space-y-1"><span className="block text-[11px] font-medium text-slate-400">Eingabe-Hinweis</span><input maxLength={120} value={widgetSettings.inputPlaceholder} onChange={(e) => updateWidgetSetting("inputPlaceholder", e.target.value)} className="w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-100" /></label>
+                  <label className="space-y-1"><span className="block text-[11px] font-medium text-slate-400">Senden-Text</span><input maxLength={30} value={widgetSettings.sendLabel} onChange={(e) => updateWidgetSetting("sendLabel", e.target.value)} className="w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-100" /></label>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {[["borderRadius", "Fenster-Rundung", 0, 32], ["launcherSize", "Button-Größe", 44, 80], ["windowWidth", "Fenster-Breite", 300, 520], ["offset", "Abstand zum Rand", 12, 48]].map(([key, label, min, max]) => <label key={String(key)} className="space-y-2"><span className="flex justify-between text-[11px] font-medium text-slate-400"><span>{label}</span><span>{widgetSettings[key as keyof typeof widgetSettings]} px</span></span><input type="range" min={Number(min)} max={Number(max)} value={Number(widgetSettings[key as keyof typeof widgetSettings])} onChange={(e) => updateWidgetSetting(String(key), Number(e.target.value))} className="w-full accent-blue-500" /></label>)}
+                </div>
+              </form>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-900 p-5"><h2 className="text-sm font-semibold text-white">Live-Vorschau</h2><p className="mt-1 text-xs text-slate-500">So erscheint der Chat auf deiner Website.</p><div className="relative mt-4 h-[500px] overflow-hidden rounded-lg border border-slate-700 bg-slate-800" style={{ background: "linear-gradient(135deg, #e2e8f0, #cbd5e1)" }}><div className="absolute inset-5 rounded-md border border-white/60 bg-white/30" /><div className={`absolute bottom-4 ${widgetSettings.position === "bottom-left" ? "left-4" : "right-4"}`}><div className="mb-3 w-[280px] overflow-hidden shadow-2xl" style={{ borderRadius: Number(widgetSettings.borderRadius), fontFamily: widgetSettings.fontFamily === "serif" ? "Georgia, serif" : widgetSettings.fontFamily === "mono" ? "monospace" : "Arial, sans-serif", backgroundColor: widgetSettings.surfaceColor }}><div className="px-4 py-3 text-sm font-semibold text-white" style={{ backgroundColor: widgetSettings.primaryColor }}>{widgetSettings.headerTitle || activeAssistant.name}<span className="float-right">×</span></div><div className="space-y-3 p-3" style={{ backgroundColor: widgetSettings.backgroundColor }}><div className="max-w-[82%] rounded-xl rounded-bl-sm px-3 py-2 text-xs" style={{ backgroundColor: widgetSettings.agentBubbleColor, color: widgetSettings.textColor }}>{activeAssistant.welcomeMessage || "Hallo! Wie kann ich helfen?"}</div><div className="ml-auto max-w-[74%] rounded-xl rounded-br-sm px-3 py-2 text-xs text-white" style={{ backgroundColor: widgetSettings.primaryColor }}>Ich brauche Hilfe.</div></div><div className="flex gap-2 border-t p-2" style={{ backgroundColor: widgetSettings.surfaceColor }}><div className="flex-1 rounded border border-slate-300 px-2 py-2 text-[10px] text-slate-400">{widgetSettings.inputPlaceholder}</div><div className="rounded px-2 py-2 text-[10px] font-semibold text-white" style={{ backgroundColor: widgetSettings.primaryColor }}>{widgetSettings.sendLabel}</div></div></div><div className="flex items-center justify-center text-xl text-white shadow-lg" style={{ width: Number(widgetSettings.launcherSize), height: Number(widgetSettings.launcherSize), borderRadius: Number(widgetSettings.launcherRadius), backgroundColor: widgetSettings.primaryColor }}>{widgetSettings.launcherIcon || "💬"}</div></div></div></div>
             </div>
 
             <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-3">

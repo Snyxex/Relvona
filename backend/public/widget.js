@@ -10,6 +10,7 @@
     name: "Support Assistant",
     welcomeMessage: "Hello! How can I help you today?",
     primaryColor: "#3B82F6",
+    widgetSettings: {},
     organizationId: null,
   };
 
@@ -19,6 +20,7 @@
     conversationId: localStorage.getItem(`ai_chat_conv_id_${storageSuffix}`) || null,
     messages: [],
     loading: false,
+    ready: false,
     handoff: false,
   };
 
@@ -27,11 +29,11 @@
   styleTag.innerHTML = `
     .ai-chat-launcher {
       position: fixed;
-      bottom: 24px;
-      right: 24px;
-      width: 60px;
-      height: 60px;
-      border-radius: 30px;
+      bottom: var(--widget-offset, 24px);
+      right: var(--widget-offset, 24px);
+      width: var(--launcher-size, 60px);
+      height: var(--launcher-size, 60px);
+      border-radius: var(--launcher-radius, 30px);
       background-color: var(--primary-color, #3B82F6);
       color: white;
       border: none;
@@ -47,20 +49,20 @@
     
     .ai-chat-window {
       position: fixed;
-      bottom: 96px;
-      right: 24px;
-      width: 380px;
+      bottom: calc(var(--launcher-size, 60px) + var(--widget-offset, 24px) + 12px);
+      right: var(--widget-offset, 24px);
+      width: var(--window-width, 380px);
       max-width: calc(100vw - 32px);
       height: 580px;
       max-height: calc(100vh - 120px);
-      background: #ffffff;
-      border-radius: 16px;
+      background: var(--surface-color, #ffffff);
+      border-radius: var(--widget-radius, 16px);
       box-shadow: 0 10px 25px rgba(0,0,0,0.15);
       z-index: 99999;
       display: none;
       flex-direction: column;
       overflow: hidden;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-family: var(--widget-font, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif);
     }
     .ai-chat-window.open { display: flex; }
 
@@ -81,7 +83,7 @@
       display: flex;
       flex-direction: column;
       gap: 12px;
-      background: #f9fafb;
+      background: var(--background-color, #f9fafb);
     }
     .ai-chat-msg {
       max-width: 80%;
@@ -99,13 +101,13 @@
     }
     .ai-chat-msg.ai, .ai-chat-msg.agent {
       align-self: flex-start;
-      background: #e5e7eb;
-      color: #1f2937;
+      background: var(--agent-bubble-color, #e5e7eb);
+      color: var(--text-color, #1f2937);
       border-bottom-left-radius: 2px;
     }
     .ai-chat-footer {
       padding: 12px;
-      background: #ffffff;
+      background: var(--surface-color, #ffffff);
       border-top: 1px solid #e5e7eb;
       display: flex;
       gap: 8px;
@@ -127,6 +129,20 @@
       cursor: pointer;
       font-weight: 600;
     }
+    .ai-chat-send:disabled, .ai-chat-input:disabled { opacity: 0.6; cursor: not-allowed; }
+    .ai-chat-thinking {
+      align-self: flex-start;
+      width: min(210px, 75%);
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: #e5e7eb;
+      color: #4b5563;
+      font-size: 12px;
+    }
+    .ai-chat-thinking-label { display: block; margin-bottom: 7px; }
+    .ai-chat-thinking-track { height: 4px; overflow: hidden; border-radius: 999px; background: #cbd5e1; }
+    .ai-chat-thinking-bar { width: 42%; height: 100%; border-radius: inherit; background: var(--primary-color, #3B82F6); animation: ai-chat-thinking 1.1s ease-in-out infinite; }
+    @keyframes ai-chat-thinking { 0% { transform: translateX(-110%); } 100% { transform: translateX(360%); } }
   `;
   document.head.appendChild(styleTag);
 
@@ -155,6 +171,29 @@
   const msgContainer = document.getElementById("ai-chat-msg-container");
   const inputField = document.getElementById("ai-chat-input-field");
   const sendBtn = document.getElementById("ai-chat-send-btn");
+  function applyWidgetSettings() {
+    const settings = config.widgetSettings || {};
+    const root = document.documentElement.style;
+    const color = (value, fallback) => typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
+    const number = (value, fallback, min, max) => Number.isFinite(Number(value)) ? Math.min(max, Math.max(min, Number(value))) : fallback;
+    root.setProperty("--primary-color", color(settings.primaryColor, config.primaryColor || "#3B82F6"));
+    root.setProperty("--background-color", color(settings.backgroundColor, "#f9fafb"));
+    root.setProperty("--surface-color", color(settings.surfaceColor, "#ffffff"));
+    root.setProperty("--agent-bubble-color", color(settings.agentBubbleColor, "#e5e7eb"));
+    root.setProperty("--text-color", color(settings.textColor, "#1f2937"));
+    root.setProperty("--widget-radius", `${number(settings.borderRadius, 16, 0, 32)}px`);
+    root.setProperty("--launcher-radius", `${number(settings.launcherRadius, 30, 0, 36)}px`);
+    root.setProperty("--launcher-size", `${number(settings.launcherSize, 60, 44, 80)}px`);
+    root.setProperty("--window-width", `${number(settings.windowWidth, 380, 300, 520)}px`);
+    root.setProperty("--widget-offset", `${number(settings.offset, 24, 12, 48)}px`);
+    root.setProperty("--widget-font", settings.fontFamily === "serif" ? "Georgia, serif" : settings.fontFamily === "mono" ? "ui-monospace, SFMono-Regular, Menlo, monospace" : "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif");
+    const left = settings.position === "bottom-left";
+    [launcherBtn, windowBox].forEach((element) => { element.style.left = left ? "var(--widget-offset, 24px)" : ""; element.style.right = left ? "auto" : ""; });
+    launcherBtn.textContent = typeof settings.launcherIcon === "string" && settings.launcherIcon.length <= 4 ? settings.launcherIcon : "💬";
+    nameLabel.textContent = typeof settings.headerTitle === "string" && settings.headerTitle.trim() ? settings.headerTitle.trim().slice(0, 80) : (config.name || "Support Assistant");
+    inputField.placeholder = typeof settings.inputPlaceholder === "string" && settings.inputPlaceholder.trim() ? settings.inputPlaceholder.trim().slice(0, 120) : "Type a message...";
+    sendBtn.textContent = typeof settings.sendLabel === "string" && settings.sendLabel.trim() ? settings.sendLabel.trim().slice(0, 30) : "Send";
+  }
   function integrationParams() { return new URLSearchParams({ assistantId: assistantId || "", widgetKey: widgetKey || "" }); }
   function showError(message) {
     const errorEl = document.createElement("div"); errorEl.className = "ai-chat-msg ai"; errorEl.textContent = message;
@@ -168,30 +207,13 @@
       const res = await fetch(`${apiBase}/api/v1/widget/config?${integrationParams()}`);
       if (!res.ok) throw new Error("Widget integration was rejected");
       config = await res.json();
-      document.documentElement.style.setProperty("--primary-color", config.primaryColor || "#3B82F6");
-      nameLabel.textContent = config.name || "Support Assistant";
+      applyWidgetSettings();
 
-      // Session setup
-      const sessionRes = await fetch(`${apiBase}/api/v1/widget/session`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          assistantId: config.assistantId,
-          widgetKey,
-          organizationId: config.organizationId,
-        }),
-      });
-
-      if (sessionRes.ok) {
-        const session = await sessionRes.json();
-        state.customerId = session.customerId;
-        state.conversationId = session.conversationId;
-        localStorage.setItem(`ai_chat_customer_id_${storageSuffix}`, session.customerId);
-        localStorage.setItem(`ai_chat_conv_id_${storageSuffix}`, session.conversationId);
-
-        // Fetch history
-        loadMessages();
-      } else throw new Error("Unable to start a chat session");
+      // Merely opening a chat must not create a database record. Existing
+      // conversations load their history; a new one is created on first send.
+      if (state.conversationId) await loadMessages();
+      state.ready = true;
+      renderMessages();
     } catch (e) {
       console.warn("AI Chat Widget init failed:", e);
       showError("Der Chat ist derzeit nicht verfügbar. Bitte versuchen Sie es später erneut.");
@@ -238,7 +260,17 @@
       }
     });
 
+    if (state.loading) {
+      const thinkingEl = document.createElement("div");
+      thinkingEl.className = "ai-chat-thinking";
+      thinkingEl.setAttribute("role", "status");
+      thinkingEl.innerHTML = '<span class="ai-chat-thinking-label">KI denkt nach …</span><div class="ai-chat-thinking-track"><div class="ai-chat-thinking-bar"></div></div>';
+      msgContainer.appendChild(thinkingEl);
+    }
+
     msgContainer.scrollTop = msgContainer.scrollHeight;
+    inputField.disabled = state.loading || !state.ready;
+    sendBtn.disabled = state.loading || !state.ready;
   }
 
   async function submitFeedback(messageId, rating) {
@@ -256,7 +288,7 @@
       .replace(/\n{3,}/g, "\n\n")
       .trim()
       .slice(0, 6000);
-    if (!text || state.loading) return;
+    if (!text || state.loading || !state.ready) return;
 
     inputField.value = "";
     state.loading = true;
@@ -273,7 +305,7 @@
           assistantId: config.assistantId,
           widgetKey,
           organizationId: config.organizationId,
-          conversationId: state.conversationId,
+          conversationId: state.conversationId || undefined,
           content: text,
         }),
       });
@@ -287,7 +319,19 @@
           const type = event.match(/^event: (.+)$/m)?.[1]; const raw = event.match(/^data: (.+)$/m)?.[1]; if (!raw) continue;
           const data = JSON.parse(raw);
           if (type === "token") { if (!aiMessage) { aiMessage = { senderType: "ai", content: "" }; state.messages.push(aiMessage); } aiMessage.content += data.content; renderMessages(); }
-          if (type === "complete" && aiMessage) { aiMessage.id = data.messageId; renderMessages(); }
+          if (type === "complete") {
+            if (data.conversationId) {
+              state.conversationId = data.conversationId;
+              localStorage.setItem(`ai_chat_conv_id_${storageSuffix}`, data.conversationId);
+            }
+            if (data.customerId) {
+              state.customerId = data.customerId;
+              localStorage.setItem(`ai_chat_customer_id_${storageSuffix}`, data.customerId);
+            }
+            if (!aiMessage && data.content) { aiMessage = { senderType: "ai", content: data.content }; state.messages.push(aiMessage); }
+            if (aiMessage) aiMessage.id = data.messageId;
+            renderMessages();
+          }
           if (type === "error") throw new Error(data.error || "Unable to process the message");
         }
       }
@@ -296,6 +340,7 @@
       showError("Die Nachricht konnte nicht gesendet werden. Bitte erneut versuchen.");
     } finally {
       state.loading = false;
+      renderMessages();
     }
   }
 

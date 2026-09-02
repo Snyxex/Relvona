@@ -1,6 +1,9 @@
 import { Router } from "express";
 import { AuthService } from "../services/authService.js";
 import { authenticate, AuthRequest } from "../middleware/auth.js";
+import { db } from "../db/index.js";
+import { users } from "../db/schema.js";
+import { eq } from "drizzle-orm";
 
 const router = Router();
 
@@ -43,6 +46,27 @@ router.post("/login", async (req, res) => {
 // GET /api/v1/auth/me
 router.get("/me", authenticate, async (req: AuthRequest, res) => {
   return res.json({ user: req.user });
+});
+
+router.patch("/me/preferences", authenticate, async (req: AuthRequest, res) => {
+  const { preferredLanguage, name, avatarUrl } = req.body || {};
+  if (preferredLanguage !== undefined && !['de', 'en', 'es', 'fr'].includes(preferredLanguage)) {
+    return res.status(400).json({ error: "Unsupported preferred language" });
+  }
+  if (name !== undefined && (typeof name !== "string" || name.trim().length < 2 || name.trim().length > 100)) {
+    return res.status(400).json({ error: "Name must contain between 2 and 100 characters" });
+  }
+  const validAvatar = avatarUrl === null || (typeof avatarUrl === "string" && avatarUrl.length <= 1_500_000 && (/^https:\/\//.test(avatarUrl) || /^data:image\/(png|jpe?g|webp);base64,/.test(avatarUrl)));
+  if (avatarUrl !== undefined && !validAvatar) {
+    return res.status(400).json({ error: "Profile image must be an HTTPS URL or a PNG, JPEG, or WebP image up to 1 MB" });
+  }
+  const [user] = await db.update(users).set({
+    preferredLanguage: preferredLanguage ?? undefined,
+    name: typeof name === "string" ? name.trim() : undefined,
+    avatarUrl: avatarUrl === undefined ? undefined : avatarUrl,
+    updatedAt: new Date(),
+  }).where(eq(users.id, req.user!.id)).returning();
+  return res.json({ id: user.id, name: user.name, email: user.email, avatarUrl: user.avatarUrl, preferredLanguage: user.preferredLanguage, systemRole: user.systemRole });
 });
 
 export default router;

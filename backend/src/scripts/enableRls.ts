@@ -29,9 +29,9 @@ async function main() {
     }
     await client.query(`DROP FUNCTION IF EXISTS public.supportai_public_widget_assistant(uuid)`);
     await client.query(`CREATE OR REPLACE FUNCTION public.supportai_public_widget_assistant(target_id uuid, supplied_key text)
-      RETURNS TABLE (id uuid, organization_id uuid, name text, welcome_message text, primary_color text, avatar_url text, handoff_enabled boolean, widget_allowed_origins jsonb, chat_page_enabled boolean)
+      RETURNS TABLE (id uuid, organization_id uuid, name text, welcome_message text, primary_color text, avatar_url text, handoff_enabled boolean, widget_allowed_origins jsonb, chat_page_enabled boolean, widget_settings jsonb)
       LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
-        SELECT id, organization_id, name, welcome_message, primary_color, avatar_url, handoff_enabled, widget_allowed_origins, chat_page_enabled FROM public.assistants WHERE id = target_id AND widget_api_key = supplied_key
+        SELECT id, organization_id, name, welcome_message, primary_color, avatar_url, handoff_enabled, widget_allowed_origins, chat_page_enabled, widget_settings FROM public.assistants WHERE id = target_id AND widget_api_key = supplied_key
       $$`);
     await client.query(`DROP FUNCTION IF EXISTS public.supportai_public_widget_assistant_for_org(uuid)`);
     await client.query("REVOKE ALL ON FUNCTION public.supportai_public_widget_assistant(uuid, text) FROM PUBLIC");

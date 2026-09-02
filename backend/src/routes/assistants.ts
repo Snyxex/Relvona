@@ -20,8 +20,25 @@ function normalizeWidgetOrigins(value: unknown): string[] {
 }
 
 function withoutSecrets(assistant: typeof assistants.$inferSelect) {
-  const { apiKey, embeddingApiKey, ...safe } = assistant;
-  return { ...safe, apiKeyConfigured: Boolean(apiKey), embeddingApiKeyConfigured: Boolean(embeddingApiKey) };
+  const { apiKey, embeddingApiKey, modelProfiles, ...safe } = assistant;
+  const publicProfiles = Array.isArray(modelProfiles) ? modelProfiles.map((profile: any) => ({
+    id: profile.id, label: profile.label, provider: profile.provider, modelName: profile.modelName, baseUrl: profile.baseUrl || "", apiKeyConfigured: Boolean(profile.apiKey),
+  })) : [];
+  return { ...safe, modelProfiles: publicProfiles, apiKeyConfigured: Boolean(apiKey), embeddingApiKeyConfigured: Boolean(embeddingApiKey) };
+}
+
+function normalizeModelProfiles(value: unknown, existing: unknown) {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 8) throw new Error("At most 8 model profiles are allowed");
+  const prior = new Map((Array.isArray(existing) ? existing : []).map((profile: any) => [profile?.id, profile]));
+  const providers = new Set(["openai", "anthropic", "google", "nvidia", "local"]);
+  return value.map((profile: any) => {
+    if (!profile || typeof profile !== "object" || typeof profile.id !== "string" || !/^[a-zA-Z0-9_-]{4,64}$/.test(profile.id)) throw new Error("Invalid model profile id");
+    if (typeof profile.label !== "string" || !profile.label.trim() || profile.label.length > 60 || !providers.has(profile.provider) || typeof profile.modelName !== "string" || !profile.modelName.trim() || profile.modelName.length > 160) throw new Error("Invalid model profile");
+    const previous = prior.get(profile.id) as any;
+    const apiKey = typeof profile.apiKey === "string" && profile.apiKey.trim() ? encryptSecret(profile.apiKey.trim()) : previous?.apiKey || null;
+    return { id: profile.id, label: profile.label.trim(), provider: profile.provider, modelName: profile.modelName.trim(), baseUrl: typeof profile.baseUrl === "string" ? profile.baseUrl.trim().slice(0, 300) : "", apiKey };
+  });
 }
 
 const router = Router();
@@ -82,9 +99,14 @@ router.put("/:id", requireRole(["owner", "admin"]), async (req: AuthRequest, res
       welcomeMessage,
       widgetAllowedOrigins,
       chatPageEnabled,
+      widgetSettings,
+      modelProfiles,
+      activeModelProfileId,
     } = req.body;
 
     const normalizedOrigins = widgetAllowedOrigins === undefined ? undefined : normalizeWidgetOrigins(widgetAllowedOrigins);
+    const normalizedProfiles = normalizeModelProfiles(modelProfiles, (await db.select({ modelProfiles: assistants.modelProfiles }).from(assistants).where(and(eq(assistants.id, req.params.id), eq(assistants.organizationId, req.organization!.id))).limit(1))[0]?.modelProfiles);
+    if (activeModelProfileId !== undefined && activeModelProfileId !== null && (!normalizedProfiles || !normalizedProfiles.some((profile) => profile.id === activeModelProfileId))) throw new Error("Active model profile does not exist");
 
     const [updated] = await db
       .update(assistants)
@@ -106,6 +128,9 @@ router.put("/:id", requireRole(["owner", "admin"]), async (req: AuthRequest, res
         welcomeMessage: welcomeMessage !== undefined ? welcomeMessage : undefined,
         widgetAllowedOrigins: normalizedOrigins,
         chatPageEnabled: chatPageEnabled !== undefined ? Boolean(chatPageEnabled) : undefined,
+        widgetSettings: widgetSettings !== undefined && typeof widgetSettings === "object" && !Array.isArray(widgetSettings) ? widgetSettings : undefined,
+        modelProfiles: normalizedProfiles,
+        activeModelProfileId: activeModelProfileId !== undefined ? activeModelProfileId : undefined,
         updatedAt: new Date(),
       })
       .where(and(eq(assistants.id, req.params.id), eq(assistants.organizationId, req.organization!.id)))

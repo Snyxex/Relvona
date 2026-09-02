@@ -20,3 +20,18 @@ api.interceptors.request.use((config) => {
   }
   return config;
 });
+
+api.interceptors.response.use(undefined, (error) => {
+  if (
+    typeof window !== "undefined" &&
+    error.response?.status === 401 &&
+    error.config?.headers?.Authorization
+  ) {
+    // A stale browser token must not keep the dashboard in an authenticated UI state.
+    localStorage.clear();
+    document.cookie = "support_auth_token=; Path=/; Max-Age=0; SameSite=Lax";
+    window.location.assign("/");
+  }
+
+  return Promise.reject(error);
+});
