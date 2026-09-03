@@ -366,6 +366,62 @@ export default function DashboardPage() {
     }
   };
 
+  const handleSelectTicket = async (ticket: any) => {
+    setSelectedTicket(ticket);
+    setTicketCommentsList([]);
+    try {
+      const res = await api.get(`/tickets/${ticket.id}/comments`);
+      setTicketCommentsList(res.data);
+    } catch (err) {
+      console.error("Failed to load ticket comments", err);
+    }
+  };
+
+  const handleTicketStatusChange = async (status: string) => {
+    if (!selectedTicket) return;
+    try {
+      const res = await api.put(`/tickets/${selectedTicket.id}`, { status });
+      setSelectedTicket(res.data);
+      setTicketsList((current) => current.map((ticket) => ticket.id === res.data.id ? { ...ticket, ...res.data } : ticket));
+      showNotify(`Ticket #${res.data.ticketNumber} updated`);
+    } catch (err: any) {
+      showNotify(err.response?.data?.error || "Failed to update ticket");
+    }
+  };
+
+  const handleAddTicketComment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedTicket || !commentInput.trim()) return;
+    try {
+      const res = await api.post(`/tickets/${selectedTicket.id}/comments`, { content: commentInput.trim(), isInternal: true });
+      setTicketCommentsList((current) => [...current, { ...res.data, author: auth?.user }]);
+      setCommentInput("");
+      showNotify("Interne Notiz hinzugefügt");
+    } catch (err: any) {
+      showNotify(err.response?.data?.error || "Kommentar konnte nicht gespeichert werden");
+    }
+  };
+
+  const handleOpenTicketConversation = async () => {
+    if (!selectedTicket?.conversationId) {
+      showNotify("Diesem Ticket ist keine Unterhaltung zugeordnet");
+      return;
+    }
+    try {
+      const res = await api.get("/conversations");
+      const conversation = res.data.find((item: any) => item.id === selectedTicket.conversationId);
+      if (!conversation) {
+        showNotify("Die zugehörige Unterhaltung ist nicht mehr verfügbar");
+        return;
+      }
+      setConversationsList(res.data);
+      setActiveTab("conversations");
+      await handleSelectConversation(conversation);
+    } catch (err: any) {
+      showNotify(err.response?.data?.error || "Unterhaltung konnte nicht geladen werden");
+    }
+  };
+
   // --- Render Authentication Screen ---
   if (!auth) {
     return (
@@ -847,9 +903,13 @@ export default function DashboardPage() {
         {/* TAB 3: TICKETS */}
         {activeTab === "tickets" && (
           <div className="space-y-4 max-w-7xl mx-auto">
-            <h1 className="text-xl font-bold text-white">Customer Support Tickets</h1>
+            <div>
+              <h1 className="text-xl font-bold text-white">Customer Support Tickets</h1>
+              <p className="mt-1 text-xs text-slate-400">KI-Eskalationen werden automatisch als offene Tickets in diese Warteschlange übernommen.</p>
+            </div>
 
-            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
               <table className="w-full text-left text-xs text-slate-300">
                 <thead className="bg-slate-800/80 text-slate-400 uppercase text-[10px] font-semibold">
                   <tr>
@@ -862,10 +922,13 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
+                  {ticketsList.length === 0 && (
+                    <tr><td colSpan={6} className="p-8 text-center text-slate-500">Keine offenen Tickets. Neue KI-Eskalationen erscheinen automatisch hier.</td></tr>
+                  )}
                   {ticketsList.map((tk) => (
-                    <tr key={tk.id} className="hover:bg-slate-800/40">
+                    <tr key={tk.id} onClick={() => handleSelectTicket(tk)} className={`cursor-pointer hover:bg-slate-800/40 ${selectedTicket?.id === tk.id ? "bg-blue-950/20" : ""}`}>
                       <td className="p-3 font-mono font-bold text-blue-400">#{tk.ticketNumber}</td>
-                      <td className="p-3 font-medium text-slate-200">{tk.subject}</td>
+                      <td className="p-3 font-medium text-slate-200"><div>{tk.subject}</div>{Array.isArray(tk.tags) && tk.tags.includes("ai-escalation") && <span className="mt-1 inline-block rounded border border-violet-800 bg-violet-950/50 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-violet-300">KI-Eskalation</span>}</td>
                       <td className="p-3">{tk.customer?.name || "Visitor"}</td>
                       <td className="p-3">
                         <span
@@ -890,6 +953,21 @@ export default function DashboardPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+            <aside className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+              {selectedTicket ? (
+                <div className="space-y-4">
+                  <div><p className="text-[10px] font-semibold uppercase text-blue-400">Ticket #{selectedTicket.ticketNumber}</p><h2 className="mt-1 text-sm font-semibold text-white">{selectedTicket.subject}</h2></div>
+                  <p className="whitespace-pre-wrap text-xs leading-5 text-slate-300">{selectedTicket.description || "Keine zusätzliche Beschreibung."}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedTicket.conversationId && <button onClick={handleOpenTicketConversation} className="rounded border border-violet-800 bg-violet-950/50 px-2.5 py-1.5 text-[11px] font-semibold text-violet-300 hover:bg-violet-950">Unterhaltung öffnen</button>}
+                    {selectedTicket.status !== "in_progress" && <button onClick={() => handleTicketStatusChange("in_progress")} className="rounded bg-blue-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-blue-500">Bearbeiten</button>}
+                    {selectedTicket.status !== "resolved" && <button onClick={() => handleTicketStatusChange("resolved")} className="rounded border border-emerald-800 bg-emerald-950/50 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-300 hover:bg-emerald-950">Lösen</button>}
+                  </div>
+                  <div className="border-t border-slate-800 pt-3"><p className="mb-2 text-[10px] font-semibold uppercase text-slate-500">Interne Kommentare</p>{ticketCommentsList.length ? ticketCommentsList.map((comment) => <div key={comment.id} className="mb-2 rounded bg-slate-800/70 p-2 text-[11px] text-slate-300"><p>{comment.content}</p><p className="mt-1 text-[10px] text-slate-500">{comment.author?.name || "Support"}</p></div>) : <p className="mb-2 text-xs text-slate-500">Noch keine Kommentare.</p>}<form onSubmit={handleAddTicketComment} className="mt-3 flex gap-2"><input value={commentInput} onChange={(event) => setCommentInput(event.target.value)} maxLength={2000} placeholder="Interne Notiz hinzufügen…" className="min-w-0 flex-1 rounded border border-slate-700 bg-slate-800 px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-blue-500" /><button type="submit" className="rounded bg-slate-700 px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-slate-600">Notiz</button></form></div>
+                </div>
+              ) : <p className="text-xs leading-5 text-slate-500">Wähle ein Ticket, um Anfrage, Status und interne Kommentare zu sehen.</p>}
+            </aside>
             </div>
           </div>
         )}

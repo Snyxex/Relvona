@@ -57,7 +57,16 @@ app.use(express.urlencoded({ extended: true, limit: "20mb" }));
 
 // Serve static widget JS files
 const publicDir = path.join(process.cwd(), "public");
-app.use("/public", express.static(publicDir, { maxAge: "1h", immutable: true }));
+app.use("/public", express.static(publicDir, {
+  maxAge: "1h",
+  // The embeddable widget has no filename hash. Let browsers revalidate it so
+  // widget fixes reach every customer site immediately after deployment.
+  setHeaders: (res, filePath) => {
+    if (path.basename(filePath) === "widget.js") {
+      res.setHeader("Cache-Control", "no-cache, must-revalidate");
+    }
+  },
+}));
 
 // API Routes
 app.use("/api", apiRouter);

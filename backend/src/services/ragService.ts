@@ -210,9 +210,7 @@ export class RAGService {
 
     // 3. Low confidence retrieval trigger
     if (retrievedChunks.length === 0 || Math.max(...retrievedChunks.map((c) => c.similarity)) < 0.25) {
-      if (query.split(" ").length > 3) {
-        return true;
-      }
+      return true;
     }
 
     return false;
@@ -324,7 +322,9 @@ ${contextText}`;
       streamBuffer = streamBuffer.slice(-128);
       const filtered = OutputSanitizer.redactPIIAndSecrets(this.sanitizeAIOutput(stable));
       if (/system prompt|developer message|ignore previous instructions/i.test(filtered)) throw new Error("Streaming output policy violation");
-      if (filtered) await data.onToken?.(filtered);
+      // A handoff is replaced with the ticket confirmation by
+      // ConversationService. Do not stream a provisional AI answer first.
+      if (filtered && !isHandoffRequested) await data.onToken?.(filtered);
     };
     const completionMaxTokens = Math.min(tenantSettings?.maxTokens ?? 500, this.maxTokensForIntent(intent));
     const quotaTexts = [cachedSystemPrompt, systemPromptText, ...messagesPayload.map((message) => message.content)];
@@ -358,7 +358,7 @@ ${contextText}`;
     }
 
     // 5. Sanitize Output before returning to customer
-    if (streamBuffer) await data.onToken?.(OutputSanitizer.redactPIIAndSecrets(this.sanitizeAIOutput(streamBuffer)));
+    if (streamBuffer && !isHandoffRequested) await data.onToken?.(OutputSanitizer.redactPIIAndSecrets(this.sanitizeAIOutput(streamBuffer)));
     aiAnswer = OutputSanitizer.redactPIIAndSecrets(this.sanitizeAIOutput(aiAnswer));
 
     // Fallback response if completion returned empty

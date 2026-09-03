@@ -282,15 +282,31 @@
       const reader = res.body.getReader(); const decoder = new TextDecoder(); let buffer = ""; let aiMessage = null;
       while (true) {
         const { value, done } = await reader.read(); if (done) break;
-        buffer += decoder.decode(value, { stream: true }); const events = buffer.split("\n\n"); buffer = events.pop() || "";
+        buffer += decoder.decode(value, { stream: true }); const events = buffer.split(/\r?\n\r?\n/); buffer = events.pop() || "";
         for (const event of events) {
-          const type = event.match(/^event: (.+)$/m)?.[1]; const raw = event.match(/^data: (.+)$/m)?.[1]; if (!raw) continue;
+          const type = event.match(/^event:\s*(.+)\r?$/m)?.[1]?.trim(); const raw = event.match(/^data:\s*(.+)\r?$/m)?.[1]; if (!raw) continue;
           const data = JSON.parse(raw);
           if (type === "token") { if (!aiMessage) { aiMessage = { senderType: "ai", content: "" }; state.messages.push(aiMessage); } aiMessage.content += data.content; renderMessages(); }
-          if (type === "complete" && aiMessage) { aiMessage.id = data.messageId; renderMessages(); }
+          if (type === "complete") {
+            if (!aiMessage && data.content) {
+              aiMessage = { id: data.messageId, senderType: "ai", content: data.content };
+              state.messages.push(aiMessage);
+            } else if (aiMessage) {
+              aiMessage.id = data.messageId;
+            } else {
+              // Older backends and cached answers may send only a completion
+              // event. The answer is already persisted, so fetch it instead of
+              // silently leaving the customer without a reply.
+              await loadMessages();
+            }
+            renderMessages();
+          }
           if (type === "error") throw new Error(data.error || "Unable to process the message");
         }
       }
+      // Keep the browser view consistent with persisted conversation state even
+      // when an intermediary buffered, stripped, or malformed SSE events.
+      if (!aiMessage) await loadMessages();
     } catch (e) {
       console.error(e);
       showError("Die Nachricht konnte nicht gesendet werden. Bitte erneut versuchen.");

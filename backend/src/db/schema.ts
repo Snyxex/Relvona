@@ -1,4 +1,5 @@
 import { pgTable, text, timestamp, uuid, integer, jsonb, boolean, vector, real, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 // 1. Organizations (Tenants)
 export const organizations = pgTable("organizations", {
@@ -223,12 +224,18 @@ export const tickets = pgTable("tickets", {
   description: text("description"),
   status: text("status").default("open").notNull(), // 'open' | 'pending' | 'in_progress' | 'resolved' | 'closed'
   priority: text("priority").default("normal").notNull(), // 'low' | 'normal' | 'high' | 'urgent'
+  source: text("source").default("manual").notNull(), // 'manual' | 'ai_escalation'
   tags: jsonb("tags").default([]),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-}, (table) => ({
-  orgTicketIdx: index("org_ticket_idx").on(table.organizationId, table.status),
-}));
+  }, (table) => ({
+    orgTicketIdx: index("org_ticket_idx").on(table.organizationId, table.status),
+    // One active AI escalation per conversation. Manual tickets remain
+    // independent and resolved escalations do not block a later handoff.
+    openConversationTicketUnique: uniqueIndex("open_conversation_ticket_unique")
+      .on(table.organizationId, table.conversationId)
+      .where(sql`${table.source} = 'ai_escalation' AND ${table.conversationId} IS NOT NULL AND ${table.status} NOT IN ('resolved', 'closed')`),
+  }));
 
 // 15. Ticket Comments
 export const ticketComments = pgTable("ticket_comments", {

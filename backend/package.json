@@ -12,6 +12,7 @@
     "db:seed": "tsx src/db/seed.ts",
     "test:security": "tsx src/tests/security.test.ts",
     "test:tenant-isolation": "tsx src/tests/tenantIsolation.integration.test.ts",
+    "test:tools": "tsx src/tests/toolRegistry.test.ts",
     "secrets:rotate": "tsx src/scripts/rotateEncryptionKey.ts",
     "worker": "node dist/worker.js"
   },

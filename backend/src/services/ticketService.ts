@@ -24,6 +24,22 @@ export class TicketService {
     assignedAgentId?: string;
     tags?: string[];
   }) {
+    const [customer] = await db
+      .select({ id: customers.id })
+      .from(customers)
+      .where(and(eq(customers.id, data.customerId), eq(customers.organizationId, data.organizationId)))
+      .limit(1);
+    if (!customer) throw new Error("Customer not found");
+
+    if (data.conversationId) {
+      const [conversation] = await db
+        .select({ customerId: conversations.customerId })
+        .from(conversations)
+        .where(and(eq(conversations.id, data.conversationId), eq(conversations.organizationId, data.organizationId)))
+        .limit(1);
+      if (!conversation || conversation.customerId !== data.customerId) throw new Error("Conversation not found");
+    }
+
     const ticketNumber = await this.getNextTicketNumber(data.organizationId);
 
     const [newTicket] = await db
@@ -43,6 +59,78 @@ export class TicketService {
       .returning();
 
     return newTicket;
+  }
+
+  /**
+   * Creates one actionable ticket for an AI escalation. A customer can send
+   * several follow-up messages while waiting for an agent; those messages must
+   * continue to belong to the same open ticket instead of flooding the queue.
+   */
+  static async getOrCreateEscalationTicket(data: {
+    organizationId: string;
+    customerId: string;
+    conversationId: string;
+    subject: string;
+    description: string;
+    priority?: "low" | "normal" | "high" | "urgent";
+    tags?: string[];
+  }) {
+    const [existing] = await db
+      .select()
+      .from(tickets)
+      .where(
+        and(
+          eq(tickets.organizationId, data.organizationId),
+          eq(tickets.conversationId, data.conversationId),
+          eq(tickets.source, "ai_escalation")
+        )
+      )
+      .orderBy(desc(tickets.createdAt))
+      .limit(1);
+
+    if (existing && existing.status !== "resolved" && existing.status !== "closed") {
+      return { ticket: existing, created: false };
+    }
+
+    const ticketNumber = await this.getNextTicketNumber(data.organizationId);
+    const [created] = await db
+      .insert(tickets)
+      .values({
+        ticketNumber,
+        organizationId: data.organizationId,
+        customerId: data.customerId,
+        conversationId: data.conversationId,
+        subject: data.subject,
+        description: data.description,
+        priority: data.priority || "normal",
+        status: "open",
+        source: "ai_escalation",
+        tags: data.tags || [],
+      })
+      .onConflictDoNothing({
+        target: [tickets.organizationId, tickets.conversationId],
+        where: sql`${tickets.source} = 'ai_escalation' AND ${tickets.conversationId} IS NOT NULL AND ${tickets.status} NOT IN ('resolved', 'closed')`,
+      })
+      .returning();
+
+    if (created) return { ticket: created, created: true };
+
+    // A simultaneous request inserted the ticket first. Read its committed row
+    // and use it rather than creating a duplicate.
+    const [concurrentTicket] = await db
+      .select()
+      .from(tickets)
+      .where(
+        and(
+          eq(tickets.organizationId, data.organizationId),
+          eq(tickets.conversationId, data.conversationId),
+          eq(tickets.source, "ai_escalation")
+        )
+      )
+      .orderBy(desc(tickets.createdAt))
+      .limit(1);
+    if (!concurrentTicket) throw new Error("Unable to create escalation ticket");
+    return { ticket: concurrentTicket, created: false };
   }
 
   // List Tickets with Customer and Agent relations
@@ -112,6 +200,10 @@ export class TicketService {
     assignedAgentId?: string;
     tags?: string[];
   }) {
+    const validStatuses = ["open", "pending", "in_progress", "resolved", "closed"];
+    const validPriorities = ["low", "normal", "high", "urgent"];
+    if (data.status && !validStatuses.includes(data.status)) throw new Error("Invalid ticket status");
+    if (data.priority && !validPriorities.includes(data.priority)) throw new Error("Invalid ticket priority");
     const updatePayload: any = { updatedAt: new Date() };
 
     if (data.status) updatePayload.status = data.status;
@@ -136,6 +228,13 @@ export class TicketService {
     content: string;
     isInternal?: boolean;
   }) {
+    const [ticket] = await db
+      .select({ id: tickets.id })
+      .from(tickets)
+      .where(and(eq(tickets.id, data.ticketId), eq(tickets.organizationId, data.organizationId)))
+      .limit(1);
+    if (!ticket) throw new Error("Ticket not found");
+
     const [comment] = await db
       .insert(ticketComments)
       .values({

@@ -48,6 +48,9 @@ router.post("/", async (req: AuthRequest, res) => {
 
     return res.status(201).json(ticket);
   } catch (error) {
+    if (["Customer not found", "Conversation not found"].includes((error as Error).message)) {
+      return res.status(404).json({ error: (error as Error).message });
+    }
     return res.status(500).json({ error: (error as Error).message });
   }
 });
@@ -64,9 +67,13 @@ router.put("/:id", async (req: AuthRequest, res) => {
       assignedAgentId,
       tags,
     });
+    if (!updated) return res.status(404).json({ error: "Ticket not found" });
 
     return res.json(updated);
   } catch (error) {
+    if (["Invalid ticket status", "Invalid ticket priority"].includes((error as Error).message)) {
+      return res.status(400).json({ error: (error as Error).message });
+    }
     return res.status(500).json({ error: (error as Error).message });
   }
 });
@@ -119,6 +126,7 @@ router.post("/:id/comments", async (req: AuthRequest, res) => {
 
     return res.status(201).json(comment);
   } catch (error) {
+    if ((error as Error).message === "Ticket not found") return res.status(404).json({ error: "Ticket not found" });
     return res.status(500).json({ error: (error as Error).message });
   }
 });
