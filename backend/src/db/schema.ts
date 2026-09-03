@@ -8,7 +8,9 @@ export const organizations = pgTable("organizations", {
   slug: text("slug").notNull().unique(),
   logoUrl: text("logo_url"),
   plan: text("plan").default("pro").notNull(),
-  apiKey: text("api_key").notNull().unique(),
+  // Legacy column retained for a safe migration; newly issued keys are hashed
+  // in api_keys and never stored here.
+  apiKey: text("api_key").unique(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -22,6 +24,7 @@ export const users = pgTable("users", {
   avatarUrl: text("avatar_url"),
   preferredLanguage: text("preferred_language").default("de").notNull(),
   systemRole: text("system_role").default("user").notNull(), // 'superadmin' | 'user'
+  tokenVersion: integer("token_version").default(0).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -42,10 +45,14 @@ export const apiKeys = pgTable("api_keys", {
   id: uuid("id").primaryKey().defaultRandom(),
   organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
   keyHash: text("key_hash").notNull(),
+  keyPrefix: text("key_prefix").notNull(),
   name: text("name").notNull(),
+  scopes: jsonb("scopes").default(["*"]).notNull(),
+  expiresAt: timestamp("expires_at"),
+  revokedAt: timestamp("revoked_at"),
   lastUsedAt: timestamp("last_used_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({ keyPrefixIdx: uniqueIndex("api_key_prefix_unique").on(table.keyPrefix) }));
 
 // 5. Customers (End-users seeking support)
 export const customers = pgTable("customers", {

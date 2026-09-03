@@ -23,6 +23,7 @@ RUN npm install --global @infisical/cli@${INFISICAL_CLI_VERSION}
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/public ./public
 COPY --from=build /app/infisical-entrypoint.sh /usr/local/bin/infisical-entrypoint
+USER node
 ENTRYPOINT ["/usr/local/bin/infisical-entrypoint"]
 EXPOSE 8080
 CMD ["node", "dist/index.js"]

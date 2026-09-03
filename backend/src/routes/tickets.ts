@@ -2,7 +2,7 @@ import { Router } from "express";
 import { authenticate, tenantContext, AuthRequest } from "../middleware/auth.js";
 import { TicketService } from "../services/ticketService.js";
 import { db } from "../db/index.js";
-import { ticketComments, users } from "../db/schema.js";
+import { ticketComments, users, organizationMembers } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 
 const router = Router();
@@ -59,6 +59,11 @@ router.post("/", async (req: AuthRequest, res) => {
 router.put("/:id", async (req: AuthRequest, res) => {
   try {
     const { status, priority, assignedAgentId, tags } = req.body;
+    if (assignedAgentId !== undefined) {
+      if (typeof assignedAgentId !== "string") return res.status(400).json({ error: "Invalid assigned agent" });
+      const [member] = await db.select({ id: organizationMembers.id }).from(organizationMembers).where(and(eq(organizationMembers.organizationId, req.organization!.id), eq(organizationMembers.userId, assignedAgentId))).limit(1);
+      if (!member) return res.status(400).json({ error: "Assigned agent must belong to this organization" });
+    }
     const updated = await TicketService.updateTicket({
       organizationId: req.organization!.id,
       ticketId: req.params.id,

@@ -4,6 +4,7 @@ import { db } from "../db/index.js";
 import { users, organizationMembers, organizations, apiKeys } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { setLogContext } from "../observability/logger.js";
+import crypto from "crypto";
 
 const JWT_SECRET = process.env.JWT_SECRET_CURRENT || process.env.JWT_SECRET;
 const PREVIOUS_JWT_SECRET = process.env.JWT_SECRET_PREVIOUS;
@@ -21,6 +22,7 @@ export interface AuthRequest extends Request {
     avatarUrl: string | null;
     preferredLanguage: string;
     systemRole: string;
+    tokenVersion: number;
   };
   organization?: {
     id: string;
@@ -30,15 +32,15 @@ export interface AuthRequest extends Request {
   };
 }
 
-export function generateToken(payload: { userId: string; email: string; systemRole: string }) {
-  return jwt.sign(payload, jwtSecret, { expiresIn: "7d" });
+export function generateToken(payload: { userId: string; email: string; systemRole: string; tokenVersion: number }) {
+  return jwt.sign(payload, jwtSecret, { expiresIn: "7d", jwtid: crypto.randomUUID(), issuer: "supportai", audience: "dashboard" });
 }
 
 export function verifyToken(token: string) {
   let lastError: unknown;
   for (const secret of verificationSecrets) {
     try {
-      return jwt.verify(token, secret) as { userId: string; email: string; systemRole: string };
+      return jwt.verify(token, secret, { issuer: "supportai", audience: "dashboard" }) as { userId: string; email: string; systemRole: string; tokenVersion: number };
     } catch (error) {
       lastError = error;
     }
@@ -58,8 +60,8 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     const decoded = verifyToken(token);
 
     const [user] = await db.select().from(users).where(eq(users.id, decoded.userId)).limit(1);
-    if (!user) {
-      return res.status(401).json({ error: "User no longer exists" });
+    if (!user || decoded.tokenVersion !== user.tokenVersion) {
+      return res.status(401).json({ error: "Invalid or expired token" });
     }
 
     req.user = {
@@ -69,6 +71,7 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
       avatarUrl: user.avatarUrl,
       preferredLanguage: user.preferredLanguage,
       systemRole: user.systemRole,
+      tokenVersion: user.tokenVersion,
     };
 
     next();
@@ -154,7 +157,7 @@ export async function tenantContext(req: AuthRequest, res: Response, next: NextF
 
     next();
   } catch (error) {
-    return res.status(500).json({ error: "Failed to resolve tenant context", details: (error as Error).message });
+    return res.status(500).json({ error: "Failed to resolve tenant context" });
   }
 }
 
@@ -176,14 +179,19 @@ export function requireRole(allowedRoles: string[]) {
 // Middleware: API Key Authentication (for external integrations)
 export async function authenticateApiKey(req: AuthRequest, res: Response, next: NextFunction) {
   const apiKeyHeader = req.headers["x-api-key"] as string;
-  if (!apiKeyHeader) {
+  if (!apiKeyHeader || !/^(?:acs|sk)_live_[A-Za-z0-9_-]{32,}$/.test(apiKeyHeader)) {
     return res.status(401).json({ error: "Missing API Key" });
   }
 
-  const [org] = await db.select().from(organizations).where(eq(organizations.apiKey, apiKeyHeader)).limit(1);
-  if (!org) {
+  const keyPrefix = apiKeyHeader.slice(0, 17);
+  const keyHash = crypto.createHash("sha256").update(apiKeyHeader).digest("hex");
+  const [key] = await db.select().from(apiKeys).where(and(eq(apiKeys.keyPrefix, keyPrefix), eq(apiKeys.keyHash, keyHash))).limit(1);
+  if (!key || key.revokedAt || (key.expiresAt && key.expiresAt <= new Date())) {
     return res.status(401).json({ error: "Invalid API Key" });
   }
+  const [org] = await db.select().from(organizations).where(eq(organizations.id, key.organizationId)).limit(1);
+  if (!org) return res.status(401).json({ error: "Invalid API Key" });
+  await db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, key.id));
 
   req.organization = {
     id: org.id,

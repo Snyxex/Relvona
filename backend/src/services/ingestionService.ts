@@ -1,8 +1,7 @@
-import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
 import pdfParse from "pdf-parse";
 import { db } from "../db/index.js";
-import { documentChunks, knowledgeSources, websitePages, websites } from "../db/schema.js";
-import { eq } from "drizzle-orm";
+import { documentChunks, knowledgeSources, websitePages, websites, knowledgeBases } from "../db/schema.js";
+import { eq, and } from "drizzle-orm";
 import crypto from "crypto";
 import URL from "url";
 import { UniversalAIGateway, AIProvider } from "./aiGateway.js";
@@ -70,6 +69,31 @@ export class IngestionService {
     return chunks.map((chunk) => PiiRedactionService.redact(chunk).text).filter(Boolean);
   }
 
+  // We only need deterministic bounded chunking, not the LangChain runtime.
+  // Keeping it local removes a large unused dependency tree from production.
+  private static splitText(text: string): string[] {
+    const chunks: string[] = [];
+    let start = 0;
+    while (start < text.length) {
+      let end = Math.min(text.length, start + this.chunking.chunkSize);
+      if (end < text.length) {
+        const boundary = Math.max(text.lastIndexOf("\n", end), text.lastIndexOf(" ", end));
+        if (boundary > start + Math.floor(this.chunking.chunkSize / 2)) end = boundary;
+      }
+      const chunk = text.slice(start, end).trim();
+      if (chunk) chunks.push(chunk);
+      if (end >= text.length) break;
+      start = Math.max(start + 1, end - this.chunking.chunkOverlap);
+    }
+    return chunks;
+  }
+
+  private static async requireKnowledgeBase(organizationId: string, knowledgeBaseId: string) {
+    const [knowledgeBase] = await db.select({ id: knowledgeBases.id }).from(knowledgeBases)
+      .where(and(eq(knowledgeBases.id, knowledgeBaseId), eq(knowledgeBases.organizationId, organizationId))).limit(1);
+    if (!knowledgeBase) throw new Error("Knowledge base not found");
+  }
+
   // Process Manual Document / Text / FAQ
   static async processTextDocument(data: {
     organizationId: string;
@@ -79,6 +103,7 @@ export class IngestionService {
     content: string;
     sourceUrl?: string;
   }) {
+    await this.requireKnowledgeBase(data.organizationId, data.knowledgeBaseId);
     const [source] = await db
       .insert(knowledgeSources)
       .values({
@@ -92,9 +117,7 @@ export class IngestionService {
       .returning();
 
     try {
-      const splitter = new RecursiveCharacterTextSplitter(this.chunking);
-
-      const chunks = this.redactChunks(await splitter.splitText(this.cleanIndexText(data.content)));
+      const chunks = this.redactChunks(this.splitText(this.cleanIndexText(data.content)));
       if (chunks.length === 0) {
         throw new Error("No text content found to process");
       }
@@ -145,6 +168,7 @@ export class IngestionService {
     buffer: Buffer;
     filePath?: string;
   }) {
+    await this.requireKnowledgeBase(data.organizationId, data.knowledgeBaseId);
     const [source] = await db
       .insert(knowledgeSources)
       .values({
@@ -165,9 +189,7 @@ export class IngestionService {
         throw new Error("Extracted text from PDF is empty");
       }
 
-      const splitter = new RecursiveCharacterTextSplitter(this.chunking);
-
-      const chunks = this.redactChunks(await splitter.splitText(cleanedText));
+      const chunks = this.redactChunks(this.splitText(cleanedText));
       const embeddings = await generateEmbeddings(chunks);
 
       const chunkRecords = chunks.map((chunkText, idx) => ({
@@ -214,6 +236,7 @@ export class IngestionService {
     maxPages?: number;
     maxDepth?: number;
   }) {
+    await this.requireKnowledgeBase(data.organizationId, data.knowledgeBaseId);
     await CrawlerSecurity.validateAndResolveUrl(data.targetUrl);
 
     const maxPages = data.maxPages || 20;
@@ -272,9 +295,7 @@ export class IngestionService {
         status: "completed",
       });
 
-      const splitter = new RecursiveCharacterTextSplitter(this.chunking);
-
-      const chunks = this.redactChunks(await splitter.splitText(bodyText));
+      const chunks = this.redactChunks(this.splitText(bodyText));
       const embeddings = await generateEmbeddings(chunks);
 
       const chunkRecords = chunks.map((chunkText, idx) => ({

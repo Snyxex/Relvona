@@ -10,5 +10,4 @@ const sdk = new NodeSDK({
 });
 
 sdk.start();
-process.once("SIGTERM", () => { void sdk.shutdown(); });
-process.once("SIGINT", () => { void sdk.shutdown(); });
+export async function shutdownTracing() { await sdk.shutdown(); }

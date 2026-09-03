@@ -21,6 +21,9 @@ services:
   backend:
     build: ./backend
     restart: unless-stopped
+    stop_grace_period: 35s
+    mem_limit: 768m
+    cpus: 1.0
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_started }
@@ -57,6 +60,9 @@ services:
   worker:
     build: ./backend
     restart: unless-stopped
+    stop_grace_period: 35s
+    mem_limit: 1024m
+    cpus: 1.5
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_started }
@@ -69,13 +75,15 @@ services:
       INFISICAL_DOMAIN: ${INFISICAL_DOMAIN:-}
       INGESTION_WORKER_CONCURRENCY: ${INGESTION_WORKER_CONCURRENCY:-2}
     command: ["node", "dist/worker.js"]
-    networks: [edge, data]
+    networks: [data]
   frontend:
     build:
       context: ./frontend
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?set NEXT_PUBLIC_API_URL in .env}
     restart: unless-stopped
+    mem_limit: 384m
+    cpus: 0.5
     depends_on: [backend]
     environment:
       NODE_ENV: production

@@ -92,6 +92,9 @@ The `migrate` service applies Drizzle migrations before the API starts. Producti
 - `INGESTION_WORKER_CONCURRENCY`: worker concurrency, default `2`; scale `worker` replicas for document, PDF, crawl, and embedding jobs.
 - `daily_token_budget`: hard per-tenant daily token budget, default `100000`; configure it through `PUT /api/v1/admin/settings/quotas` together with `widget_requests_per_minute`.
 - `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`: optional OTLP/HTTP endpoint for distributed traces; `OTEL_SERVICE_NAME` defaults to `ai-customer-support`.
+- `METRICS_TOKEN`: mandatory in production; protects the Prometheus-compatible `/metrics` endpoint.
+- `WIDGET_SESSION_SECRET`: mandatory in production; signs browser conversation access tokens and must differ from the JWT secret.
+- `AI_REQUEST_TIMEOUT_MS`, `AI_MAX_RETRIES`, `AI_CIRCUIT_COOLDOWN_MS`, and `SHUTDOWN_TIMEOUT_MS`: bounded provider/retry/shutdown settings documented in `backend/.env.example`.
 - `DATABASE_URL`: in production, a `supportai_app` non-owner login. `db:migrate` provisions it from `DATABASE_APP_USER`/`DATABASE_APP_PASSWORD`, enables forced RLS policies, and uses `DATABASE_ADMIN_URL` only in the migration container. Do not give `DATABASE_ADMIN_URL` to API or worker containers.
 
 [`frontend/.env.example`](frontend/.env.example) contains `NEXT_PUBLIC_API_URL`, the browser-reachable API URL including `/api/v1`.
@@ -169,6 +172,8 @@ The CI integration suite starts an ephemeral pgvector PostgreSQL instance, provi
 `test:security` is a functional security regression suite, not a SAST or dependency scanner. It checks SSRF/private-network blocking, upload validation and prompt-poisoning detection, output sanitization/redaction, and escalation heuristics.
 
 Promotion to production is a separate, approved deployment step: authenticate the deployment environment with Infisical, run `docker compose -f docker-compose.prod.yml up -d --build`, let `migrate` complete, then require `/health/ready` to return `200` before directing traffic to the new API. Do not run migrations from pull-request CI and do not provide production secrets to it.
+
+See [Production Operations Runbook](docs/production-operations.md) for deployment, rollback, backup/restore, metrics, alerts, SLO baselines, and incident response.
 
 ## API versioning and deprecation
 

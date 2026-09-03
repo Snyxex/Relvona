@@ -1,3 +1,4 @@
+import "dotenv/config";
 import "./observability/tracing.js";
 import express from "express";
 import cors from "cors";
@@ -6,25 +7,36 @@ import path from "path";
 import { Server as SocketIOServer } from "socket.io";
 import { createAdapter } from "@socket.io/redis-adapter";
 import Redis from "ioredis";
-import dotenv from "dotenv";
 import apiRouter from "./routes/api.js";
-import { applySecurityHeaders } from "./middleware/security.js";
+import { applySecurityHeaders, createRateLimiter } from "./middleware/security.js";
 import { db } from "./db/index.js";
 import { conversations, organizationMembers } from "./db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { verifyToken } from "./middleware/auth.js";
 import { logger, requestLogging, withLogContext } from "./observability/logger.js";
 import { readiness } from "./services/healthService.js";
+import { closeHealthDependencies } from "./services/healthService.js";
+import { closeDatabasePool } from "./db/index.js";
+import { closeQueues } from "./services/queueService.js";
+import { shutdownTracing } from "./observability/tracing.js";
+import { validateRuntimeConfiguration } from "./config/runtime.js";
+import { httpMetrics, metrics } from "./observability/metrics.js";
 
-dotenv.config();
+validateRuntimeConfiguration();
 
 const app = express();
 const server = http.createServer(app);
+// Bound slowloris/stalled requests while leaving headroom for a single
+// configured AI request and SSE completion.
+server.requestTimeout = Number(process.env.HTTP_REQUEST_TIMEOUT_MS || 65_000);
+server.headersTimeout = Math.min(server.requestTimeout, 60_000);
+server.keepAliveTimeout = 5_000;
 
 const io = new SocketIOServer(server, {
   cors: {
     origin: (process.env.CORS_ORIGIN || "http://localhost:3000").split(",").map((value) => value.trim()),
     methods: ["GET", "POST"],
+    credentials: false,
   },
 });
 
@@ -32,9 +44,11 @@ const socketRedisUrl = process.env.REDIS_URL;
 if (process.env.NODE_ENV === "production" && !socketRedisUrl) {
   throw new Error("REDIS_URL is required for horizontally scaled Socket.IO");
 }
+const socketRedisClients: Redis[] = [];
 if (socketRedisUrl) {
   const pubClient = new Redis(socketRedisUrl, { maxRetriesPerRequest: 1, retryStrategy: () => null });
   const subClient = pubClient.duplicate();
+  socketRedisClients.push(pubClient, subClient);
   pubClient.on("error", (error) => console.error("Socket.IO Redis publisher error:", error.message));
   subClient.on("error", (error) => console.error("Socket.IO Redis subscriber error:", error.message));
   io.adapter(createAdapter(pubClient, subClient));
@@ -44,6 +58,8 @@ const allowedOrigins = (process.env.CORS_ORIGIN || "http://localhost:3000").spli
 app.set("trust proxy", 1);
 app.use(applySecurityHeaders);
 app.use(requestLogging);
+app.use(httpMetrics);
+app.use(createRateLimiter({ keyPrefix: "global", limit: Number(process.env.GLOBAL_RATE_LIMIT_PER_MINUTE || 300), windowMs: 60_000, keyGenerator: (req) => req.ip }));
 const dashboardCors = cors({ origin: (origin, callback) => {
   if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
   return callback(new Error("Origin is not allowed by CORS"));
@@ -78,25 +94,41 @@ app.get(["/health", "/health/ready"], async (_req, res) => {
   const result = await readiness();
   res.status(result.ready ? 200 : 503).json({ status: result.ready ? "ok" : "degraded", service: "ai-customer-support-backend", ...result });
 });
+app.get("/metrics", (req, res) => {
+  const token = req.headers.authorization?.replace(/^Bearer\s+/i, "");
+  if (process.env.METRICS_TOKEN && token !== process.env.METRICS_TOKEN) return res.status(401).end();
+  res.type("text/plain; version=0.0.4").send(metrics.render());
+});
+
+app.use((error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  logger.error("http.request.failed", { error: error.message });
+  if (res.headersSent) return;
+  res.status(500).json({ error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred", requestId: res.getHeader("X-Request-Id") } });
+});
 
 // Real-Time Socket.IO Server with Server-Side Room Authorization
+let activeSockets = 0;
 io.on("connection", (socket) => {
+  activeSockets += 1;
+  metrics.gauge("supportai_websocket_active", activeSockets);
+  metrics.increment("supportai_websocket_connections_total");
   logger.info("socket.connected", { socketId: socket.id });
 
-  // Authenticate socket handshake if token supplied
+  // Socket.IO serves authenticated dashboard operators only.
   const token = socket.handshake.auth?.token;
   let userPayload: any = null;
-  if (token) {
+  if (typeof token === "string") {
     try {
       userPayload = verifyToken(token);
-    } catch (e) {}
+    } catch { socket.disconnect(true); return; }
   }
+  if (!userPayload?.userId) { socket.disconnect(true); return; }
 
   // Join Room with Server-Side Authorization Check
   socket.on("join_room", async (data: { room: string; organizationId: string; conversationId?: string }) => withLogContext({ conversationId: data.conversationId, organizationId: data.organizationId }, async () => {
     try {
-      const room = data.room || `conv:${data.conversationId}`;
-      if (!room) return;
+      if (!data || typeof data.conversationId !== "string" || !/^[0-9a-f-]{36}$/i.test(data.conversationId)) return socket.emit("error", { message: "Invalid room request" });
+      const room = `conv:${data.conversationId}`;
 
       // Extract conversation ID if room is conv:xxx
       let targetConvId = data.conversationId;
@@ -121,7 +153,7 @@ io.on("connection", (socket) => {
           return;
         }
 
-        if (data.organizationId && conv.organizationId !== data.organizationId) {
+        if (data.organizationId !== conv.organizationId) {
           socket.emit("error", { message: "Access denied: Cross-tenant room join attempt blocked" });
           return;
         }
@@ -147,7 +179,7 @@ io.on("connection", (socket) => {
 
   // Agent claims conversation / handoff
   socket.on("claim_conversation", (data: { conversationId: string; agentId: string; agentName: string }) => {
-    if (!userPayload?.userId || !socket.rooms.has(`conv:${data.conversationId}`)) {
+    if (!data || data.agentId !== userPayload.userId || !socket.rooms.has(`conv:${data.conversationId}`)) {
       socket.emit("error", { message: "Access denied: Join the authorized conversation room first" });
       return;
     }
@@ -156,7 +188,7 @@ io.on("connection", (socket) => {
 
   // Send real-time chat message
   socket.on("send_message", (data: { conversationId: string; senderType: string; content: string }) => {
-    if (!userPayload?.userId || !socket.rooms.has(`conv:${data.conversationId}`)) {
+    if (!data || data.senderType !== "agent" || typeof data.content !== "string" || data.content.length > 4_000 || !socket.rooms.has(`conv:${data.conversationId}`)) {
       socket.emit("error", { message: "Access denied: Join the authorized conversation room first" });
       return;
     }
@@ -164,6 +196,8 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
+    activeSockets = Math.max(0, activeSockets - 1);
+    metrics.gauge("supportai_websocket_active", activeSockets);
     logger.info("socket.disconnected", { socketId: socket.id });
   });
 });
@@ -173,3 +207,34 @@ const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
   logger.info("server.started", { port: PORT });
 });
+
+let shuttingDown = false;
+async function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logger.info("server.shutdown_started", { signal });
+  const forceTimer = setTimeout(() => {
+    logger.error("server.shutdown_timeout", { timeoutMs: Number(process.env.SHUTDOWN_TIMEOUT_MS || 30_000) });
+    process.exit(1);
+  }, Number(process.env.SHUTDOWN_TIMEOUT_MS || 30_000));
+  forceTimer.unref();
+  try {
+    // Stop accepting HTTP connections first, then close upgraded Socket.IO
+    // connections so `server.close` cannot wait indefinitely for a websocket.
+    const serverClosed = new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    await new Promise<void>((resolve) => io.close(() => resolve()));
+    await serverClosed;
+    await Promise.allSettled([closeQueues(), closeHealthDependencies(), Promise.all(socketRedisClients.map((client) => client.quit().catch(() => client.disconnect())))]);
+    await closeDatabasePool();
+    await shutdownTracing();
+    logger.info("server.shutdown_complete", { signal });
+    process.exitCode = 0;
+  } catch (error) {
+    logger.error("server.shutdown_failed", { error: (error as Error).message });
+    process.exitCode = 1;
+  } finally {
+    clearTimeout(forceTimer);
+  }
+}
+process.once("SIGTERM", () => { void shutdown("SIGTERM"); });
+process.once("SIGINT", () => { void shutdown("SIGINT"); });

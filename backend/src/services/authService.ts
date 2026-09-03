@@ -25,12 +25,9 @@ export class AuthService {
 
     // 2. Create Default Organization
     const slug = data.orgName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + crypto.randomBytes(2).toString("hex");
-    const apiKey = "sk_live_" + crypto.randomBytes(24).toString("hex");
-
     const [newOrg] = await db.insert(organizations).values({
       name: data.orgName,
       slug,
-      apiKey,
     }).returning();
 
     // 3. Link User as Organization Owner
@@ -59,7 +56,7 @@ export class AuthService {
       description: "Default knowledge base for public documentation and FAQs",
     });
 
-    const token = generateToken({ userId: newUser.id, email: newUser.email, systemRole: newUser.systemRole });
+    const token = generateToken({ userId: newUser.id, email: newUser.email, systemRole: newUser.systemRole, tokenVersion: newUser.tokenVersion });
 
     return {
       user: {
@@ -101,7 +98,7 @@ export class AuthService {
       .innerJoin(organizations, eq(organizationMembers.organizationId, organizations.id))
       .where(eq(organizationMembers.userId, user.id));
 
-    const token = generateToken({ userId: user.id, email: user.email, systemRole: user.systemRole });
+    const token = generateToken({ userId: user.id, email: user.email, systemRole: user.systemRole, tokenVersion: user.tokenVersion });
 
     return {
       user: {

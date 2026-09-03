@@ -18,6 +18,7 @@
     isOpen: false,
     customerId: localStorage.getItem(`ai_chat_customer_id_${storageSuffix}`) || null,
     conversationId: localStorage.getItem(`ai_chat_conv_id_${storageSuffix}`) || null,
+    conversationToken: localStorage.getItem(`ai_chat_conv_token_${storageSuffix}`) || null,
     messages: [],
     loading: false,
     ready: false,
@@ -224,7 +225,7 @@
     if (!state.conversationId || !config.organizationId) return;
     try {
       const res = await fetch(
-        `${apiBase}/api/v1/widget/messages?conversationId=${state.conversationId}&organizationId=${config.organizationId}&${integrationParams()}`
+        `${apiBase}/api/v1/widget/messages?conversationId=${encodeURIComponent(state.conversationId)}&organizationId=${encodeURIComponent(config.organizationId)}&conversationToken=${encodeURIComponent(state.conversationToken || "")}&${integrationParams()}`
       );
       if (res.ok) {
         const msgs = await res.json();
@@ -275,7 +276,7 @@
 
   async function submitFeedback(messageId, rating) {
     try {
-      await fetch(`${apiBase}/api/v1/widget/feedback`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assistantId: config.assistantId, widgetKey, organizationId: config.organizationId, conversationId: state.conversationId, messageId, rating }) });
+      await fetch(`${apiBase}/api/v1/widget/feedback`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assistantId: config.assistantId, widgetKey, organizationId: config.organizationId, conversationId: state.conversationId, conversationToken: state.conversationToken, messageId, rating }) });
     } catch (e) {}
   }
 
@@ -306,6 +307,7 @@
           widgetKey,
           organizationId: config.organizationId,
           conversationId: state.conversationId || undefined,
+          conversationToken: state.conversationToken || undefined,
           content: text,
         }),
       });
@@ -323,6 +325,10 @@
             if (data.conversationId) {
               state.conversationId = data.conversationId;
               localStorage.setItem(`ai_chat_conv_id_${storageSuffix}`, data.conversationId);
+            }
+            if (data.conversationAccessToken) {
+              state.conversationToken = data.conversationAccessToken;
+              localStorage.setItem(`ai_chat_conv_token_${storageSuffix}`, data.conversationAccessToken);
             }
             if (data.customerId) {
               state.customerId = data.customerId;

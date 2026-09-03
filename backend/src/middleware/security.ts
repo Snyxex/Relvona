@@ -47,24 +47,32 @@ async function consumeDistributedLimit(key: string, limit: number, windowMs: num
 // Middleware: Express Security Headers
 export function applySecurityHeaders(req: Request, res: Response, next: NextFunction) {
   res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "SAMEORIGIN");
-  res.setHeader("X-XSS-Protection", "1; mode=block");
+  res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
+  // The public embed is served as a script; its generated chat page has no
+  // inline script. Dashboard CSP is also set by Next.js at the edge.
+  if (!req.path.startsWith("/public/") && !req.path.startsWith("/api/v1/widget/page/")) {
+    res.setHeader("Content-Security-Policy", "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+  }
   next();
 }
 
 // Middleware: Dynamic Rate Limiter
-export function createRateLimiter(options: { limit: number; windowMs: number; keyPrefix: string }) {
+export function createRateLimiter(options: { limit: number; windowMs: number; keyPrefix: string; keyGenerator?: (req: AuthRequest) => string | undefined }) {
   return async (req: AuthRequest, res: Response, next: NextFunction) => {
     const ip = req.ip || req.socket.remoteAddress || "unknown_ip";
     const orgId = req.organization?.id || "public_org";
     const userId = req.user?.id || "anon";
 
-    const key = `${options.keyPrefix}:${ip}:${orgId}:${userId}`;
+    const key = `${options.keyPrefix}:${options.keyGenerator?.(req) || `${ip}:${orgId}:${userId}`}`;
 
     try {
       const { limited, retryAfterSeconds } = await consumeDistributedLimit(key, options.limit, options.windowMs);
+      res.setHeader("RateLimit-Limit", options.limit);
+      res.setHeader("RateLimit-Remaining", limited ? "0" : "unknown");
+      res.setHeader("RateLimit-Reset", Math.ceil(Date.now() / 1000) + retryAfterSeconds);
       if (!limited) return next();
       res.setHeader("Retry-After", retryAfterSeconds);
       return res.status(429).json({
