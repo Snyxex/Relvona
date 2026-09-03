@@ -29,6 +29,9 @@ export class ConversationService {
       : `Your request has already been sent to our support team in ticket #${ticketNumber}.`;
   }
 
+  static async translateMessage(data: { organizationId: string; assistantId: string; content: string; targetLanguage: string }) {
+    return RAGService.translateForAgent({ ...data, text: data.content });
+  }
   private static compactHistory(messages: { senderType: string; content: string }[]): string {
     return messages
       .map((message) => `${message.senderType === "customer" ? "Customer" : "Support"}: ${RAGService.normalizeCustomerInput(message.content).slice(0, 220)}`)
@@ -194,7 +197,11 @@ export class ConversationService {
       ragResult = await RAGService.generateRAGAnswer({
         organizationId: data.organizationId,
         assistantId: conv.assistantId!,
-        customerQuery: redactedInput.text,
+      customerQuery: redactedInput.text,
+        // The opening message determines the customer-facing language. Do not
+        // switch languages mid-conversation just because a later message has
+        // fewer detectable language markers.
+        responseLanguage: historyBeforeCurrentMessage.some((message) => message.senderType === "customer") ? conv.detectedLanguage : undefined,
         conversationHistory: formattedHistory,
         conversationSummary: rollingSummary,
         onToken: data.onToken,

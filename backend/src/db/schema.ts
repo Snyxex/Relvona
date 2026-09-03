@@ -20,6 +20,7 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash").notNull(),
   name: text("name").notNull(),
   avatarUrl: text("avatar_url"),
+  preferredLanguage: text("preferred_language").default("de").notNull(),
   systemRole: text("system_role").default("user").notNull(), // 'superadmin' | 'user'
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -86,6 +87,9 @@ export const assistants = pgTable("assistants", {
   widgetApiKey: text("widget_api_key").unique(),
   widgetAllowedOrigins: jsonb("widget_allowed_origins").default([]).notNull(),
   chatPageEnabled: boolean("chat_page_enabled").default(false).notNull(),
+  widgetSettings: jsonb("widget_settings").default({}).notNull(),
+  modelProfiles: jsonb("model_profiles").default([]).notNull(),
+  activeModelProfileId: text("active_model_profile_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

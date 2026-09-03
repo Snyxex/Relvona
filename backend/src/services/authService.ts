@@ -66,6 +66,8 @@ export class AuthService {
         id: newUser.id,
         name: newUser.name,
         email: newUser.email,
+        avatarUrl: newUser.avatarUrl,
+        preferredLanguage: newUser.preferredLanguage,
         systemRole: newUser.systemRole,
       },
       organization: {
@@ -106,6 +108,8 @@ export class AuthService {
         id: user.id,
         name: user.name,
         email: user.email,
+        avatarUrl: user.avatarUrl,
+        preferredLanguage: user.preferredLanguage,
         systemRole: user.systemRole,
       },
       organizations: memberships.map((m) => ({

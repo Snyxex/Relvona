@@ -64,6 +64,21 @@ router.get("/:id/messages", async (req: AuthRequest, res) => {
   }
 });
 
+// Translate a single customer message only when an agent requests it. This keeps
+// the public chat path fast and preserves the stored message as the original.
+router.post("/:id/messages/:messageId/translation", async (req: AuthRequest, res) => {
+  try {
+    const { targetLanguage } = req.body || {};
+    const [message] = await db.select().from(conversationMessages).where(and(eq(conversationMessages.id, req.params.messageId), eq(conversationMessages.conversationId, req.params.id), eq(conversationMessages.organizationId, req.organization!.id))).limit(1);
+    const [conversation] = await db.select().from(conversations).where(and(eq(conversations.id, req.params.id), eq(conversations.organizationId, req.organization!.id))).limit(1);
+    if (!message || !conversation || !conversation.assistantId) return res.status(404).json({ error: "Conversation message not found" });
+    const translatedContent = await ConversationService.translateMessage({ organizationId: req.organization!.id, assistantId: conversation.assistantId, content: message.content, targetLanguage });
+    return res.json({ messageId: message.id, originalContent: message.content, translatedContent, targetLanguage });
+  } catch (error) {
+    return res.status(400).json({ error: (error as Error).message });
+  }
+});
+
 // POST /api/v1/conversations/:id/messages (Agent responds)
 router.post("/:id/messages", async (req: AuthRequest, res) => {
   try {
