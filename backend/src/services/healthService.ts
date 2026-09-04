@@ -13,3 +13,7 @@ export async function readiness() {
   }
   return { ready: Object.values(checks).every((check) => check === "ok"), checks };
 }
+
+export async function closeHealthDependencies() {
+  if (healthRedis) await healthRedis.quit().catch(() => healthRedis.disconnect());
+}

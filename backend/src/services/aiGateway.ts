@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { metrics } from "../observability/metrics.js";
 
 export type AIProvider = "openai" | "anthropic" | "google" | "nvidia" | "local";
 
@@ -32,27 +33,36 @@ export interface EmbeddingRequest {
 
 export class UniversalAIGateway {
   private static readonly circuits = new Map<AIProvider, { failures: number; openUntil: number }>();
-  private static readonly maxRetries = 2;
+  private static readonly maxRetries = Number(process.env.AI_MAX_RETRIES || 2);
   private static readonly failureThreshold = 3;
-  private static readonly cooldownMs = 30_000;
+  private static readonly cooldownMs = Number(process.env.AI_CIRCUIT_COOLDOWN_MS || 30_000);
+  private static readonly timeoutMs = Number(process.env.AI_REQUEST_TIMEOUT_MS || 30_000);
 
   private static circuitFor(provider: AIProvider) { return this.circuits.get(provider) || { failures: 0, openUntil: 0 }; }
   private static transient(error: unknown) { return /\b(408|409|425|429|500|502|503|504)\b|fetch failed|network|timeout/i.test((error as Error).message || ""); }
+  private static fetchWithTimeout(input: Parameters<typeof fetch>[0], init: RequestInit = {}) {
+    return fetch(input, { ...init, signal: AbortSignal.timeout(this.timeoutMs) });
+  }
 
   static async generateCompletion(req: CompletionRequest): Promise<string> {
     const provider = req.provider || "openai";
+    const startedAt = performance.now();
     const circuit = this.circuitFor(provider);
     if (!req.bypassCircuit && circuit.openUntil > Date.now()) throw new Error(`LLM provider '${provider}' circuit is open`);
     try {
       const answer = await this.generateCompletionOnce(req);
       this.circuits.set(provider, { failures: 0, openUntil: 0 });
+      metrics.increment("supportai_ai_requests_total", { provider, status: "success", streaming: Boolean(req.onToken) });
+      metrics.observe("supportai_ai_request_duration_seconds", performance.now() - startedAt, { provider, streaming: Boolean(req.onToken) });
       return answer;
     } catch (error) {
       const failures = circuit.failures + 1;
+      metrics.increment("supportai_ai_requests_total", { provider, status: "error", streaming: Boolean(req.onToken) });
       this.circuits.set(provider, { failures, openUntil: failures >= this.failureThreshold ? Date.now() + this.cooldownMs : 0 });
       const attempt = req.retryAttempt || 0;
       if (attempt < this.maxRetries && this.transient(error)) {
-        await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt));
+        const backoff = 250 * 2 ** attempt;
+        await new Promise((resolve) => setTimeout(resolve, backoff + Math.floor(Math.random() * Math.max(1, backoff * 0.25))));
         return this.generateCompletion({ ...req, retryAttempt: attempt + 1 });
       }
       throw error;
@@ -114,7 +124,7 @@ export class UniversalAIGateway {
         }
         formattedMessages.push(...req.messages);
 
-        const response = await fetch(endpoint, {
+        const response = await this.fetchWithTimeout(endpoint, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -160,7 +170,7 @@ export class UniversalAIGateway {
           ...(req.systemPrompt ? [{ type: "text", text: req.systemPrompt }] : []),
         ];
 
-        const response = await fetch(endpoint, {
+        const response = await this.fetchWithTimeout(endpoint, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -208,7 +218,7 @@ export class UniversalAIGateway {
           });
         });
 
-        const response = await fetch(endpoint, {
+        const response = await this.fetchWithTimeout(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -241,7 +251,7 @@ export class UniversalAIGateway {
         }
         formattedMessages.push(...req.messages);
 
-        const response = await fetch(endpoint, {
+        const response = await this.fetchWithTimeout(endpoint, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -282,7 +292,7 @@ export class UniversalAIGateway {
           headers["Authorization"] = `Bearer ${req.apiKey}`;
         }
 
-        const response = await fetch(endpoint, {
+        const response = await this.fetchWithTimeout(endpoint, {
           method: "POST",
           headers,
           body: JSON.stringify({
@@ -306,7 +316,7 @@ export class UniversalAIGateway {
 
       throw new Error(`Unsupported AI Provider: ${provider}`);
     } catch (error) {
-      console.warn(`[AI Gateway] Completion error for provider '${provider}':`, (error as Error).message);
+      console.warn(JSON.stringify({ level: "warn", event: "ai.completion_failed", provider, error: (error as Error).message }));
       throw error;
     }
   }
@@ -322,7 +332,7 @@ export class UniversalAIGateway {
         const apiKey = req.apiKey || process.env.OPENAI_API_KEY;
         if (apiKey) {
           const endpoint = req.baseUrl ? `${req.baseUrl.replace(/\/$/, "")}/embeddings` : "https://api.openai.com/v1/embeddings";
-          const res = await fetch(endpoint, {
+          const res = await this.fetchWithTimeout(endpoint, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -343,7 +353,7 @@ export class UniversalAIGateway {
 
       if (provider === "local" && req.baseUrl) {
         const endpoint = `${req.baseUrl.replace(/\/$/, "")}/embeddings`;
-        const res = await fetch(endpoint, {
+        const res = await this.fetchWithTimeout(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -358,8 +368,10 @@ export class UniversalAIGateway {
         }
       }
     } catch (err) {
-      console.warn(`[AI Gateway] Embedding call failed for provider '${provider}', using deterministic vector fallback:`, (err as Error).message);
+      console.warn(JSON.stringify({ level: "warn", event: "ai.embedding_failed", provider, error: (err as Error).message }));
     }
+
+    if (process.env.NODE_ENV === "production") throw new Error(`Embedding provider '${provider}' is unavailable`);
 
     // Deterministic 1536-dimensional Vector Fallback (Ensures system never crashes when API keys are absent or offline)
     return req.texts.map((text) => {

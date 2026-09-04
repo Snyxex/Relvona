@@ -13,7 +13,14 @@ if (process.env.NODE_ENV === "production" && !databaseUrl) {
 
 export const pool = new pg.Pool({
   connectionString: databaseUrl || "postgres://postgres:postgrespassword@localhost:5432/ai_support_db",
+  max: Number(process.env.DATABASE_POOL_MAX || 10),
+  min: Number(process.env.DATABASE_POOL_MIN || 0),
+  idleTimeoutMillis: Number(process.env.DATABASE_IDLE_TIMEOUT_MS || 30_000),
+  connectionTimeoutMillis: Number(process.env.DATABASE_CONNECTION_TIMEOUT_MS || 5_000),
+  maxLifetimeSeconds: Number(process.env.DATABASE_MAX_LIFETIME_SECONDS || 1_800),
 });
+
+pool.on("error", (error) => console.error(JSON.stringify({ level: "error", event: "database.pool_error", message: error.message })));
 
 // RLS policies read this transaction-local setting. Leasing a client makes the
 // setting and the following query inseparable even when the pool is shared.
@@ -37,3 +44,5 @@ pool.query = (async (...args: Parameters<typeof pool.query>) => {
 }) as typeof pool.query;
 
 export const db = drizzle(pool, { schema });
+
+export async function closeDatabasePool() { await pool.end(); }

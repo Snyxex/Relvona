@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db, pool } from "../db/index.js";
 import { conversationMessages, messageFeedback } from "../db/schema.js";
+import { conversations } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { ConversationService } from "../services/conversationService.js";
 import { createRateLimiter, validateInputLimits } from "../middleware/security.js";
@@ -66,7 +67,9 @@ async function validateConversationRequest(req: any) {
 async function conversationForMessage(assistant: PublicAssistant, body: any) {
   if (typeof body.conversationId === "string" && body.conversationId) {
     if (!verifyWidgetSessionToken(body.conversationToken, { assistantId: assistant.id, organizationId: assistant.organization_id, conversationId: body.conversationId })) throw new Error("Invalid widget conversation session");
-    return { id: body.conversationId, token: body.conversationToken as string };
+    const [conversation] = await db.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.id, body.conversationId), eq(conversations.organizationId, assistant.organization_id), eq(conversations.assistantId, assistant.id))).limit(1);
+    if (!conversation) throw new Error("Conversation not found");
+    return { id: conversation.id, token: body.conversationToken as string };
   }
   const customer = await ConversationService.getOrCreateCustomer({ organizationId: assistant.organization_id, email: body.email, name: body.name, externalId: body.externalId });
   const conversation = await ConversationService.getOrCreateConversation({ organizationId: assistant.organization_id, assistantId: assistant.id, customerId: customer.id });

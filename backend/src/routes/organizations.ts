@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { authenticate, tenantContext, requireRole, AuthRequest } from "../middleware/auth.js";
 import { db } from "../db/index.js";
-import { organizations, organizationMembers, users } from "../db/schema.js";
-import { eq, and } from "drizzle-orm";
+import { organizations, organizationMembers, users, apiKeys } from "../db/schema.js";
+import { eq, and, isNull } from "drizzle-orm";
 import crypto from "crypto";
 
 const router = Router();
@@ -43,15 +43,12 @@ router.put("/current", requireRole(["owner", "admin"]), async (req: AuthRequest,
 // POST /api/v1/organizations/api-key (Regenerate API Key)
 router.post("/api-key", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
   try {
-    const newApiKey = "sk_live_" + crypto.randomBytes(24).toString("hex");
-
-    const [updated] = await db
-      .update(organizations)
-      .set({ apiKey: newApiKey, updatedAt: new Date() })
-      .where(eq(organizations.id, req.organization!.id))
-      .returning();
-
-    return res.json({ apiKey: updated.apiKey });
+    const newApiKey = `acs_live_${crypto.randomBytes(32).toString("base64url")}`;
+    const keyPrefix = newApiKey.slice(0, 17);
+    const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60_000);
+    await db.update(apiKeys).set({ revokedAt: new Date() }).where(and(eq(apiKeys.organizationId, req.organization!.id), isNull(apiKeys.revokedAt)));
+    await db.insert(apiKeys).values({ organizationId: req.organization!.id, keyPrefix, keyHash: crypto.createHash("sha256").update(newApiKey).digest("hex"), name: "Default API key", scopes: ["*"], expiresAt });
+    return res.status(201).json({ apiKey: newApiKey, keyPrefix, expiresAt: expiresAt.toISOString() });
   } catch (error) {
     return res.status(500).json({ error: (error as Error).message });
   }

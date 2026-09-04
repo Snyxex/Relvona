@@ -47,27 +47,33 @@ async function consumeDistributedLimit(key: string, limit: number, windowMs: num
 // Middleware: Express Security Headers
 export function applySecurityHeaders(req: Request, res: Response, next: NextFunction) {
   res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  const isHostedWidgetPage = req.path.startsWith("/api/v1/widget/page/");
+  res.setHeader("X-Frame-Options", isHostedWidgetPage ? "SAMEORIGIN" : "DENY");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
-  // The API does not render untrusted HTML. This also protects the optional
-  // hosted chat page; the embeddable script inherits the host page's policy.
-  res.setHeader("Content-Security-Policy", "default-src 'self'; base-uri 'self'; frame-ancestors 'self'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
+  if (isHostedWidgetPage) {
+    res.setHeader("Content-Security-Policy", "default-src 'self'; base-uri 'self'; frame-ancestors 'self'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'");
+  } else if (!req.path.startsWith("/public/")) {
+    res.setHeader("Content-Security-Policy", "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+  }
   next();
 }
 
 // Middleware: Dynamic Rate Limiter
-export function createRateLimiter(options: { limit: number; windowMs: number; keyPrefix: string }) {
+export function createRateLimiter(options: { limit: number; windowMs: number; keyPrefix: string; keyGenerator?: (req: AuthRequest) => string | undefined }) {
   return async (req: AuthRequest, res: Response, next: NextFunction) => {
     const ip = req.ip || req.socket.remoteAddress || "unknown_ip";
     const orgId = req.organization?.id || "public_org";
     const userId = req.user?.id || "anon";
 
-    const key = `${options.keyPrefix}:${ip}:${orgId}:${userId}`;
+    const key = `${options.keyPrefix}:${options.keyGenerator?.(req) || `${ip}:${orgId}:${userId}`}`;
 
     try {
       const { limited, retryAfterSeconds } = await consumeDistributedLimit(key, options.limit, options.windowMs);
+      res.setHeader("RateLimit-Limit", options.limit);
+      res.setHeader("RateLimit-Remaining", limited ? "0" : "unknown");
+      res.setHeader("RateLimit-Reset", Math.ceil(Date.now() / 1000) + retryAfterSeconds);
       if (!limited) return next();
       res.setHeader("Retry-After", retryAfterSeconds);
       return res.status(429).json({

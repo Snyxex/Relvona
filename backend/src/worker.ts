@@ -7,6 +7,11 @@ import { eq } from "drizzle-orm";
 import type { IngestionJob } from "./services/queueService.js";
 import { logger, withLogContext, setLogContext } from "./observability/logger.js";
 import { trace } from "@opentelemetry/api";
+import { closeDatabasePool } from "./db/index.js";
+import { shutdownTracing } from "./observability/tracing.js";
+import { validateRuntimeConfiguration } from "./config/runtime.js";
+
+validateRuntimeConfiguration();
 
 const redisUrl = process.env.REDIS_URL;
 if (!redisUrl) throw new Error("REDIS_URL is required for the ingestion worker");
@@ -31,3 +36,24 @@ const worker = new Worker<IngestionJob>("ingestion", async (job) => trace.getTra
 
 worker.on("completed", (job) => logger.info("ingestion.completed", { jobId: String(job.id), jobType: job.data.type, organizationId: job.data.organizationId }));
 worker.on("failed", (job, error) => logger.error("ingestion.failed", { jobId: job ? String(job.id) : undefined, jobType: job?.data.type, organizationId: job?.data.organizationId, error: error.message }));
+
+let shuttingDown = false;
+async function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logger.info("worker.shutdown_started", { signal });
+  const timer = setTimeout(() => { logger.error("worker.shutdown_timeout"); process.exit(1); }, Number(process.env.SHUTDOWN_TIMEOUT_MS || 30_000));
+  timer.unref();
+  try {
+    await worker.close(); // pauses fetching and waits for the active job
+    await closeDatabasePool();
+    await shutdownTracing();
+    logger.info("worker.shutdown_complete", { signal });
+    process.exitCode = 0;
+  } catch (error) {
+    logger.error("worker.shutdown_failed", { error: (error as Error).message });
+    process.exitCode = 1;
+  } finally { clearTimeout(timer); }
+}
+process.once("SIGTERM", () => { void shutdown("SIGTERM"); });
+process.once("SIGINT", () => { void shutdown("SIGINT"); });

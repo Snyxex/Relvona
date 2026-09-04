@@ -18,3 +18,5 @@ class QueueService {
 }
 
 export const queueService = new QueueService();
+
+export async function closeQueues() { await ingestionQueue.close(); }

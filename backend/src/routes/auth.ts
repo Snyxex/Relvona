@@ -9,7 +9,7 @@ import { createRateLimiter } from "../middleware/security.js";
 const router = Router();
 
 // POST /api/v1/auth/register
-router.post("/register", createRateLimiter({ keyPrefix: "auth-register", limit: 5, windowMs: 60 * 60_000 }), async (req, res) => {
+router.post("/register", createRateLimiter({ keyPrefix: "register", limit: 5, windowMs: 60 * 60_000, keyGenerator: (req) => req.ip }), async (req, res) => {
   try {
     const { name, email, password, orgName } = req.body;
 
@@ -17,8 +17,8 @@ router.post("/register", createRateLimiter({ keyPrefix: "auth-register", limit: 
       return res.status(400).json({ error: "Missing required fields: name, email, password, orgName" });
     }
 
-    if (password.length < 12 || password.length > 256) {
-      return res.status(400).json({ error: "Password must contain between 12 and 256 characters" });
+    if (typeof name !== "string" || name.trim().length < 2 || name.length > 100 || typeof orgName !== "string" || orgName.trim().length < 2 || orgName.length > 120 || typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || typeof password !== "string" || password.length < 12 || password.length > 256) {
+      return res.status(400).json({ error: "Invalid registration data" });
     }
 
     const result = await AuthService.registerUser({ name, email, password, orgName });
@@ -29,7 +29,8 @@ router.post("/register", createRateLimiter({ keyPrefix: "auth-register", limit: 
 });
 
 // POST /api/v1/auth/login
-router.post("/login", createRateLimiter({ keyPrefix: "auth-login", limit: 10, windowMs: 15 * 60_000 }), async (req, res) => {
+const emailRateKey = (req: any) => typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase().slice(0, 254) : "invalid";
+router.post("/login", createRateLimiter({ keyPrefix: "login-account", limit: 5, windowMs: 60_000, keyGenerator: emailRateKey }), createRateLimiter({ keyPrefix: "login-ip", limit: 20, windowMs: 15 * 60_000, keyGenerator: (req) => req.ip }), async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -42,6 +43,11 @@ router.post("/login", createRateLimiter({ keyPrefix: "auth-login", limit: 10, wi
   } catch (error) {
     return res.status(401).json({ error: (error as Error).message });
   }
+});
+
+router.post("/logout", authenticate, async (req: AuthRequest, res) => {
+  await db.update(users).set({ tokenVersion: req.user!.tokenVersion + 1, updatedAt: new Date() }).where(eq(users.id, req.user!.id));
+  return res.status(204).end();
 });
 
 // GET /api/v1/auth/me

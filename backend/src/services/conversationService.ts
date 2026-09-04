@@ -81,7 +81,8 @@ export class ConversationService {
       .where(
         and(
           eq(conversations.organizationId, data.organizationId),
-          eq(conversations.customerId, data.customerId)
+          eq(conversations.customerId, data.customerId),
+          data.assistantId ? eq(conversations.assistantId, data.assistantId) : undefined
         )
       )
       .orderBy(desc(conversations.createdAt))
@@ -339,7 +340,7 @@ export class ConversationService {
           assignedAgentId: data.agentId,
           updatedAt: new Date(),
         })
-        .where(eq(conversations.id, conv.id));
+        .where(and(eq(conversations.id, conv.id), eq(conversations.organizationId, data.organizationId)));
     }
 
     const [agentMsg] = await db

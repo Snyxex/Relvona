@@ -14,6 +14,22 @@ async function main() {
     await client.query("ALTER TABLE public.assistants ADD COLUMN IF NOT EXISTS model_profiles jsonb NOT NULL DEFAULT '[]'::jsonb");
     await client.query("ALTER TABLE public.assistants ADD COLUMN IF NOT EXISTS active_model_profile_id text");
     await client.query("CREATE UNIQUE INDEX IF NOT EXISTS assistants_widget_api_key_unique ON public.assistants (widget_api_key)");
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conrelid = 'public.assistants'::regclass
+            AND conname = 'assistants_widget_api_key_unique'
+        ) THEN
+          ALTER TABLE public.assistants
+            ADD CONSTRAINT assistants_widget_api_key_unique
+            UNIQUE USING INDEX assistants_widget_api_key_unique;
+        END IF;
+      END
+      $$
+    `);
     console.log("Verified widget integration schema.");
   } finally {
     await client.end();

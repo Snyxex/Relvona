@@ -36,12 +36,19 @@ User Input ──► Rate Limiting & Validation ──► Authentication (JWT/Ke
 - Third-party API keys (OpenAI, Anthropic, Gemini, NVIDIA) are encrypted at rest using **AES-256-GCM**.
 - Model completions pass through `OutputSanitizer` to escape dangerous HTML, block `javascript:`/`data:` links, and redact PII, API keys, JWT tokens, and system paths.
 
+### 5a. Authentication, API keys, and public conversations
+- Dashboard JWTs are issuer/audience-bound and carry a user token version. `POST /api/v1/auth/logout` increments that version, immediately revoking all active dashboard tokens for that user.
+- Login and registration use independent Redis-backed account/IP policies; all API traffic is covered by a configurable global Redis limit. `429` responses include standard `Retry-After` and `RateLimit-*` headers.
+- Organization API keys are random `acs_live_…` values shown only on issuance. The database retains a SHA-256 hash, prefix, scope metadata, expiry, revocation timestamp, and last-use timestamp. The migration hashes and clears legacy organization key values.
+- A public widget key authenticates an integration, not a chat visitor. Each newly created conversation also receives a short-lived signed access token. History, feedback, and subsequent messages require that token and are tied to the exact assistant, organization, and conversation.
+
 ### 6. Persistent Audit Logging
 - Privileged operations (`organization.update`, `ai.configure`, `api_key.regenerate`, `knowledge_base.delete`, `website.crawl_requested`) are logged to the `audit_logs` table with actor user IDs, IP addresses, and user agents.
 
 ### 7. Public Widget Abuse Controls
 - `/public/widget.js` is cacheable static content. Widget configuration, sessions, messages, and especially LLM-backed messages are rate-limited in Redis across replicas and return `429` plus `Retry-After` when exhausted.
 - Production fails closed for public rate limiting if Redis is unavailable. Provider spend limits remain an additional tenant-level control.
+- Widget requests are accepted only from explicitly configured allowed origins. Configure `widgetAllowedOrigins` before embedding a widget; an empty allowlist denies browser requests.
 
 ### 8. Scale-Out Controls
 - Socket.IO uses the Redis adapter so room events reach every API replica; the reverse proxy must retain WebSocket session affinity.
