@@ -1,12 +1,18 @@
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { db } from "../db/index.js";
-import { users, organizations, organizationMembers, assistants, knowledgeBases } from "../db/schema.js";
-import { eq, and } from "drizzle-orm";
+import { users, organizations, organizationMembers, assistants, knowledgeBases, organizationSettings } from "../db/schema.js";
+import { eq, and, inArray } from "drizzle-orm";
 import { generateToken } from "../middleware/auth.js";
 import { setDatabaseTenant } from "../db/tenantContext.js";
 
 export class AuthService {
+  private static async tokenExpiryForOrganizations(organizationIds: string[]) {
+    if (!organizationIds.length) return "60m";
+    const settings = await db.select({ organizationId: organizationSettings.organizationId, sessionTimeout: organizationSettings.sessionTimeout }).from(organizationSettings).where(inArray(organizationSettings.organizationId, organizationIds));
+    const configured = settings.map((setting) => setting.sessionTimeout).filter((minutes) => Number.isInteger(minutes) && minutes >= 5 && minutes <= 10_080);
+    return `${Math.min(...configured, 60)}m`;
+  }
   static async registerUser(data: { name: string; email: string; password: string; orgName: string }) {
     const existingUser = await db.select().from(users).where(eq(users.email, data.email.toLowerCase().trim())).limit(1);
     if (existingUser.length > 0) {
@@ -59,7 +65,7 @@ export class AuthService {
       description: "Default knowledge base for public documentation and FAQs",
     });
 
-    const token = generateToken({ userId: newUser.id, email: newUser.email, systemRole: newUser.systemRole });
+    const token = generateToken({ userId: newUser.id, email: newUser.email, systemRole: newUser.systemRole }, "60m");
 
     return {
       user: {
@@ -101,7 +107,7 @@ export class AuthService {
       .innerJoin(organizations, eq(organizationMembers.organizationId, organizations.id))
       .where(eq(organizationMembers.userId, user.id));
 
-    const token = generateToken({ userId: user.id, email: user.email, systemRole: user.systemRole });
+    const token = generateToken({ userId: user.id, email: user.email, systemRole: user.systemRole }, await this.tokenExpiryForOrganizations(memberships.map((membership) => membership.org.id)));
 
     return {
       user: {

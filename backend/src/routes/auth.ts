@@ -4,20 +4,21 @@ import { authenticate, AuthRequest } from "../middleware/auth.js";
 import { db } from "../db/index.js";
 import { users } from "../db/schema.js";
 import { eq } from "drizzle-orm";
+import { createRateLimiter } from "../middleware/security.js";
 
 const router = Router();
 
 // POST /api/v1/auth/register
-router.post("/register", async (req, res) => {
+router.post("/register", createRateLimiter({ keyPrefix: "auth-register", limit: 5, windowMs: 60 * 60_000 }), async (req, res) => {
   try {
     const { name, email, password, orgName } = req.body;
 
-    if (!name || !email || !password || !orgName) {
+    if (![name, email, password, orgName].every((value) => typeof value === "string" && value.trim())) {
       return res.status(400).json({ error: "Missing required fields: name, email, password, orgName" });
     }
 
-    if (password.length < 6) {
-      return res.status(400).json({ error: "Password must be at least 6 characters" });
+    if (password.length < 12 || password.length > 256) {
+      return res.status(400).json({ error: "Password must contain between 12 and 256 characters" });
     }
 
     const result = await AuthService.registerUser({ name, email, password, orgName });
@@ -28,11 +29,11 @@ router.post("/register", async (req, res) => {
 });
 
 // POST /api/v1/auth/login
-router.post("/login", async (req, res) => {
+router.post("/login", createRateLimiter({ keyPrefix: "auth-login", limit: 10, windowMs: 15 * 60_000 }), async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    if (!email || !password) {
+    if (typeof email !== "string" || typeof password !== "string" || !email || !password) {
       return res.status(400).json({ error: "Email and password are required" });
     }
 

@@ -3,6 +3,7 @@ import { FileSecurity } from "../services/fileSecurity.js";
 import { OutputSanitizer } from "../services/outputSanitizer.js";
 import { PiiRedactionService } from "../services/piiRedactionService.js";
 import { RAGService } from "../services/ragService.js";
+import { createWidgetSessionToken, verifyWidgetSessionToken } from "../services/widgetSessionService.js";
 
 async function runSecurityTests() {
   console.log("🔒 Running Automated AI Security & Compliance Verification Test Suite...\n");
@@ -71,6 +72,11 @@ async function runSecurityTests() {
   assert(redactedText.includes("[REDACTED_API_KEY]") && redactedText.includes("[REDACTED_JWT]"), "Redact API Keys & JWT Secrets from AI Output");
   const incomingPii = PiiRedactionService.redact("card 4242 4242 4242 4242 password: hunter2 email jane@example.com");
   assert(incomingPii.text.includes("[REDACTED_CREDIT_CARD]") && incomingPii.text.includes("[REDACTED_PASSWORD]") && incomingPii.text.includes("[REDACTED_EMAIL]"), "Redact incoming support PII before LLM processing");
+  const widgetSession = { assistantId: "assistant-a", organizationId: "organization-a", conversationId: "conversation-a" };
+  const widgetToken = createWidgetSessionToken(widgetSession);
+  assert(verifyWidgetSessionToken(widgetToken, widgetSession), "Accept a signed widget conversation session");
+  assert(!verifyWidgetSessionToken(widgetToken, { ...widgetSession, conversationId: "conversation-b" }), "Reject widget session reuse for another conversation");
+  assert(!verifyWidgetSessionToken(`${widgetToken}x`, widgetSession), "Reject a tampered widget session");
 
   // --- TEST GROUP 4: SENTIMENT & FRUSTRATION ESCALATION ---
   console.log("\n--- Test Group 4: Sentiment Analysis & Frustration Escalation ---");

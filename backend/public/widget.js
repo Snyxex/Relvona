@@ -18,6 +18,7 @@
     isOpen: false,
     customerId: localStorage.getItem(`ai_chat_customer_id_${storageSuffix}`) || null,
     conversationId: localStorage.getItem(`ai_chat_conv_id_${storageSuffix}`) || null,
+    conversationToken: localStorage.getItem(`ai_chat_conv_token_${storageSuffix}`) || null,
     messages: [],
     loading: false,
     ready: false,
@@ -224,12 +225,15 @@
     if (!state.conversationId || !config.organizationId) return;
     try {
       const res = await fetch(
-        `${apiBase}/api/v1/widget/messages?conversationId=${state.conversationId}&organizationId=${config.organizationId}&${integrationParams()}`
+        `${apiBase}/api/v1/widget/messages?conversationId=${encodeURIComponent(state.conversationId)}&conversationToken=${encodeURIComponent(state.conversationToken || "")}&organizationId=${encodeURIComponent(config.organizationId)}&${integrationParams()}`
       );
       if (res.ok) {
         const msgs = await res.json();
         state.messages = msgs;
         renderMessages();
+      } else if (res.status === 401) {
+        state.conversationId = null; state.conversationToken = null; state.messages = [];
+        localStorage.removeItem(`ai_chat_conv_id_${storageSuffix}`); localStorage.removeItem(`ai_chat_conv_token_${storageSuffix}`);
       }
     } catch (e) {}
   }
@@ -275,7 +279,7 @@
 
   async function submitFeedback(messageId, rating) {
     try {
-      await fetch(`${apiBase}/api/v1/widget/feedback`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assistantId: config.assistantId, widgetKey, organizationId: config.organizationId, conversationId: state.conversationId, messageId, rating }) });
+      await fetch(`${apiBase}/api/v1/widget/feedback`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assistantId: config.assistantId, widgetKey, organizationId: config.organizationId, conversationId: state.conversationId, conversationToken: state.conversationToken, messageId, rating }) });
     } catch (e) {}
   }
 
@@ -306,6 +310,7 @@
           widgetKey,
           organizationId: config.organizationId,
           conversationId: state.conversationId || undefined,
+          conversationToken: state.conversationToken || undefined,
           content: text,
         }),
       });
@@ -323,6 +328,10 @@
             if (data.conversationId) {
               state.conversationId = data.conversationId;
               localStorage.setItem(`ai_chat_conv_id_${storageSuffix}`, data.conversationId);
+            }
+            if (data.conversationToken) {
+              state.conversationToken = data.conversationToken;
+              localStorage.setItem(`ai_chat_conv_token_${storageSuffix}`, data.conversationToken);
             }
             if (data.customerId) {
               state.customerId = data.customerId;

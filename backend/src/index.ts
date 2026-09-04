@@ -93,22 +93,13 @@ io.on("connection", (socket) => {
   }
 
   // Join Room with Server-Side Authorization Check
-  socket.on("join_room", async (data: { room: string; organizationId: string; conversationId?: string }) => withLogContext({ conversationId: data.conversationId, organizationId: data.organizationId }, async () => {
+  socket.on("join_room", async (data: { organizationId?: string; conversationId?: string }) => withLogContext({ conversationId: data.conversationId, organizationId: data.organizationId }, async () => {
     try {
-      const room = data.room || `conv:${data.conversationId}`;
-      if (!room) return;
-
-      // Extract conversation ID if room is conv:xxx
-      let targetConvId = data.conversationId;
-      if (!targetConvId && room.startsWith("conv:")) {
-        targetConvId = room.replace("conv:", "");
-      }
-
-      if (targetConvId) {
-        if (!userPayload?.userId) {
+      const targetConvId = data.conversationId;
+      if (!targetConvId || typeof targetConvId !== "string" || !userPayload?.userId) {
           socket.emit("error", { message: "Authentication is required to join a conversation" });
           return;
-        }
+      }
         // Validate conversation belongs to the requested organization
         const [conv] = await db
           .select()
@@ -135,8 +126,7 @@ io.on("connection", (socket) => {
           socket.emit("error", { message: "Access denied: You are not a member of this organization" });
           return;
         }
-      }
-
+      const room = `conv:${targetConvId}`;
       socket.join(room);
       logger.info("socket.room.joined", { socketId: socket.id, room });
     } catch (err) {

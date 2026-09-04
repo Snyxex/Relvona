@@ -6,8 +6,13 @@ import { currentDatabaseTenant } from "./tenantContext.js";
 
 dotenv.config();
 
+const databaseUrl = process.env.DATABASE_URL;
+if (process.env.NODE_ENV === "production" && !databaseUrl) {
+  throw new Error("DATABASE_URL must be injected in production");
+}
+
 export const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL || "postgres://postgres:postgrespassword@localhost:5432/ai_support_db",
+  connectionString: databaseUrl || "postgres://postgres:postgrespassword@localhost:5432/ai_support_db",
 });
 
 // RLS policies read this transaction-local setting. Leasing a client makes the

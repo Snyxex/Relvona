@@ -30,8 +30,8 @@ export interface AuthRequest extends Request {
   };
 }
 
-export function generateToken(payload: { userId: string; email: string; systemRole: string }) {
-  return jwt.sign(payload, jwtSecret, { expiresIn: "7d" });
+export function generateToken(payload: { userId: string; email: string; systemRole: string }, expiresIn = "60m") {
+  return jwt.sign(payload, jwtSecret, { expiresIn: expiresIn as jwt.SignOptions["expiresIn"] });
 }
 
 export function verifyToken(token: string) {

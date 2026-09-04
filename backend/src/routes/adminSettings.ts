@@ -6,6 +6,7 @@ import { authenticate, AuthRequest, requireRole, tenantContext } from "../middle
 import { decryptSecret, encryptSecret } from "../utils/crypto.js";
 import { AuditService } from "../services/auditService.js";
 import { TenantQuotaService } from "../services/tenantQuotaService.js";
+import { isIP } from "node:net";
 
 const router = Router();
 const allowedModels = new Set(["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo", "nvidia-mistral", "nvidia/llama-3.1-8b-instruct"]);
@@ -113,8 +114,11 @@ router.get("/settings/answer-feedback", async (req: AuthRequest, res) => {
 
 router.put("/settings/organization", async (req: AuthRequest, res) => {
   const body = req.body || {}; const current = await settingsFor(req.organization!.id);
+  if (body.sessionTimeout !== undefined && (!Number.isInteger(body.sessionTimeout) || body.sessionTimeout < 5 || body.sessionTimeout > 10_080)) return res.status(400).json({ error: "Session-Timeout muss zwischen 5 und 10.080 Minuten liegen." });
+  if (body.apiKeyExpiryDays !== undefined && (!Number.isInteger(body.apiKeyExpiryDays) || body.apiKeyExpiryDays < 1 || body.apiKeyExpiryDays > 3_650)) return res.status(400).json({ error: "API-Key-Rotation muss zwischen 1 und 3.650 Tagen liegen." });
+  if (body.ipWhitelist !== undefined && (!Array.isArray(body.ipWhitelist) || body.ipWhitelist.length > 100 || body.ipWhitelist.some((ip: unknown) => typeof ip !== "string" || !isIP(ip.trim())))) return res.status(400).json({ error: "IP-Whitelist darf nur gültige IP-Adressen enthalten." });
   const [organization] = await db.update(organizations).set({ name: typeof body.name === "string" ? body.name.slice(0, 120) : req.organization!.name, updatedAt: new Date() }).where(eq(organizations.id, req.organization!.id)).returning();
-  const [settings] = await db.update(organizationSettings).set({ supportEmail: typeof body.supportEmail === "string" ? body.supportEmail : current.supportEmail, businessHours: body.businessHours || current.businessHours, primaryLanguage: typeof body.primaryLanguage === "string" ? body.primaryLanguage : current.primaryLanguage, fallbackLanguages: Array.isArray(body.fallbackLanguages) ? body.fallbackLanguages.slice(0, 10) : current.fallbackLanguages, logoUrl: typeof body.logoUrl === "string" ? body.logoUrl : current.logoUrl, sessionTimeout: Number.isInteger(body.sessionTimeout) ? body.sessionTimeout : current.sessionTimeout, apiKeyExpiryDays: Number.isInteger(body.apiKeyExpiryDays) ? body.apiKeyExpiryDays : current.apiKeyExpiryDays, ipWhitelist: Array.isArray(body.ipWhitelist) ? body.ipWhitelist.slice(0, 100) : current.ipWhitelist, updatedAt: new Date() }).where(eq(organizationSettings.organizationId, req.organization!.id)).returning();
+  const [settings] = await db.update(organizationSettings).set({ supportEmail: typeof body.supportEmail === "string" ? body.supportEmail : current.supportEmail, businessHours: body.businessHours || current.businessHours, primaryLanguage: typeof body.primaryLanguage === "string" ? body.primaryLanguage : current.primaryLanguage, fallbackLanguages: Array.isArray(body.fallbackLanguages) ? body.fallbackLanguages.slice(0, 10) : current.fallbackLanguages, logoUrl: typeof body.logoUrl === "string" ? body.logoUrl : current.logoUrl, sessionTimeout: Number.isInteger(body.sessionTimeout) ? body.sessionTimeout : current.sessionTimeout, apiKeyExpiryDays: Number.isInteger(body.apiKeyExpiryDays) ? body.apiKeyExpiryDays : current.apiKeyExpiryDays, ipWhitelist: Array.isArray(body.ipWhitelist) ? body.ipWhitelist.map((ip: string) => ip.trim()) : current.ipWhitelist, updatedAt: new Date() }).where(eq(organizationSettings.organizationId, req.organization!.id)).returning();
   await AuditService.logAction({ organizationId: req.organization!.id, actorUserId: req.user!.id, action: "settings.organization.update", resourceType: "organization_settings", resourceId: settings.id, metadata: { changed: Object.keys(body).filter((key) => !key.toLowerCase().includes("key")) }, ipAddress: ipOf(req) });
   return res.json({ organization, settings: publicSettings(settings) });
 });

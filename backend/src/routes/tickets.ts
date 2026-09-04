@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { authenticate, tenantContext, AuthRequest } from "../middleware/auth.js";
+import { authenticate, tenantContext, requireRole, AuthRequest } from "../middleware/auth.js";
 import { TicketService } from "../services/ticketService.js";
 import { db } from "../db/index.js";
 import { ticketComments, users } from "../db/schema.js";
@@ -8,6 +8,9 @@ import { eq, and } from "drizzle-orm";
 const router = Router();
 router.use(authenticate);
 router.use(tenantContext);
+// Tickets contain customer data and may change operational ownership. They are
+// an internal support surface, not a general member feature.
+router.use(requireRole(["owner", "admin", "agent"]));
 
 // GET /api/v1/tickets
 router.get("/", async (req: AuthRequest, res) => {
@@ -51,6 +54,7 @@ router.post("/", async (req: AuthRequest, res) => {
     if (["Customer not found", "Conversation not found"].includes((error as Error).message)) {
       return res.status(404).json({ error: (error as Error).message });
     }
+    if ((error as Error).message === "Assigned agent is not a support member") return res.status(400).json({ error: (error as Error).message });
     return res.status(500).json({ error: (error as Error).message });
   }
 });
@@ -71,7 +75,7 @@ router.put("/:id", async (req: AuthRequest, res) => {
 
     return res.json(updated);
   } catch (error) {
-    if (["Invalid ticket status", "Invalid ticket priority"].includes((error as Error).message)) {
+    if (["Invalid ticket status", "Invalid ticket priority", "Assigned agent is not a support member"].includes((error as Error).message)) {
       return res.status(400).json({ error: (error as Error).message });
     }
     return res.status(500).json({ error: (error as Error).message });

@@ -1,8 +1,18 @@
 import { db } from "../db/index.js";
-import { tickets, ticketComments, conversations, customers, users } from "../db/schema.js";
+import { tickets, ticketComments, conversations, customers, users, organizationMembers } from "../db/schema.js";
 import { eq, and, desc, sql } from "drizzle-orm";
 
 export class TicketService {
+  private static async assertAssignableAgent(organizationId: string, userId: string | undefined) {
+    if (!userId) return;
+    const [membership] = await db
+      .select({ role: organizationMembers.role })
+      .from(organizationMembers)
+      .where(and(eq(organizationMembers.organizationId, organizationId), eq(organizationMembers.userId, userId)))
+      .limit(1);
+    if (!membership || !["owner", "admin", "agent"].includes(membership.role)) throw new Error("Assigned agent is not a support member");
+  }
+
   // Generate Next Sequential Ticket Number per Org
   private static async getNextTicketNumber(organizationId: string): Promise<number> {
     const [latest] = await db
@@ -30,6 +40,7 @@ export class TicketService {
       .where(and(eq(customers.id, data.customerId), eq(customers.organizationId, data.organizationId)))
       .limit(1);
     if (!customer) throw new Error("Customer not found");
+    await this.assertAssignableAgent(data.organizationId, data.assignedAgentId);
 
     if (data.conversationId) {
       const [conversation] = await db
@@ -211,6 +222,7 @@ export class TicketService {
     if (data.assignedAgentId !== undefined) updatePayload.assignedAgentId = data.assignedAgentId;
     if (data.tags) updatePayload.tags = data.tags;
 
+    await this.assertAssignableAgent(data.organizationId, data.assignedAgentId);
     const [updated] = await db
       .update(tickets)
       .set(updatePayload)

@@ -8,6 +8,21 @@ import crypto from "crypto";
 
 const newWidgetApiKey = () => `wpk_${crypto.randomBytes(24).toString("base64url")}`;
 
+function normalizeProviderBaseUrl(provider: unknown, value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  // Older rows use NULL for an unset URL. The dashboard sends the complete
+  // assistant object back on save, so accept that legacy representation as an
+  // empty URL rather than rejecting unrelated settings (for example widgets).
+  if (value === null) return "";
+  if (typeof value !== "string") throw new Error("Provider base URL must be a string");
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (provider !== "local") throw new Error("Custom base URLs are supported only for the local provider");
+  const url = new URL(trimmed);
+  if (!/^https?:$/.test(url.protocol) || url.username || url.password || url.hash) throw new Error("Local provider base URL must be an HTTP(S) URL without credentials");
+  return url.toString().replace(/\/$/, "");
+}
+
 function normalizeWidgetOrigins(value: unknown): string[] {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > 20) throw new Error("widgetAllowedOrigins must contain at most 20 origins");
@@ -37,7 +52,7 @@ function normalizeModelProfiles(value: unknown, existing: unknown) {
     if (typeof profile.label !== "string" || !profile.label.trim() || profile.label.length > 60 || !providers.has(profile.provider) || typeof profile.modelName !== "string" || !profile.modelName.trim() || profile.modelName.length > 160) throw new Error("Invalid model profile");
     const previous = prior.get(profile.id) as any;
     const apiKey = typeof profile.apiKey === "string" && profile.apiKey.trim() ? encryptSecret(profile.apiKey.trim()) : previous?.apiKey || null;
-    return { id: profile.id, label: profile.label.trim(), provider: profile.provider, modelName: profile.modelName.trim(), baseUrl: typeof profile.baseUrl === "string" ? profile.baseUrl.trim().slice(0, 300) : "", apiKey };
+    return { id: profile.id, label: profile.label.trim(), provider: profile.provider, modelName: profile.modelName.trim(), baseUrl: normalizeProviderBaseUrl(profile.provider, profile.baseUrl)?.slice(0, 300) || "", apiKey };
   });
 }
 
@@ -105,7 +120,10 @@ router.put("/:id", requireRole(["owner", "admin"]), async (req: AuthRequest, res
     } = req.body;
 
     const normalizedOrigins = widgetAllowedOrigins === undefined ? undefined : normalizeWidgetOrigins(widgetAllowedOrigins);
-    const normalizedProfiles = normalizeModelProfiles(modelProfiles, (await db.select({ modelProfiles: assistants.modelProfiles }).from(assistants).where(and(eq(assistants.id, req.params.id), eq(assistants.organizationId, req.organization!.id))).limit(1))[0]?.modelProfiles);
+    const [existingAssistant] = await db.select({ modelProfiles: assistants.modelProfiles, modelProvider: assistants.modelProvider, embeddingProvider: assistants.embeddingProvider }).from(assistants).where(and(eq(assistants.id, req.params.id), eq(assistants.organizationId, req.organization!.id))).limit(1);
+    const normalizedProfiles = normalizeModelProfiles(modelProfiles, existingAssistant?.modelProfiles);
+    const normalizedBaseUrl = normalizeProviderBaseUrl(modelProvider ?? existingAssistant?.modelProvider, baseUrl);
+    const normalizedEmbeddingBaseUrl = normalizeProviderBaseUrl(embeddingProvider ?? existingAssistant?.embeddingProvider, embeddingBaseUrl);
     if (activeModelProfileId !== undefined && activeModelProfileId !== null && (!normalizedProfiles || !normalizedProfiles.some((profile) => profile.id === activeModelProfileId))) throw new Error("Active model profile does not exist");
 
     const [updated] = await db
@@ -116,11 +134,11 @@ router.put("/:id", requireRole(["owner", "admin"]), async (req: AuthRequest, res
         modelProvider: modelProvider !== undefined ? modelProvider : undefined,
         modelName: modelName !== undefined ? modelName : undefined,
         apiKey: apiKey !== undefined ? encryptSecret(apiKey) : undefined,
-        baseUrl: baseUrl !== undefined ? baseUrl : undefined,
+        baseUrl: normalizedBaseUrl,
         embeddingProvider: embeddingProvider !== undefined ? embeddingProvider : undefined,
         embeddingModel: embeddingModel !== undefined ? embeddingModel : undefined,
         embeddingApiKey: embeddingApiKey !== undefined ? encryptSecret(embeddingApiKey) : undefined,
-        embeddingBaseUrl: embeddingBaseUrl !== undefined ? embeddingBaseUrl : undefined,
+        embeddingBaseUrl: normalizedEmbeddingBaseUrl,
         temperature: temperature !== undefined ? parseFloat(temperature) : undefined,
         handoffEnabled: handoffEnabled !== undefined ? Boolean(handoffEnabled) : undefined,
         handoffKeywords: handoffKeywords !== undefined ? handoffKeywords : undefined,
@@ -142,7 +160,7 @@ router.put("/:id", requireRole(["owner", "admin"]), async (req: AuthRequest, res
 
     return res.json(withoutSecrets(updated));
   } catch (error) {
-    return res.status(500).json({ error: (error as Error).message });
+    return res.status(400).json({ error: (error as Error).message });
   }
 });
 

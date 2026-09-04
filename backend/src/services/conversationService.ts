@@ -323,7 +323,11 @@ export class ConversationService {
     agentName: string;
     content: string;
   }) {
-    const [conv] = await db.select().from(conversations).where(eq(conversations.id, data.conversationId)).limit(1);
+    const [conv] = await db
+      .select()
+      .from(conversations)
+      .where(and(eq(conversations.id, data.conversationId), eq(conversations.organizationId, data.organizationId)))
+      .limit(1);
     if (!conv) throw new Error("Conversation not found");
 
     // Transition state to AGENT_ACTIVE if coming from WAITING_FOR_AGENT

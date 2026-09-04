@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { authenticate, tenantContext, AuthRequest } from "../middleware/auth.js";
+import { authenticate, tenantContext, requireRole, AuthRequest } from "../middleware/auth.js";
 import { ConversationService } from "../services/conversationService.js";
 import { db } from "../db/index.js";
 import { conversations, conversationMessages, customers } from "../db/schema.js";
@@ -8,6 +8,7 @@ import { eq, and, desc } from "drizzle-orm";
 const router = Router();
 router.use(authenticate);
 router.use(tenantContext);
+router.use(requireRole(["owner", "admin", "agent"]));
 
 // GET /api/v1/conversations
 router.get("/", async (req: AuthRequest, res) => {
@@ -39,9 +40,7 @@ router.get("/", async (req: AuthRequest, res) => {
         },
       }))
     );
-  } catch (error) {
-    return res.status(500).json({ error: (error as Error).message });
-  }
+  } catch (error) { return res.status(500).json({ error: (error as Error).message }); }
 });
 
 // GET /api/v1/conversations/:id/messages
@@ -83,7 +82,7 @@ router.post("/:id/messages/:messageId/translation", async (req: AuthRequest, res
 router.post("/:id/messages", async (req: AuthRequest, res) => {
   try {
     const { content } = req.body;
-    if (!content) return res.status(400).json({ error: "Content is required" });
+    if (typeof content !== "string" || !content.trim() || content.length > 10_000) return res.status(400).json({ error: "Content must be between 1 and 10,000 characters" });
 
     const agentMsg = await ConversationService.sendAgentMessage({
       organizationId: req.organization!.id,
@@ -95,6 +94,7 @@ router.post("/:id/messages", async (req: AuthRequest, res) => {
 
     return res.status(201).json(agentMsg);
   } catch (error) {
+    if ((error as Error).message === "Conversation not found") return res.status(404).json({ error: "Conversation not found" });
     return res.status(500).json({ error: (error as Error).message });
   }
 });

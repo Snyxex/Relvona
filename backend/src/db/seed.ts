@@ -4,6 +4,9 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 
 async function seed() {
+  if (process.env.NODE_ENV === "production") throw new Error("Demo seed data must never run in production");
+  const demoPassword = process.env.SEED_DEMO_PASSWORD;
+  if (!demoPassword || demoPassword.length < 12) throw new Error("SEED_DEMO_PASSWORD with at least 12 characters is required for demo seeding");
   console.log("🌱 Seeding Multi-Tenant AI Customer Support Platform...");
 
   // 1. Create Demo Organization
@@ -34,10 +37,10 @@ async function seed() {
     fallbackLanguages: ["en"],
   });
 
-  console.log(`✅ Created Demo Organization: ${org.name} (API Key: ${org.apiKey})`);
+  console.log(`✅ Created Demo Organization: ${org.name}`);
 
   // 2. Create Admin User
-  const passwordHash = await bcrypt.hash("Password123!", 10);
+  const passwordHash = await bcrypt.hash(demoPassword, 10);
   const [adminUser] = await db
     .insert(users)
     .values({
@@ -54,7 +57,7 @@ async function seed() {
     role: "owner",
   });
 
-  console.log(`✅ Created Admin User: ${adminUser.email} (Password: Password123!)`);
+  console.log(`✅ Created Admin User: ${adminUser.email}`);
 
   // 3. Create AI Assistant
   const [assistant] = await db
