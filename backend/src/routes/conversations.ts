@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { authenticate, tenantContext, requireRole, AuthRequest } from "../middleware/auth.js";
 import { ConversationService } from "../services/conversationService.js";
+import { RAGService } from "../services/ragService.js";
 import { db } from "../db/index.js";
 import { conversations, conversationMessages, customers } from "../db/schema.js";
 import { eq, and, desc } from "drizzle-orm";
@@ -9,6 +10,20 @@ const router = Router();
 router.use(authenticate);
 router.use(tenantContext);
 router.use(requireRole(["owner", "admin", "agent"]));
+
+router.post("/:id/suggested-reply", async (req: AuthRequest, res) => {
+  try {
+    const [conversation] = await db.select().from(conversations).where(and(eq(conversations.id, req.params.id), eq(conversations.organizationId, req.organization!.id))).limit(1);
+    if (!conversation?.assistantId) return res.status(404).json({ error: "Conversation assistant not found" });
+    const history = await db.select().from(conversationMessages).where(and(eq(conversationMessages.conversationId, conversation.id), eq(conversationMessages.organizationId, req.organization!.id))).orderBy(desc(conversationMessages.createdAt)).limit(50);
+    const latestCustomer = history.find((message) => message.senderType === "customer");
+    if (!latestCustomer) return res.status(400).json({ error: "No customer question available" });
+    const reply = await RAGService.generateSuggestedReply({ organizationId: req.organization!.id, assistantId: conversation.assistantId, customerQuery: latestCustomer.content, conversationHistory: history.filter((message) => message.id !== latestCustomer.id).reverse().map((message) => ({ role: message.senderType, content: message.content })) });
+    return res.json(reply);
+  } catch {
+    return res.status(503).json({ error: "Suggested reply is currently unavailable" });
+  }
+});
 
 // GET /api/v1/conversations
 router.get("/", async (req: AuthRequest, res) => {
@@ -59,6 +74,7 @@ router.get("/:id/messages", async (req: AuthRequest, res) => {
 
     return res.json(msgs);
   } catch (error) {
+    if ((error as Error).message === "Conversation not found") return res.status(404).json({ error: "Conversation not found" });
     return res.status(500).json({ error: (error as Error).message });
   }
 });
@@ -105,6 +121,7 @@ router.post("/:id/resolve", async (req: AuthRequest, res) => {
     const updated = await ConversationService.resolveConversation(req.organization!.id, req.params.id);
     return res.json(updated);
   } catch (error) {
+    if ((error as Error).message === "Conversation not found") return res.status(404).json({ error: "Conversation not found" });
     return res.status(500).json({ error: (error as Error).message });
   }
 });

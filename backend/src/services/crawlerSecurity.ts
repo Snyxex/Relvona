@@ -35,9 +35,20 @@ export class CrawlerSecurity {
     // IPv6 Check
     if (net.isIPv6(ip)) {
       const lower = ip.toLowerCase();
-      if (lower === "::1" || lower === "::" || lower.startsWith("fe80:") || lower.startsWith("fc00:") || lower.startsWith("fd00:") || lower.startsWith("::ffff:127.") || lower.startsWith("::ffff:10.") || lower.startsWith("::ffff:192.168.") || lower.startsWith("::ffff:169.254.")) {
-        return true;
+      // Normalize compressed and IPv4-mapped forms before applying range checks.
+      const hexadecimal = lower.replace(/(\d+\.\d+\.\d+\.\d+)$/, (value) => {
+        const bytes = value.split(".").map(Number);
+        return `${((bytes[0] << 8) | bytes[1]).toString(16)}:${((bytes[2] << 8) | bytes[3]).toString(16)}`;
+      });
+      const halves = hexadecimal.split("::");
+      const left = halves[0] ? halves[0].split(":") : [];
+      const right = halves[1] ? halves[1].split(":") : [];
+      const words = (halves.length === 2 ? [...left, ...Array(8 - left.length - right.length).fill("0"), ...right] : left).map((word) => parseInt(word, 16));
+      if (words.slice(0, 5).every((word) => word === 0) && words[5] === 0xffff) {
+        return this.isPrivateIP(`${words[6] >> 8}.${words[6] & 255}.${words[7] >> 8}.${words[7] & 255}`);
       }
+      // Only globally routed unicast; exclude special/tunnelling/documentation allocations.
+      if ((words[0] & 0xe000) !== 0x2000 || words[0] === 0x2002 || (words[0] === 0x2001 && (words[1] < 0x0200 || words[1] === 0x0db8)) || words[0] >= 0x3ff0) return true;
     }
 
     return false;
@@ -56,6 +67,7 @@ export class CrawlerSecurity {
     if (!["http:", "https:"].includes(parsed.protocol)) {
       throw new Error(`Prohibited protocol '${parsed.protocol}'. Only HTTP and HTTPS are permitted.`);
     }
+    if (parsed.username || parsed.password) throw new Error("Credentials in crawl URLs are prohibited");
 
     const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, "");
 
@@ -96,6 +108,8 @@ export class CrawlerSecurity {
     const maxBytes = 5 * 1024 * 1024;
     return new Promise<string>((resolve, reject) => {
       const request = transport.request({ protocol: parsed.protocol, hostname: resolvedIp, port: parsed.port || undefined, path: `${parsed.pathname}${parsed.search}`, method: "GET", servername: parsed.hostname, headers: { Host: parsed.host, "User-Agent": "SupportAIBot/2.0", Accept: "text/html,application/xhtml+xml,text/plain" }, timeout: 10_000 }, (response) => {
+        response.on("error", reject);
+        response.on("aborted", () => reject(new Error("Crawl response was interrupted")));
         const status = response.statusCode || 0;
         if ([301, 302, 303, 307, 308].includes(status)) {
           response.resume();
@@ -111,6 +125,8 @@ export class CrawlerSecurity {
         response.on("data", (chunk: Buffer) => { size += chunk.length; if (size > maxBytes) request.destroy(new Error("Downloaded response body exceeds 5MB limit.")); else chunks.push(chunk); });
         response.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
       });
+      const deadline = setTimeout(() => request.destroy(new Error("Crawl deadline exceeded")), 10_000);
+      request.on("close", () => clearTimeout(deadline));
       request.on("timeout", () => request.destroy(new Error("Crawl request timed out.")));
       request.on("error", reject);
       request.end();

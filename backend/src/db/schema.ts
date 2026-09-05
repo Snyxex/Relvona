@@ -133,6 +133,25 @@ export const knowledgeSources = pgTable("knowledge_sources", {
   orgKbIdx: index("org_kb_source_idx").on(table.organizationId, table.knowledgeBaseId),
 }));
 
+// Durable input and execution state; payloads are never returned in source lists.
+export const knowledgeIngestionJobs = pgTable("knowledge_ingestion_jobs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
+  sourceId: uuid("source_id").references(() => knowledgeSources.id, { onDelete: "cascade" }).notNull().unique(),
+  payload: jsonb("payload").notNull(),
+  revision: integer("revision").default(1).notNull(),
+  status: text("status").default("queued").notNull(),
+  attempts: integer("attempts").default(0).notNull(),
+  leaseToken: uuid("lease_token"),
+  leaseUntil: timestamp("lease_until"),
+  nextAttemptAt: timestamp("next_attempt_at").defaultNow().notNull(),
+  errorMessage: text("error_message"),
+  startedAt: timestamp("started_at"),
+  finishedAt: timestamp("finished_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({ pendingIdx: index("ingestion_pending_idx").on(table.organizationId, table.status, table.nextAttemptAt) }));
+
 // 9. Document Chunks & Embeddings (pgvector)
 export const documentChunks = pgTable("document_chunks", {
   id: uuid("id").primaryKey().defaultRandom(),

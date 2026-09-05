@@ -27,9 +27,12 @@ export class AnalyticsService {
       statesMap[row.state] = Number(row.count);
     });
 
-    const aiResolved = statesMap["RESOLVED"] || 0;
+    const [aiResolutionEvents] = await db.select({ count: sql<number>`count(distinct ${analyticsEvents.metadata}->>'conversationId')` }).from(analyticsEvents)
+      .where(and(eq(analyticsEvents.organizationId, organizationId), eq(analyticsEvents.eventType, "ai_resolved")));
+    const aiResolved = Number(aiResolutionEvents?.count || 0);
+    const resolvedConversations = statesMap["RESOLVED"] || 0;
     const handoffs = (statesMap["WAITING_FOR_AGENT"] || 0) + (statesMap["AGENT_ACTIVE"] || 0);
-    const resolutionRate = totalConversations > 0 ? parseFloat(((aiResolved / totalConversations) * 100).toFixed(1)) : 100;
+    const resolutionRate = totalConversations > 0 ? parseFloat(((resolvedConversations / totalConversations) * 100).toFixed(1)) : 0;
 
     // 3. Open Tickets
     const [openTicketsResult] = await db
@@ -82,6 +85,7 @@ export class AnalyticsService {
     return {
       totalConversations,
       aiResolved,
+      resolvedConversations,
       handoffs,
       resolutionRate,
       openTickets,

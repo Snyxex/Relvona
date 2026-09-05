@@ -6,6 +6,7 @@ import { TenantQuotaService, TenantQuotaExceededError } from "./tenantQuotaServi
 import { organizationSettings } from "../db/schema.js";
 import { PiiRedactionService } from "./piiRedactionService.js";
 import { TicketService } from "./ticketService.js";
+import { domainEventBus } from "./domainEventBus.js";
 
 export class ConversationService {
   private static ticketConfirmation(language: string, ticketNumber: number, created: boolean): string {
@@ -74,6 +75,14 @@ export class ConversationService {
     assistantId?: string;
     customerId: string;
   }) {
+    const [customer] = await db.select({ id: customers.id }).from(customers)
+      .where(and(eq(customers.id, data.customerId), eq(customers.organizationId, data.organizationId))).limit(1);
+    if (!customer) throw new Error("Customer not found");
+    if (data.assistantId) {
+      const [assistant] = await db.select({ id: assistants.id }).from(assistants)
+        .where(and(eq(assistants.id, data.assistantId), eq(assistants.organizationId, data.organizationId))).limit(1);
+      if (!assistant) throw new Error("Assistant not found");
+    }
     // Check if there is an active conversation (not resolved)
     const [existing] = await db
       .select()
@@ -134,6 +143,7 @@ export class ConversationService {
     // 1. Fetch Conversation
     const [conv] = await db.select().from(conversations).where(and(eq(conversations.id, data.conversationId), eq(conversations.organizationId, data.organizationId))).limit(1);
     if (!conv) throw new Error("Conversation not found");
+    if (conv.state === "RESOLVED") throw new Error("Conversation is resolved");
     const [settings] = await db.select({ widgetRequestsPerMinute: organizationSettings.widgetRequestsPerMinute }).from(organizationSettings).where(eq(organizationSettings.organizationId, data.organizationId)).limit(1);
     await TenantQuotaService.consumeWidgetRequest(data.organizationId, settings?.widgetRequestsPerMinute ?? 120);
     await TenantQuotaService.consumeWidgetEndUserRequest(data.organizationId, conv.customerId, settings?.widgetRequestsPerMinute ?? 120);
@@ -154,20 +164,15 @@ export class ConversationService {
       })
       .returning();
 
-    // If conversation is already handled by human agent (AGENT_ACTIVE), do not auto-respond with AI
-    if (conv.state === "AGENT_ACTIVE") {
-      // Generate suggested reply for agent
-      const suggested = await RAGService.generateSuggestedReply({
-        organizationId: data.organizationId,
-        customerQuery: redactedInput.text,
-        conversationHistory: [],
-      });
-
+    await domainEventBus.emit({ type: "message.created", organizationId: data.organizationId, conversationId: conv.id, payload: custMsg });
+    // Human-owned and queued conversations must not auto-respond with AI.
+    if (conv.state === "AGENT_ACTIVE" || conv.state === "WAITING_FOR_AGENT") {
+      await db.update(conversations).set({ updatedAt: new Date() })
+        .where(and(eq(conversations.id, conv.id), eq(conversations.organizationId, data.organizationId)));
       return {
         customerMessage: custMsg,
         state: conv.state,
         aiResponse: null,
-        suggestedReplyForAgent: suggested,
       };
     }
 
@@ -175,14 +180,14 @@ export class ConversationService {
     const historyMsgs = await db
       .select()
       .from(conversationMessages)
-      .where(eq(conversationMessages.conversationId, conv.id))
+      .where(and(eq(conversationMessages.conversationId, conv.id), eq(conversationMessages.organizationId, data.organizationId)))
       .orderBy(desc(conversationMessages.createdAt))
       .limit(12);
 
     const chronologicalHistory = historyMsgs.reverse();
     // The current message was saved immediately before this query and is appended by
     // RAGService itself, so do not pay to send it twice.
-    const historyBeforeCurrentMessage = chronologicalHistory.slice(0, -1);
+    const historyBeforeCurrentMessage = chronologicalHistory.filter((message) => message.id !== custMsg.id);
     const recentHistory = historyBeforeCurrentMessage.slice(-4);
     const formattedHistory = recentHistory.map((m) => ({
       role: m.senderType,
@@ -282,6 +287,7 @@ export class ConversationService {
       })
       .returning();
 
+    await domainEventBus.emit({ type: "message.created", organizationId: data.organizationId, conversationId: conv.id, payload: aiMsg });
     // Check if handoff was triggered
     let newState = conv.state;
     if (ragResult.handoffTriggered) {
@@ -355,6 +361,7 @@ export class ConversationService {
       })
       .returning();
 
+    await domainEventBus.emit({ type: "message.created", organizationId: data.organizationId, conversationId: conv.id, payload: agentMsg });
     // Claim the open ticket that caused this handoff as soon as an agent
     // actually responds. This keeps the ticket queue aligned with the chat.
     const claimedTickets = await db
@@ -391,6 +398,8 @@ export class ConversationService {
       .set({ state: "RESOLVED", updatedAt: new Date() })
       .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId)))
       .returning();
+
+    if (!updated) throw new Error("Conversation not found");
 
     await db.insert(analyticsEvents).values({
       organizationId,

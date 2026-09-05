@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { io } from "socket.io-client";
 import {
   Bot,
   FileText,
@@ -31,8 +32,9 @@ import {
   Shield,
   BookOpen,
 } from "lucide-react";
+import KnowledgeSources from "@/components/knowledge-sources";
 import { api, API_BASE_URL } from "@/lib/api";
-import { DashboardLanguage, localizeDashboard } from "@/lib/dashboard-i18n";
+import { type DashboardLanguage, localizeDashboard } from "@/lib/dashboard-i18n";
 
 const DEFAULT_WIDGET_SETTINGS = {
   primaryColor: "#3B82F6",
@@ -89,6 +91,11 @@ export default function DashboardPage() {
   const [selectedConv, setSelectedConv] = useState<any>(null);
   const [convMessages, setConvMessages] = useState<any[]>([]);
   const [agentMsgInput, setAgentMsgInput] = useState("");
+  const [suggestion, setSuggestion] = useState<{ content: string; sources: string[]; conversationId: string } | null>(null);
+  const [suggesting, setSuggesting] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const selectedConversationId = useRef<string | undefined>(undefined);
+  selectedConversationId.current = selectedConv?.id;
 
   const [ticketsList, setTicketsList] = useState<any[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
@@ -109,6 +116,8 @@ export default function DashboardPage() {
   const [docTitle, setDocTitle] = useState("");
   const [docContent, setDocContent] = useState("");
   const [docType, setDocType] = useState<"document" | "faq">("document");
+  const [docCategory, setDocCategory] = useState("");
+  const [docLanguage, setDocLanguage] = useState("de");
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [crawlUrl, setCrawlUrl] = useState("");
   const [loading, setLoading] = useState(false);
@@ -159,12 +168,32 @@ export default function DashboardPage() {
     return () => observer.disconnect();
   }, [preferredLanguage]);
 
-  // Fetch tenant data when active organization changes
   useEffect(() => {
-    if (auth && activeOrg) {
-      fetchTenantData();
-    }
-  }, [activeOrg, activeTab]);
+    setSuggestion(null);
+    if (!auth?.token || !activeOrg?.id || !selectedConv?.id || selectedConv.organizationId !== activeOrg.id) return;
+    let active = true;
+    const conversationId = selectedConv.id;
+    const socket = io(new URL(API_BASE_URL, window.location.origin).origin, { auth: { token: auth.token } });
+    socket.on("connect", () => {
+      setConnected(true);
+      socket.emit("join_room", { organizationId: activeOrg.id, conversationId });
+      void api.get(`/conversations/${conversationId}/messages`).then((response) => {
+        if (active) setConvMessages((current) => {
+          const byId = new Map(response.data.map((message: any) => [message.id, message]));
+          for (const message of current) if (message.conversationId === conversationId) byId.set(message.id, message);
+          return [...byId.values()].sort((a: any, b: any) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+        });
+      }).catch(() => { if (active) setNotification("Nachrichten konnten nicht aktualisiert werden."); });
+    });
+    socket.on("new_message", (message) => {
+      if (message.conversationId !== conversationId) return;
+      setConvMessages((current) => current.some((item) => item.id === message.id) ? current : [...current, message].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)));
+    });
+    socket.on("disconnect", () => setConnected(false));
+    socket.on("connect_error", () => setConnected(false));
+    socket.on("error", () => setConnected(false));
+    return () => { active = false; socket.disconnect(); setConnected(false); };
+  }, [auth?.token, activeOrg?.id, selectedConv?.id, selectedConv?.organizationId]);
 
   const showNotify = (msg: string) => {
     setNotification(msg);
@@ -243,7 +272,7 @@ export default function DashboardPage() {
     setActiveOrg(null);
   };
 
-  const fetchTenantData = async () => {
+  const fetchTenantData = useCallback(async () => {
     try {
       if (activeTab === "overview" || activeTab === "analytics") {
         const res = await api.get("/analytics/overview");
@@ -292,7 +321,11 @@ export default function DashboardPage() {
     } catch (err: any) {
       console.error("Failed to load tenant data", err);
     }
-  };
+  }, [activeTab, selectedKbId]);
+
+  useEffect(() => {
+    if (auth && activeOrg) void fetchTenantData();
+  }, [auth, activeOrg, fetchTenantData]);
 
   // --- Handlers for Data Actions ---
 
@@ -341,11 +374,13 @@ export default function DashboardPage() {
         knowledgeBaseId: selectedKbId,
         title: docTitle,
         type: docType,
+        category: docCategory,
+        language: docLanguage,
         content: docContent,
       });
       setDocTitle("");
       setDocContent("");
-      showNotify("Document indexed successfully!");
+      showNotify("Dokument gespeichert. Verarbeitung wurde vorgemerkt.");
       fetchTenantData();
     } catch (err: any) {
       showNotify(err.response?.data?.error || "Ingestion failed");
@@ -369,7 +404,7 @@ export default function DashboardPage() {
       });
       setPdfFile(null);
       setDocTitle("");
-      showNotify("PDF uploaded and indexed successfully!");
+      showNotify("PDF gespeichert. Verarbeitung wurde vorgemerkt.");
       fetchTenantData();
     } catch (err: any) {
       showNotify(err.response?.data?.error || "PDF Upload failed");
@@ -392,7 +427,7 @@ export default function DashboardPage() {
         targetUrl: crawlUrl,
       });
       setCrawlUrl("");
-      showNotify("Website crawl background job started!");
+      showNotify("Website-Crawl wurde vorgemerkt.");
       fetchTenantData();
     } catch (err: any) {
       showNotify(err.response?.data?.error || "Crawl request failed");
@@ -486,8 +521,10 @@ export default function DashboardPage() {
       const res = await api.post(`/conversations/${selectedConv.id}/messages`, {
         content: agentMsgInput,
       });
-      setConvMessages([...convMessages, res.data]);
-      setAgentMsgInput("");
+      if (selectedConversationId.current === res.data.conversationId) {
+        setConvMessages((current) => current.some((message) => message.id === res.data.id) ? current : [...current, res.data]);
+        setAgentMsgInput("");
+      }
       showNotify("Response sent to customer");
     } catch (err: any) {
       showNotify(err.response?.data?.error || "Failed to send message");
@@ -647,10 +684,10 @@ export default function DashboardPage() {
           {isRegistering ? (
             <form onSubmit={handleRegister} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">
+                <label htmlFor="support-field-1" className="block text-xs font-semibold text-slate-300 uppercase mb-1">
                   Your Full Name
                 </label>
-                <input
+                <input id="support-field-1"
                   type="text"
                   required
                   className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
@@ -660,10 +697,10 @@ export default function DashboardPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">
+                <label htmlFor="support-field-2" className="block text-xs font-semibold text-slate-300 uppercase mb-1">
                   Company / Org Name
                 </label>
-                <input
+                <input id="support-field-2"
                   type="text"
                   required
                   className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
@@ -673,10 +710,10 @@ export default function DashboardPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">
+                <label htmlFor="support-field-3" className="block text-xs font-semibold text-slate-300 uppercase mb-1">
                   Work Email
                 </label>
-                <input
+                <input id="support-field-3"
                   type="email"
                   required
                   className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
@@ -686,10 +723,10 @@ export default function DashboardPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">
+                <label htmlFor="support-field-4" className="block text-xs font-semibold text-slate-300 uppercase mb-1">
                   Password
                 </label>
-                <input
+                <input id="support-field-4"
                   type="password"
                   required
                   className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
@@ -708,10 +745,10 @@ export default function DashboardPage() {
           ) : (
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">
+                <label htmlFor="support-field-5" className="block text-xs font-semibold text-slate-300 uppercase mb-1">
                   Work Email
                 </label>
-                <input
+                <input id="support-field-5"
                   type="email"
                   required
                   className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
@@ -721,10 +758,10 @@ export default function DashboardPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">
+                <label htmlFor="support-field-6" className="block text-xs font-semibold text-slate-300 uppercase mb-1">
                   Password
                 </label>
-                <input
+                <input id="support-field-6"
                   type="password"
                   required
                   className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
@@ -743,7 +780,7 @@ export default function DashboardPage() {
           )}
 
           <div className="mt-6 pt-4 border-t border-slate-800 text-center">
-            <button
+            <button type="button"
               onClick={() => {
                 setIsRegistering(!isRegistering);
                 setAuthError("");
@@ -859,7 +896,7 @@ export default function DashboardPage() {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
               return (
-                <button
+                <button type="button"
                   key={item.id}
                   onClick={() => setActiveTab(item.id as any)}
                   className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
@@ -899,7 +936,7 @@ export default function DashboardPage() {
               </p>
             </div>
           </div>
-          <button
+          <button type="button"
             onClick={handleLogout}
             title="Sign Out"
             className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded transition-colors"
@@ -937,10 +974,10 @@ export default function DashboardPage() {
                   )}
                 </div>
                 <div className="space-y-2">
-                  <label className="block text-xs font-semibold text-slate-300">
+                  <label htmlFor="support-field-7" className="block text-xs font-semibold text-slate-300">
                     Profile image
                   </label>
-                  <input
+                  <input id="support-field-7"
                     type="file"
                     accept="image/png,image/jpeg,image/webp"
                     onChange={(event) =>
@@ -960,10 +997,10 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-300">
+                <label htmlFor="support-field-8" className="mb-1 block text-xs font-semibold text-slate-300">
                   Name
                 </label>
-                <input
+                <input id="support-field-8"
                   required
                   minLength={2}
                   maxLength={100}
@@ -973,10 +1010,10 @@ export default function DashboardPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-300">
+                <label htmlFor="support-field-9" className="mb-1 block text-xs font-semibold text-slate-300">
                   Preferred language
                 </label>
-                <select
+                <select id="support-field-9"
                   value={preferredLanguage}
                   onChange={(event) => setPreferredLanguage(event.target.value)}
                   className="w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
@@ -1121,7 +1158,7 @@ export default function DashboardPage() {
                   knowledge-base coverage.
                 </p>
               </div>
-              <button
+              <button type="button"
                 onClick={fetchTenantData}
                 className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800"
               >
@@ -1215,10 +1252,10 @@ export default function DashboardPage() {
                   {overviewMetrics?.totalDocumentChunks || 0} searchable chunks
                 </p>
                 <div className="mt-4 flex gap-1">
-                  {Array.from({ length: 10 }).map((_, index) => (
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((level) => (
                     <span
-                      key={index}
-                      className={`h-2 flex-1 rounded ${index < Math.min(10, overviewMetrics?.totalKnowledgeSources || 0) ? "bg-blue-400" : "bg-slate-800"}`}
+                      key={level}
+                      className={`h-2 flex-1 rounded ${level <= Math.min(10, overviewMetrics?.totalKnowledgeSources || 0) ? "bg-blue-400" : "bg-slate-800"}`}
                     />
                   ))}
                 </div>
@@ -1463,7 +1500,7 @@ export default function DashboardPage() {
               </div>
               <div className="flex-1 overflow-y-auto divide-y divide-slate-800/60">
                 {conversationsList.map((conv) => (
-                  <button
+                  <button type="button"
                     key={conv.id}
                     onClick={() => handleSelectConversation(conv)}
                     className={`w-full p-3 text-left transition-colors flex flex-col gap-1 ${
@@ -1524,7 +1561,7 @@ export default function DashboardPage() {
                         {selectedConv.customer?.email}
                       </p>
                     </div>
-                    <button
+                    <button type="button"
                       onClick={() => handleResolveConversation(selectedConv.id)}
                       className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded"
                     >
@@ -1572,6 +1609,16 @@ export default function DashboardPage() {
                     ))}
                   </div>
 
+                  <div className="p-3 border-t border-slate-800 text-xs space-y-2">
+                    <span>{connected ? "Live verbunden" : "Live-Verbindung unterbrochen"}</span>
+                    <button type="button" disabled={suggesting} className="ml-3 text-blue-300 disabled:opacity-50" onClick={async () => {
+                      setSuggesting(true);
+                      try { const response = await api.post(`/conversations/${selectedConv.id}/suggested-reply`); setSuggestion({ ...response.data, conversationId: selectedConv.id }); }
+                      catch { showNotify("Antwortvorschlag konnte nicht erstellt werden."); }
+                      finally { setSuggesting(false); }
+                    }}>{suggesting ? "Vorschlag wird erstellt …" : "Antwortvorschlag erstellen"}</button>
+                    {suggestion?.conversationId === selectedConv.id && suggestion && <div className="rounded bg-slate-800 p-3 space-y-2"><p>{suggestion.content}</p><p>{suggestion.sources.join(" · ")}</p><button type="button" className="mr-3 text-blue-300" onClick={() => { setAgentMsgInput(suggestion.content); setSuggestion(null); }}>Übernehmen und bearbeiten</button><button type="button" onClick={() => setSuggestion(null)}>Verwerfen</button></div>}
+                  </div>
                   <form
                     onSubmit={handleSendAgentMessage}
                     className="p-3 border-t border-slate-800 bg-slate-900 flex gap-2"
@@ -1702,7 +1749,7 @@ export default function DashboardPage() {
                     </p>
                     <div className="flex flex-wrap gap-2">
                       {selectedTicket.conversationId && (
-                        <button
+                        <button type="button"
                           onClick={handleOpenTicketConversation}
                           className="rounded border border-violet-800 bg-violet-950/50 px-2.5 py-1.5 text-[11px] font-semibold text-violet-300 hover:bg-violet-950"
                         >
@@ -1710,7 +1757,7 @@ export default function DashboardPage() {
                         </button>
                       )}
                       {selectedTicket.status !== "in_progress" && (
-                        <button
+                        <button type="button"
                           onClick={() =>
                             handleTicketStatusChange("in_progress")
                           }
@@ -1720,7 +1767,7 @@ export default function DashboardPage() {
                         </button>
                       )}
                       {selectedTicket.status !== "resolved" && (
-                        <button
+                        <button type="button"
                           onClick={() => handleTicketStatusChange("resolved")}
                           className="rounded border border-emerald-800 bg-emerald-950/50 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-300 hover:bg-emerald-950"
                         >
@@ -1818,7 +1865,7 @@ export default function DashboardPage() {
             {knowledgeBases.length > 0 && (
               <div className="flex gap-2 border-b border-slate-800 pb-2">
                 {knowledgeBases.map((kb) => (
-                  <button
+                  <button type="button"
                     key={kb.id}
                     onClick={() => setSelectedKbId(kb.id)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
@@ -1841,11 +1888,12 @@ export default function DashboardPage() {
                   FAQ Ingestion
                 </h3>
                 <form onSubmit={handleAddTextDocument} className="space-y-3">
+                  <label className="block text-xs text-slate-400">Quellentyp<select className="block w-full mt-1 p-2 rounded bg-slate-800" value={docType} onChange={(event) => setDocType(event.target.value as "document" | "faq")}><option value="document">Dokument</option><option value="faq">FAQ</option></select></label>
                   <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1">
-                      Title
+                    <label htmlFor="support-field-10" className="block text-xs font-medium text-slate-400 mb-1">
+                      {docType === "faq" ? "Frage" : "Titel"}
                     </label>
-                    <input
+                    <input id="support-field-10"
                       type="text"
                       required
                       placeholder="e.g. Refund Policy FAQ"
@@ -1855,10 +1903,10 @@ export default function DashboardPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1">
-                      Content
+                    <label htmlFor="support-field-11" className="block text-xs font-medium text-slate-400 mb-1">
+                      {docType === "faq" ? "Antwort" : "Inhalt"}
                     </label>
-                    <textarea
+                    <textarea id="support-field-11"
                       rows={5}
                       required
                       placeholder="Enter documentation body or FAQ answers..."
@@ -1867,14 +1915,15 @@ export default function DashboardPage() {
                       onChange={(e) => setDocContent(e.target.value)}
                     />
                   </div>
+                  <div className="flex gap-3"><label className="text-xs text-slate-400">Kategorie<input className="block w-full mt-1 p-2 rounded bg-slate-800" value={docCategory} maxLength={120} onChange={(event) => setDocCategory(event.target.value)} /></label><label className="text-xs text-slate-400">Sprache<input className="block w-full mt-1 p-2 rounded bg-slate-800" required pattern="[a-z]{2,3}(-[A-Za-z]{2,8})?" value={docLanguage} onChange={(event) => setDocLanguage(event.target.value)} /></label></div>
                   <button
                     type="submit"
                     disabled={loading}
                     className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded text-xs transition-colors"
                   >
                     {loading
-                      ? "Processing pgvector Embeddings..."
-                      : "Chunk & Embed Content"}
+                      ? "Wird gespeichert …"
+                      : "Inhalt speichern und verarbeiten"}
                   </button>
                 </form>
               </div>
@@ -1887,10 +1936,10 @@ export default function DashboardPage() {
                 </h3>
                 <form onSubmit={handleUploadPdf} className="space-y-3">
                   <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1">
+                    <label htmlFor="support-field-12" className="block text-xs font-medium text-slate-400 mb-1">
                       PDF File
                     </label>
-                    <input
+                    <input id="support-field-12"
                       type="file"
                       accept=".pdf"
                       required
@@ -1904,57 +1953,14 @@ export default function DashboardPage() {
                     className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded text-xs transition-colors"
                   >
                     {loading
-                      ? "Extracting & Embedding PDF..."
+                      ? "PDF wird hochgeladen …"
                       : "Upload & Process PDF"}
                   </button>
                 </form>
               </div>
             </div>
 
-            {/* Indexed Sources Table */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-              <div className="p-4 border-b border-slate-800 font-semibold text-sm">
-                Indexed Knowledge Sources
-              </div>
-              <table className="w-full text-left text-xs text-slate-300">
-                <thead className="bg-slate-800/80 text-slate-400 uppercase text-[10px] font-semibold">
-                  <tr>
-                    <th className="p-3">Title</th>
-                    <th className="p-3">Type</th>
-                    <th className="p-3">Chunks</th>
-                    <th className="p-3">Status</th>
-                    <th className="p-3">Created</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60">
-                  {knowledgeSources.map((src) => (
-                    <tr key={src.id} className="hover:bg-slate-800/40">
-                      <td className="p-3 font-medium text-slate-200">
-                        {src.title}
-                      </td>
-                      <td className="p-3 uppercase font-mono text-[10px] text-blue-400">
-                        {src.type}
-                      </td>
-                      <td className="p-3 font-bold">{src.chunkCount}</td>
-                      <td className="p-3">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] uppercase font-semibold ${
-                            src.status === "completed"
-                              ? "bg-emerald-950 text-emerald-400 border border-emerald-800"
-                              : "bg-amber-950 text-amber-400"
-                          }`}
-                        >
-                          {src.status}
-                        </span>
-                      </td>
-                      <td className="p-3 text-slate-500">
-                        {new Date(src.createdAt).toLocaleDateString()}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <KnowledgeSources key={activeOrg?.id} sources={knowledgeSources} canManage={["owner", "admin"].includes(activeOrg?.role)} onRefresh={fetchTenantData} notify={showNotify} />
           </div>
         )}
 
@@ -1974,10 +1980,10 @@ export default function DashboardPage() {
             <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl max-w-xl space-y-4">
               <form onSubmit={handleCrawlWebsite} className="space-y-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">
+                  <label htmlFor="support-field-13" className="block text-xs font-medium text-slate-400 mb-1">
                     Wissensdatenbank
                   </label>
-                  <select
+                  <select id="support-field-13"
                     required
                     value={selectedKbId}
                     onChange={(e) => setSelectedKbId(e.target.value)}
@@ -2007,10 +2013,10 @@ export default function DashboardPage() {
                   )}
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">
+                  <label htmlFor="support-field-14" className="block text-xs font-medium text-slate-400 mb-1">
                     Target Website Root URL
                   </label>
-                  <input
+                  <input id="support-field-14"
                     type="url"
                     required
                     placeholder="https://docs.yourcompany.com"
@@ -2035,6 +2041,8 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
+
+        {activeTab === "websites" && <KnowledgeSources key={activeOrg?.id} sources={knowledgeSources.filter((source) => source.type === "website")} canManage={["owner", "admin"].includes(activeOrg?.role)} onRefresh={fetchTenantData} notify={showNotify} />}
 
         {/* TAB 6: AI ASSISTANT SETTINGS */}
         {activeTab === "assistant" && activeAssistant && (
@@ -2308,10 +2316,10 @@ export default function DashboardPage() {
             >
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">
+                  <label htmlFor="support-field-15" className="block text-xs font-semibold text-slate-300 uppercase mb-1">
                     Assistant Name
                   </label>
-                  <input
+                  <input id="support-field-15"
                     type="text"
                     className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none"
                     value={activeAssistant.name || ""}
@@ -2325,10 +2333,10 @@ export default function DashboardPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">
+                  <label htmlFor="support-field-16" className="block text-xs font-semibold text-slate-300 uppercase mb-1">
                     AI Provider Gateway
                   </label>
-                  <select
+                  <select id="support-field-16"
                     className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none font-semibold text-blue-400"
                     value={activeAssistant.modelProvider || "openai"}
                     onChange={(e) =>
@@ -2359,10 +2367,10 @@ export default function DashboardPage() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">
+                  <label htmlFor="support-field-17" className="block text-xs font-semibold text-slate-300 uppercase mb-1">
                     Model Name
                   </label>
-                  <input
+                  <input id="support-field-17"
                     type="text"
                     placeholder={
                       activeAssistant.modelProvider === "anthropic"
@@ -2387,10 +2395,10 @@ export default function DashboardPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">
+                  <label htmlFor="support-field-18" className="block text-xs font-semibold text-slate-300 uppercase mb-1">
                     Custom API Key (Optional Override)
                   </label>
-                  <input
+                  <input id="support-field-18"
                     type="password"
                     placeholder="sk-..."
                     className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none font-mono text-slate-200"
@@ -2407,10 +2415,10 @@ export default function DashboardPage() {
 
               {activeAssistant.modelProvider === "local" && (
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">
+                  <label htmlFor="support-field-19" className="block text-xs font-semibold text-slate-300 uppercase mb-1">
                     Custom Endpoint Base URL (Local/Ollama/LocalAI)
                   </label>
-                  <input
+                  <input id="support-field-19"
                     type="text"
                     placeholder="http://localhost:11434/v1"
                     className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none font-mono text-amber-400"
@@ -2430,10 +2438,10 @@ export default function DashboardPage() {
               )}
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">
+                <label htmlFor="support-field-20" className="block text-xs font-semibold text-slate-300 uppercase mb-1">
                   Temperature ({activeAssistant.temperature})
                 </label>
-                <input
+                <input id="support-field-20"
                   type="range"
                   min="0"
                   max="1"
@@ -2450,10 +2458,10 @@ export default function DashboardPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">
+                <label htmlFor="support-field-21" className="block text-xs font-semibold text-slate-300 uppercase mb-1">
                   System Prompt Guardrails
                 </label>
-                <textarea
+                <textarea id="support-field-21"
                   rows={4}
                   className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none"
                   value={activeAssistant.systemPrompt || ""}
@@ -2762,9 +2770,9 @@ export default function DashboardPage() {
             </div>
 
             <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-3">
-              <label className="block text-xs font-semibold text-slate-300 uppercase">
+              <h3 className="block text-xs font-semibold text-slate-300 uppercase">
                 Integration Snippet
-              </label>
+              </h3>
               <pre className="bg-slate-950 p-4 rounded-lg border border-slate-800 text-xs font-mono text-blue-300 overflow-x-auto">
                 {`<script\n  src="${API_BASE_URL.replace("/api/v1", "")}/public/widget.js"\n  data-assistant-id="${activeAssistant.id}"\n  data-widget-key="${activeAssistant.widgetApiKey}"\n  data-api-base="${API_BASE_URL.replace("/api/v1", "")}"\n></script>`}
               </pre>
@@ -2773,15 +2781,15 @@ export default function DashboardPage() {
             <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-3">
               <div className="flex items-center justify-between gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 uppercase">
+                  <h3 className="block text-xs font-semibold text-slate-300 uppercase">
                     Public Widget Integration Key
-                  </label>
+                  </h3>
                   <p className="text-xs text-slate-500 mt-1">
                     Rotate immediately if it is exposed. Rotation invalidates
                     existing embeds.
                   </p>
                 </div>
-                <button
+                <button type="button"
                   onClick={handleRotateWidgetKey}
                   className="px-3 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded flex items-center gap-1"
                 >
@@ -2800,10 +2808,10 @@ export default function DashboardPage() {
               className="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-4"
             >
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">
+                <label htmlFor="support-field-22" className="block text-xs font-semibold text-slate-300 uppercase mb-1">
                   Allowed Website Origins
                 </label>
-                <textarea
+                <textarea id="support-field-22"
                   value={(activeAssistant.widgetAllowedOrigins || []).join(
                     "\n",
                   )}
@@ -2841,10 +2849,10 @@ export default function DashboardPage() {
               </label>
               {activeAssistant.chatPageEnabled && (
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">
+                  <label htmlFor="support-field-23" className="block text-xs font-semibold text-slate-300 uppercase mb-1">
                     Hosted Chat Page URL
                   </label>
-                  <input
+                  <input id="support-field-23"
                     readOnly
                     value={`${API_BASE_URL}/widget/page/${activeAssistant.id}?widgetKey=${activeAssistant.widgetApiKey}`}
                     className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs font-mono text-blue-300"
@@ -2885,7 +2893,7 @@ export default function DashboardPage() {
                     className="flex-1 bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs font-mono text-amber-400"
                     value={activeOrg.apiKey || "sk_live_..."}
                   />
-                  <button
+                  <button type="button"
                     onClick={handleRegenerateApiKey}
                     className="px-3 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded flex items-center gap-1"
                   >

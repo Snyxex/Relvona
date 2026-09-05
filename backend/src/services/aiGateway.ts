@@ -1,4 +1,3 @@
-import crypto from "crypto";
 import { metrics } from "../observability/metrics.js";
 
 export type AIProvider = "openai" | "anthropic" | "google" | "nvidia" | "local";
@@ -48,9 +47,14 @@ export class UniversalAIGateway {
     const provider = req.provider || "openai";
     const startedAt = performance.now();
     const circuit = this.circuitFor(provider);
+    let emitted = false;
+    const onToken = req.onToken ? async (token: string) => {
+      emitted = true;
+      await req.onToken!(token);
+    } : undefined;
     if (!req.bypassCircuit && circuit.openUntil > Date.now()) throw new Error(`LLM provider '${provider}' circuit is open`);
     try {
-      const answer = await this.generateCompletionOnce(req);
+      const answer = await this.generateCompletionOnce({ ...req, onToken });
       this.circuits.set(provider, { failures: 0, openUntil: 0 });
       metrics.increment("supportai_ai_requests_total", { provider, status: "success", streaming: Boolean(req.onToken) });
       metrics.observe("supportai_ai_request_duration_seconds", performance.now() - startedAt, { provider, streaming: Boolean(req.onToken) });
@@ -60,7 +64,7 @@ export class UniversalAIGateway {
       metrics.increment("supportai_ai_requests_total", { provider, status: "error", streaming: Boolean(req.onToken) });
       this.circuits.set(provider, { failures, openUntil: failures >= this.failureThreshold ? Date.now() + this.cooldownMs : 0 });
       const attempt = req.retryAttempt || 0;
-      if (attempt < this.maxRetries && this.transient(error)) {
+      if (!emitted && attempt < this.maxRetries && this.transient(error)) {
         const backoff = 250 * 2 ** attempt;
         await new Promise((resolve) => setTimeout(resolve, backoff + Math.floor(Math.random() * Math.max(1, backoff * 0.25))));
         return this.generateCompletion({ ...req, retryAttempt: attempt + 1 });
@@ -75,28 +79,41 @@ export class UniversalAIGateway {
     const decoder = new TextDecoder();
     let buffer = "";
     let answer = "";
+    let finished = false;
+    try {
     while (true) {
       const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+      buffer += done ? decoder.decode() + "\n" : decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
       for (const line of lines) {
         if (!line.startsWith("data:")) continue;
         const payload = line.slice(5).trim();
-        if (!payload || payload === "[DONE]") continue;
+        if (!payload) continue;
+        if (payload === "[DONE]") { finished = true; continue; }
+        let event;
         try {
-          const token = JSON.parse(payload).choices?.[0]?.delta?.content;
-          if (typeof token === "string" && token) {
-            answer += token;
-            await onToken(token);
-          }
+          event = JSON.parse(payload);
         } catch {
           // Providers may send comments or non-token events in the SSE stream.
+          continue;
+        }
+        if (event.error) throw new Error("Provider streaming response failed");
+        if (event.choices?.[0]?.finish_reason) finished = true;
+        const token = event.choices?.[0]?.delta?.content;
+        if (typeof token === "string" && token) {
+          answer += token;
+          await onToken(token);
         }
       }
+      if (done) break;
     }
+    if (!finished) throw new Error("Provider stream ended before completion");
     return answer;
+    } finally {
+      await reader.cancel().catch(() => undefined);
+      reader.releaseLock();
+    }
   }
 
   // ----------------------------------------------------
@@ -371,18 +388,6 @@ export class UniversalAIGateway {
       console.warn(JSON.stringify({ level: "warn", event: "ai.embedding_failed", provider, error: (err as Error).message }));
     }
 
-    if (process.env.NODE_ENV === "production") throw new Error(`Embedding provider '${provider}' is unavailable`);
-
-    // Deterministic 1536-dimensional Vector Fallback (Ensures system never crashes when API keys are absent or offline)
-    return req.texts.map((text) => {
-      const vector = new Array(1536).fill(0);
-      const hash = crypto.createHash("sha256").update(text).digest();
-      for (let i = 0; i < 1536; i++) {
-        const val = (hash[i % hash.length] - 128) / 128;
-        vector[i] = parseFloat(val.toFixed(5));
-      }
-      const magnitude = Math.sqrt(vector.reduce((sum, v) => sum + v * v, 0)) || 1;
-      return vector.map((v) => parseFloat((v / magnitude).toFixed(5)));
-    });
+    throw new Error(`Embedding provider '${provider}' is unavailable`);
   }
 }

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 
 // This is only an optimistic UX redirect. Express performs the authoritative JWT,
 // tenant-membership, and role check for every admin API request.

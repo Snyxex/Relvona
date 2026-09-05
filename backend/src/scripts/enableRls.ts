@@ -7,7 +7,7 @@ const appPassword = process.env.DATABASE_APP_PASSWORD;
 if (!/^[a-z_][a-z0-9_]{0,62}$/i.test(appRole) || !appPassword) throw new Error("DATABASE_APP_USER and DATABASE_APP_PASSWORD must configure the non-owner application login");
 
 const tenantTables = [
-  "api_keys", "customers", "assistants", "knowledge_bases", "knowledge_sources", "document_chunks", "websites", "website_pages", "conversations", "conversation_messages", "message_feedback", "tickets", "ticket_comments", "analytics_events", "audit_logs", "organization_settings", "model_routing_rules",
+  "knowledge_ingestion_jobs", "api_keys", "customers", "assistants", "knowledge_bases", "knowledge_sources", "document_chunks", "websites", "website_pages", "conversations", "conversation_messages", "message_feedback", "tickets", "ticket_comments", "analytics_events", "audit_logs", "organization_settings", "model_routing_rules",
 ];
 
 async function main() {

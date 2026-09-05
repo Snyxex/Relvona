@@ -12,12 +12,13 @@ export interface FileValidationResult {
 export class FileSecurity {
   // Inspect Magic Bytes for PDF format (%PDF-)
   static isPdfMagicBytes(buffer: Buffer): boolean {
-    if (buffer.length < 4) return false;
+    if (buffer.length < 5) return false;
     return (
       buffer[0] === 0x25 && // %
       buffer[1] === 0x50 && // P
       buffer[2] === 0x44 && // D
-      buffer[3] === 0x46    // F
+      buffer[3] === 0x46 && // F
+      buffer[4] === 0x2d    // -
     );
   }
 

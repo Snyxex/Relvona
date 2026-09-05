@@ -10,7 +10,9 @@ import Redis from "ioredis";
 import apiRouter from "./routes/api.js";
 import { applySecurityHeaders, createRateLimiter } from "./middleware/security.js";
 import { db } from "./db/index.js";
-import { conversations, organizationMembers } from "./db/schema.js";
+import { conversations, organizationMembers, users } from "./db/schema.js";
+import { setDatabaseTenant } from "./db/tenantContext.js";
+import { domainEventBus } from "./services/domainEventBus.js";
 import { eq, and } from "drizzle-orm";
 import { verifyToken } from "./middleware/auth.js";
 import { logger, requestLogging, withLogContext } from "./observability/logger.js";
@@ -107,6 +109,22 @@ app.use((error: Error, _req: express.Request, res: express.Response, _next: expr
 });
 
 // Real-Time Socket.IO Server with Server-Side Room Authorization
+domainEventBus.subscribe("message.created", async (event) => {
+  const recipients = await io.in(`conv:${event.conversationId}`).fetchSockets();
+  await Promise.allSettled(recipients.map(async (recipient) => {
+    try {
+      const decoded = verifyToken(recipient.handshake.auth.token);
+      const [user] = await db.select({ tokenVersion: users.tokenVersion }).from(users).where(eq(users.id, decoded.userId)).limit(1);
+      const [member] = await db.select({ role: organizationMembers.role }).from(organizationMembers).where(and(eq(organizationMembers.organizationId, event.organizationId), eq(organizationMembers.userId, decoded.userId))).limit(1);
+      if (!user || user.tokenVersion !== decoded.tokenVersion || !member || !["owner", "admin", "agent"].includes(member.role)) {
+        recipient.disconnect(true);
+        return;
+      }
+      recipient.emit("new_message", event.payload);
+    } catch { recipient.disconnect(true); }
+  }));
+});
+
 let activeSockets = 0;
 io.on("connection", (socket) => {
   activeSockets += 1;
@@ -125,19 +143,26 @@ io.on("connection", (socket) => {
   if (!userPayload?.userId) { socket.disconnect(true); return; }
 
   // Join Room with Server-Side Authorization Check
-  socket.on("join_room", async (data: { organizationId?: string; conversationId?: string }) => withLogContext({ conversationId: data.conversationId, organizationId: data.organizationId }, async () => {
+  socket.on("join_room", async (data: { organizationId?: string; conversationId?: string } = {}) => withLogContext({}, async () => {
     try {
-      const targetConvId = data.conversationId;
-      if (!targetConvId || typeof targetConvId !== "string" || !/^[0-9a-f-]{36}$/i.test(targetConvId)) {
+      const targetConvId = data?.conversationId;
+      if (!targetConvId || typeof targetConvId !== "string" || !/^[0-9a-f-]{36}$/i.test(targetConvId) || typeof data.organizationId !== "string" || !/^[0-9a-f-]{36}$/i.test(data.organizationId)) {
         socket.emit("error", { message: "Invalid room request" });
         return;
       }
 
-      // Validate conversation belongs to the requested organization
+      const decoded = verifyToken(token);
+      const [user] = await db.select().from(users).where(eq(users.id, decoded.userId)).limit(1);
+      if (!user || user.tokenVersion !== decoded.tokenVersion) throw new Error("Revoked session");
+      const [member] = await db.select().from(organizationMembers)
+        .where(and(eq(organizationMembers.organizationId, data.organizationId), eq(organizationMembers.userId, user.id))).limit(1);
+      if (!member || !["owner", "admin", "agent"].includes(member.role)) throw new Error("Access denied");
+      setDatabaseTenant(data.organizationId);
+      // Bind RLS only after membership validation.
       const [conv] = await db
         .select()
         .from(conversations)
-        .where(eq(conversations.id, targetConvId))
+        .where(and(eq(conversations.id, targetConvId), eq(conversations.organizationId, data.organizationId)))
         .limit(1);
 
       if (!conv) {
@@ -161,6 +186,10 @@ io.on("connection", (socket) => {
       }
       const room = `conv:${targetConvId}`;
       socket.join(room);
+      const expiresAt = (decoded as typeof decoded & { exp: number }).exp * 1000;
+      const expiryTimer = setTimeout(() => socket.disconnect(true), Math.max(0, expiresAt - Date.now()));
+      expiryTimer.unref();
+      socket.once("disconnect", () => clearTimeout(expiryTimer));
       logger.info("socket.room.joined", { socketId: socket.id, room });
     } catch (err) {
       logger.warn("socket.room.join_failed", { socketId: socket.id });
@@ -168,22 +197,15 @@ io.on("connection", (socket) => {
     }
   }));
 
-  // Agent claims conversation / handoff
-  socket.on("claim_conversation", (data: { conversationId: string; agentId: string; agentName: string }) => {
-    if (!data || data.agentId !== userPayload.userId || !socket.rooms.has(`conv:${data.conversationId}`)) {
-      socket.emit("error", { message: "Access denied: Join the authorized conversation room first" });
-      return;
-    }
-    io.to(`conv:${data.conversationId}`).emit("handoff_claimed", data);
+  socket.on("leave_room", (data: { conversationId?: string } = {}) => {
+    if (typeof data?.conversationId === "string") socket.leave(`conv:${data.conversationId}`);
   });
-
-  // Send real-time chat message
-  socket.on("send_message", (data: { conversationId: string; senderType: string; content: string }) => {
-    if (!data || data.senderType !== "agent" || typeof data.content !== "string" || data.content.length > 4_000 || !socket.rooms.has(`conv:${data.conversationId}`)) {
-      socket.emit("error", { message: "Access denied: Join the authorized conversation room first" });
-      return;
-    }
-    io.to(`conv:${data.conversationId}`).emit("new_message", data);
+  // Mutations use authenticated HTTP routes; only persisted events are broadcast.
+  socket.on("claim_conversation", () => {
+    socket.emit("error", { message: "Use the authenticated conversation API to claim a conversation" });
+  });
+  socket.on("send_message", () => {
+    socket.emit("error", { message: "Use the authenticated conversation API to persist a message" });
   });
 
   socket.on("disconnect", () => {

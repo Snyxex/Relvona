@@ -50,6 +50,8 @@ async function runSecurityTests() {
   console.log("\n--- Test Group 2: File Upload Magic Bytes & Poisoning Detection ---");
   const fakePdfBuffer = Buffer.from("NOT_A_REAL_PDF_FILE");
   assert(FileSecurity.isPdfMagicBytes(fakePdfBuffer) === false, "Detect invalid PDF Magic Bytes");
+  assert(FileSecurity.isPdfMagicBytes(Buffer.from("%PDF")) === false, "Reject truncated PDF signature");
+  assert(FileSecurity.isPdfMagicBytes(Buffer.from("%PDFx")) === false, "Reject missing PDF signature separator");
 
   const validPdfHeader = Buffer.from("%PDF-1.7 valid pdf sample content");
   assert(FileSecurity.isPdfMagicBytes(validPdfHeader) === true, "Verify valid %PDF- Magic Bytes header");

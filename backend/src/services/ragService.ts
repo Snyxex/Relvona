@@ -1,5 +1,5 @@
 import { db } from "../db/index.js";
-import { documentChunks, assistants, modelRoutingRules, organizationSettings } from "../db/schema.js";
+import { documentChunks, knowledgeSources, assistants, modelRoutingRules, organizationSettings } from "../db/schema.js";
 import { eq, and, sql } from "drizzle-orm";
 import { UniversalAIGateway, AIProvider } from "./aiGateway.js";
 import { decryptSecret } from "../utils/crypto.js";
@@ -24,8 +24,6 @@ export interface RAGAnswerResult {
 }
 
 export class RAGService {
-  private static readonly responseCache = new Map<string, { expiresAt: number; result: RAGAnswerResult }>();
-  private static readonly responseCacheTtlMs = 15 * 60 * 1000;
   // Keep context focused: large, weakly-related context both slows responses and
   // encourages the model to invent a broad answer around it.
   private static readonly maxContextChars = 3_600;
@@ -39,14 +37,6 @@ export class RAGService {
       .replace(/[ \t]+/g, " ")
       .trim()
       .slice(0, 6_000);
-  }
-
-  private static cacheKey(organizationId: string, assistantId: string, query: string): string {
-    return `${organizationId}:${assistantId}:${query.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim()}`;
-  }
-
-  private static isStandaloneQuery(query: string, historyLength: number): boolean {
-    return historyLength <= 2 && query.split(/\s+/).length >= 3 && !/\b(it|that|this|they|them|there|previous)\b/i.test(query);
   }
 
   private static classifyIntent(query: string): "greeting" | "faq" | "troubleshooting" {
@@ -183,7 +173,7 @@ export class RAGService {
 
     try {
       // STRICT MULTI-TENANT FILTER: Scoped strictly to data.organizationId
-      let whereClause = eq(documentChunks.organizationId, data.organizationId);
+      let whereClause = and(eq(documentChunks.organizationId, data.organizationId), eq(knowledgeSources.organizationId, data.organizationId), eq(knowledgeSources.status, "completed"), eq(knowledgeSources.securityStatus, "SAFE"))!;
       if (data.knowledgeBaseId) {
         whereClause = and(whereClause, eq(documentChunks.knowledgeBaseId, data.knowledgeBaseId))!;
       }
@@ -196,6 +186,7 @@ export class RAGService {
           similarity: sql<number>`1 - (${documentChunks.embedding} <=> ${vectorStr}::vector)`,
         })
         .from(documentChunks)
+        .innerJoin(knowledgeSources, eq(documentChunks.sourceId, knowledgeSources.id))
         .where(whereClause)
         .orderBy(sql`(${documentChunks.embedding} <=> ${vectorStr}::vector) ASC`)
         .limit(topK);
@@ -208,20 +199,7 @@ export class RAGService {
       }));
     } catch (err) {
       console.warn("pgvector query fallback execution:", (err as Error).message);
-      const fallbackChunks = await db
-        .select()
-        .from(documentChunks)
-        .where(eq(documentChunks.organizationId, data.organizationId))
-        .limit(topK);
-
-      return fallbackChunks.map((c) => ({
-        chunkId: c.id,
-        content: c.content,
-        // A database fallback has no semantic ranking signal. Treat it as
-        // unrelated so it cannot trigger a fabricated answer.
-        similarity: 0,
-        metadata: c.metadata,
-      }));
+      return [];
     }
   }
 
@@ -285,11 +263,7 @@ export class RAGService {
     // Opt-in routing prevents a deployment from silently changing a tenant's quality tier.
     // Set SUPPORT_SMALL_MODEL to route simple FAQ intent to a lower-cost compatible model.
     const routedModel = matchedRule?.targetModel || (intent === "faq" ? tenantSettings?.simpleModel || process.env.SUPPORT_SMALL_MODEL : tenantSettings?.primaryModel) || activeProfile?.modelName || assistant.modelName || "gpt-4o-mini";
-    const cacheKey = this.cacheKey(data.organizationId, data.assistantId, data.customerQuery);
-    const cached = this.responseCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now() && this.isStandaloneQuery(data.customerQuery, data.conversationHistory?.length || 0)) {
-      return { ...cached.result, answer: cached.result.answer, cacheHit: true };
-    }
+    // Source deletion and quarantine must take effect immediately across replicas.
 
     // Local deterministic answers avoid an LLM request for pure social greetings.
     if (intent === "greeting") {
@@ -317,8 +291,8 @@ export class RAGService {
 
     const compactChunks = this.compactAndRerankChunks(data.customerQuery, chunks);
     const handoffKeywords = (assistant.handoffKeywords as string[]) || ["agent", "human", "support person"];
-    const isHandoffRequested = this.shouldTriggerHandoff(data.customerQuery, compactChunks, handoffKeywords);
-    const confidenceScore = compactChunks.length > 0 ? Math.max(...compactChunks.map((c) => c.similarity)) : 0;
+    const confidenceScore = compactChunks.length > 0 ? Math.min(1, Math.max(0, ...compactChunks.map((c) => c.similarity))) : 0;
+    const isHandoffRequested = confidenceScore < 0.45 || this.shouldTriggerHandoff(data.customerQuery, compactChunks, handoffKeywords);
 
     // Do not spend time or let the model add generic advice when documentation
     // does not actually cover the customer's question.
@@ -403,7 +377,7 @@ ${contextText}`;
     } catch (err) {
       console.warn(`[RAG Service] Universal AI Gateway call failed for provider '${provider}':`, (err as Error).message);
       const fallbackModel = tenantSettings?.fallbackModel;
-      if (fallbackModel && fallbackModel !== routedModel) {
+      if (!streamBuffer && fallbackModel && fallbackModel !== routedModel) {
         try {
           await reserveCompletion();
           aiAnswer = await UniversalAIGateway.generateCompletion({ provider, model: fallbackModel, cachedSystemPrompt, systemPrompt: systemPromptText, messages: messagesPayload, apiKey: providerApiKey, baseUrl: providerBaseUrl, temperature: tenantSettings.temperature, maxTokens: completionMaxTokens, cacheSystemPrompt: provider === "anthropic", onToken: safeStreamToken, bypassCircuit: true });
@@ -417,7 +391,7 @@ ${contextText}`;
 
     // Fallback response if completion returned empty
     if (!aiAnswer) {
-      aiAnswer = this.noAnswerFor(detectedLanguage);
+      throw new Error("AI provider returned no usable answer");
     }
 
     const result = {
@@ -429,30 +403,17 @@ ${contextText}`;
       sourcesUsed: compactChunks.map((c) => c.metadata?.title || "Knowledge Base").filter((v, i, a) => a.indexOf(v) === i),
       cacheHit: false,
     };
-    if (!isHandoffRequested && confidenceScore >= 0.7 && this.isStandaloneQuery(data.customerQuery, data.conversationHistory?.length || 0)) {
-      this.responseCache.set(cacheKey, { expiresAt: Date.now() + this.responseCacheTtlMs, result });
-    }
     return result;
   }
 
   // Generate Suggested Agent Reply using Universal Gateway
   static async generateSuggestedReply(data: {
     organizationId: string;
+    assistantId: string;
     customerQuery: string;
     conversationHistory: { role: string; content: string }[];
   }) {
-    const [settings] = await db.select({ dailyTokenBudget: organizationSettings.dailyTokenBudget }).from(organizationSettings).where(eq(organizationSettings.organizationId, data.organizationId)).limit(1);
-    await TenantQuotaService.reserveDailyTokens(data.organizationId, TenantQuotaService.estimateTokens([data.customerQuery], 0), settings?.dailyTokenBudget ?? 100_000);
-    const chunks = await this.searchVectorChunks({
-      organizationId: data.organizationId,
-      query: data.customerQuery,
-      topK: 3,
-    });
-
-    const sanitizedSnippet = chunks[0] ? this.sanitizeAIOutput(chunks[0].content.slice(0, 200)) : "";
-
-    return `Suggested Agent Reply: Hello! Regarding "${data.customerQuery}", based on our records: ${
-      sanitizedSnippet ? sanitizedSnippet + "..." : "We can resolve this for you right away."
-    } Please let us know if you need further help!`;
+    const result = await this.generateRAGAnswer(data);
+    return { content: result.answer, sources: result.sourcesUsed, confidenceScore: result.confidenceScore };
   }
 }

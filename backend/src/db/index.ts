@@ -45,4 +45,21 @@ pool.query = (async (...args: Parameters<typeof pool.query>) => {
 
 export const db = drizzle(pool, { schema });
 
+/** All statements share one connection and one transaction-local RLS context. */
+export async function withTenantTransaction<T>(organizationId: string, work: (tx: typeof db) => Promise<T>): Promise<T> {
+  const activeTenant = currentDatabaseTenant();
+  if (activeTenant && activeTenant !== organizationId) throw new Error("Cross-tenant transaction rejected");
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('app.organization_id', $1, true)", [organizationId]);
+    const result = await work(drizzle(client, { schema }) as typeof db);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally { client.release(); }
+}
+
 export async function closeDatabasePool() { await pool.end(); }
