@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { AuthRequest } from "./auth.js";
 import Redis from "ioredis";
+import { dashboardDomainFromRequest, organizationForVerifiedDashboardDomain } from "../services/dashboardDomainService.js";
 
 // In-Memory Token Bucket Rate Limiter
 class RateLimiter {
@@ -58,6 +59,27 @@ export function applySecurityHeaders(req: Request, res: Response, next: NextFunc
     res.setHeader("Content-Security-Policy", "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
   }
   next();
+}
+
+/**
+ * Browser dashboard APIs authenticate via HttpOnly cookies, so unsafe methods
+ * additionally require a configured first-party Origin. API-key integrations
+ * are exempt because they do not authenticate with browser cookies.
+ */
+export async function requireTrustedOrigin(req: Request, res: Response, next: NextFunction) {
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) || req.path.startsWith('/api/v1/widget/') || req.path.startsWith('/api/auth/')) return next();
+  const hasSessionCookie = hasBetterAuthSessionCookie(req.headers.cookie);
+  if (!hasSessionCookie || req.headers['x-api-key']) return next();
+  const origin = req.headers.origin;
+  const allowed = (process.env.CORS_ORIGIN || 'http://localhost:3000').split(',').map((value) => value.trim()).filter(Boolean);
+  if (!origin) return res.status(403).json({ error: 'CSRF_ORIGIN_REJECTED' });
+  if (!allowed.includes(origin) && !await organizationForVerifiedDashboardDomain(dashboardDomainFromRequest(origin))) return res.status(403).json({ error: 'CSRF_ORIGIN_REJECTED' });
+  return next();
+}
+
+/** Better Auth uses the `__Secure-` cookie prefix when secure cookies are on. */
+export function hasBetterAuthSessionCookie(cookieHeader: string | undefined) {
+  return /(?:^|;\s*)(?:__Secure-)?supportai\.session_token=/.test(cookieHeader || '');
 }
 
 // Middleware: Dynamic Rate Limiter

@@ -10,7 +10,10 @@ import { auth } from "./auth/betterAuth.js";
 import { createAdapter } from "@socket.io/redis-adapter";
 import Redis from "ioredis";
 import apiRouter from "./routes/api.js";
-import { applySecurityHeaders, createRateLimiter } from "./middleware/security.js";
+import { applySecurityHeaders, createRateLimiter, requireTrustedOrigin } from "./middleware/security.js";
+import { bindDashboardDomain, type AuthRequest } from "./middleware/auth.js";
+import { verifiedDashboardOrigins } from "./services/dashboardDomainService.js";
+import { dashboardDomainFromRequest, organizationForVerifiedDashboardDomain } from "./services/dashboardDomainService.js";
 import { db } from "./db/index.js";
 import { conversations, organizationMembers, organizations, users } from "./db/schema.js";
 import { setDatabaseTenant } from "./db/tenantContext.js";
@@ -38,7 +41,10 @@ server.keepAliveTimeout = 5_000;
 
 const io = new SocketIOServer(server, {
   cors: {
-    origin: (process.env.CORS_ORIGIN || "http://localhost:3000").split(",").map((value) => value.trim()),
+    origin: (origin, callback) => {
+      if (!origin || (process.env.CORS_ORIGIN || "http://localhost:3000").split(",").map((value) => value.trim()).includes(origin)) return callback(null, true);
+      void verifiedDashboardOrigins().then((origins) => callback(null, origins.includes(origin))).catch(() => callback(new Error("Dashboard domain lookup failed")));
+    },
     methods: ["GET", "POST"],
     credentials: true,
   },
@@ -66,12 +72,14 @@ app.use(httpMetrics);
 app.use(createRateLimiter({ keyPrefix: "global", limit: Number(process.env.GLOBAL_RATE_LIMIT_PER_MINUTE || 300), windowMs: 60_000, keyGenerator: (req) => req.ip }));
 const dashboardCors = cors({ origin: (origin, callback) => {
   if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-  return callback(new Error("Origin is not allowed by CORS"));
+  void verifiedDashboardOrigins().then((origins) => callback(null, origins.includes(origin))).catch(() => callback(new Error("Dashboard domain lookup failed")));
 }, methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], credentials: true, allowedHeaders: ["Content-Type", "X-Organization-Id", "X-Organization-Slug", "X-API-Key", "X-Support-Session-Id"] });
 // Customer websites are not known at process start. Widget routes perform a
 // per-assistant origin check after validating the public integration key.
 const widgetCors = cors({ origin: true, methods: ["GET", "POST", "OPTIONS"], allowedHeaders: ["Content-Type"] });
 app.use((req, res, next) => (req.path.startsWith("/api/v1/widget/") ? widgetCors : dashboardCors)(req, res, next));
+app.use(bindDashboardDomain as (req: AuthRequest, res: express.Response, next: express.NextFunction) => void);
+app.use(requireTrustedOrigin);
 // Better Auth consumes request bodies itself. Mount it before Express parsers.
 app.all("/api/auth/*", toNodeHandler(auth));
 app.use(express.json({ limit: "20mb" }));
@@ -137,8 +145,14 @@ io.on("connection", (socket) => {
 
   // Socket.IO accepts only the same HttpOnly Better Auth session as HTTP.
   let sessionUser: Awaited<ReturnType<typeof getCurrentUser>> = null;
-  void getCurrentUser({ headers: socket.handshake.headers as any }).then((user) => {
+  let dashboardOrganizationId: string | null = null;
+  const dashboardDomainPromise = organizationForVerifiedDashboardDomain(dashboardDomainFromRequest(socket.handshake.headers.origin));
+  void Promise.all([
+    getCurrentUser({ headers: socket.handshake.headers as any }),
+    dashboardDomainPromise,
+  ]).then(([user, domainOrganizationId]) => {
     sessionUser = user;
+    dashboardOrganizationId = domainOrganizationId;
     if (!user) socket.disconnect(true);
   }).catch(() => socket.disconnect(true));
 
@@ -148,6 +162,12 @@ io.on("connection", (socket) => {
       const targetConvId = data?.conversationId;
       if (!targetConvId || typeof targetConvId !== "string" || !/^[0-9a-f-]{36}$/i.test(targetConvId) || typeof data.organizationId !== "string" || !/^[0-9a-f-]{36}$/i.test(data.organizationId)) {
         socket.emit("error", { message: "Invalid room request" });
+        return;
+      }
+
+      const boundDashboardOrganizationId = dashboardOrganizationId ?? await dashboardDomainPromise;
+      if (boundDashboardOrganizationId && data.organizationId !== boundDashboardOrganizationId) {
+        socket.emit("error", { message: "DASHBOARD_DOMAIN_TENANT_MISMATCH" });
         return;
       }
 

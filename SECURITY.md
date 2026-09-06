@@ -5,7 +5,7 @@
 The AI Customer Support Platform is built on a **Zero-Trust AI Architecture**. The Large Language Model (LLM) is treated as an untrusted third-party component. Authentication, authorization, tenant isolation, and administrative permission checks are strictly enforced by deterministic server-side code in Node.js/Express and PostgreSQL.
 
 ```
-User Input ──► Rate Limiting & Validation ──► Authentication (JWT/Key) ──► Tenant-Scoped Vector Search ──► Tag-Delimited Prompt ──► LLM Gateway ──► Output Sanitization ──► Client
+User Input ──► Rate Limiting & Validation ──► Better Auth Session/API Key ──► Tenant-Scoped Vector Search ──► Tag-Delimited Prompt ──► LLM Gateway ──► Output Sanitization ──► Client
 ```
 
 ---
@@ -37,7 +37,7 @@ User Input ──► Rate Limiting & Validation ──► Authentication (JWT/Ke
 - Model completions pass through `OutputSanitizer` to escape dangerous HTML, block `javascript:`/`data:` links, and redact PII, API keys, JWT tokens, and system paths.
 
 ### 5a. Authentication, API keys, and public conversations
-- Dashboard JWTs are issuer/audience-bound and carry a user token version. `POST /api/v1/auth/logout` increments that version, immediately revoking all active dashboard tokens for that user.
+- Dashboard authentication uses opaque, HttpOnly Better Auth session cookies. Every protected request loads the server-side session and current user status; no dashboard bearer token is accepted.
 - Login and registration use independent Redis-backed account/IP policies; all API traffic is covered by a configurable global Redis limit. `429` responses include standard `Retry-After` and `RateLimit-*` headers.
 - Organization API keys are random `acs_live_…` values shown only on issuance. The database retains a SHA-256 hash, prefix, scope metadata, expiry, revocation timestamp, and last-use timestamp. The migration hashes and clears legacy organization key values.
 - A public widget key authenticates an integration, not a chat visitor. Each newly created conversation also receives a short-lived signed access token. History, feedback, and subsequent messages require that token and are tied to the exact assistant, organization, and conversation.

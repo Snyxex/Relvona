@@ -4,6 +4,8 @@ import { OutputSanitizer } from "../services/outputSanitizer.js";
 import { PiiRedactionService } from "../services/piiRedactionService.js";
 import { RAGService } from "../services/ragService.js";
 import { createWidgetSessionToken, verifyWidgetSessionToken } from "../services/widgetSessionService.js";
+import { hasBetterAuthSessionCookie } from "../middleware/security.js";
+import { dashboardDomainFromRequest, normalizeDashboardDomain } from "../services/dashboardDomainService.js";
 
 async function runSecurityTests() {
   console.log("🔒 Running Automated AI Security & Compliance Verification Test Suite...\n");
@@ -79,6 +81,12 @@ async function runSecurityTests() {
   assert(verifyWidgetSessionToken(widgetToken, widgetSession), "Accept a signed widget conversation session");
   assert(!verifyWidgetSessionToken(widgetToken, { ...widgetSession, conversationId: "conversation-b" }), "Reject widget session reuse for another conversation");
   assert(!verifyWidgetSessionToken(`${widgetToken}x`, widgetSession), "Reject a tampered widget session");
+  assert(hasBetterAuthSessionCookie("supportai.session_token=session"), "Recognize the development Better Auth session cookie");
+  assert(hasBetterAuthSessionCookie("__Secure-supportai.session_token=session"), "Recognize the production Better Auth session cookie");
+  assert(!hasBetterAuthSessionCookie("unrelated_cookie=session"), "Ignore unrelated cookies for CSRF protection");
+  assert(normalizeDashboardDomain("Dashboard.Acme.example.") === "dashboard.acme.example", "Normalize dashboard domains before registration");
+  assert(normalizeDashboardDomain("https://attacker.example") === null, "Reject dashboard URLs where a hostname is required");
+  assert(dashboardDomainFromRequest("https://dashboard.acme.example:443") === "dashboard.acme.example", "Bind dashboard origins to their normalized host");
 
   // --- TEST GROUP 4: SENTIMENT & FRUSTRATION ESCALATION ---
   console.log("\n--- Test Group 4: Sentiment Analysis & Frustration Escalation ---");

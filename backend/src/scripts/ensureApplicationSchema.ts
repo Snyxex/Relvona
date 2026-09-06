@@ -33,6 +33,8 @@ async function main() {
     const duplicates = await client.query("SELECT organization_id, user_id FROM public.organization_members GROUP BY organization_id, user_id HAVING count(*) > 1 LIMIT 1");
     if (duplicates.rowCount) throw new Error(`Cannot create org_user_unique while duplicate memberships exist for organization ${duplicates.rows[0].organization_id}`);
     await client.query("CREATE UNIQUE INDEX IF NOT EXISTS org_user_unique ON public.organization_members (organization_id, user_id)");
+    await client.query("CREATE TABLE IF NOT EXISTS public.organization_dashboard_domains (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE, domain text NOT NULL UNIQUE, verification_token text NOT NULL UNIQUE, verified_at timestamp, created_at timestamp NOT NULL DEFAULT now(), updated_at timestamp NOT NULL DEFAULT now())");
+    await client.query("CREATE INDEX IF NOT EXISTS dashboard_domain_org_idx ON public.organization_dashboard_domains (organization_id)");
     await client.query("ALTER TABLE public.organization_settings ADD COLUMN IF NOT EXISTS local_login_enabled boolean NOT NULL DEFAULT true");
     await client.query("ALTER TABLE public.organization_settings ADD COLUMN IF NOT EXISTS invitation_enabled boolean NOT NULL DEFAULT true");
     await client.query("ALTER TABLE public.organization_settings ADD COLUMN IF NOT EXISTS sso_enabled boolean NOT NULL DEFAULT false");

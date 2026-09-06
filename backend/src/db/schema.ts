@@ -45,6 +45,18 @@ export const organizationMembers = pgTable("organization_members", {
   orgUserIdx: uniqueIndex("org_user_unique").on(table.organizationId, table.userId),
 }));
 
+// A verified dashboard hostname is an authentication boundary, not display
+// metadata. A host can belong to exactly one organization.
+export const organizationDashboardDomains = pgTable("organization_dashboard_domains", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
+  domain: text("domain").notNull().unique(),
+  verificationToken: text("verification_token").notNull().unique(),
+  verifiedAt: timestamp("verified_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({ dashboardDomainOrgIdx: index("dashboard_domain_org_idx").on(table.organizationId) }));
+
 // 4. API Keys
 export const apiKeys = pgTable("api_keys", {
   id: uuid("id").primaryKey().defaultRandom(),

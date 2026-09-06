@@ -7,7 +7,7 @@ It is built for SaaS teams that need tenant isolation, configurable AI models, a
 ## Features
 
 - RAG-based answers using PostgreSQL and pgvector
-- Tenant isolation, JWT authentication, and owner/admin/agent/viewer roles
+- Tenant isolation, Better Auth cookie sessions, and owner/admin/agent/viewer roles
 - Embeddable support widget, human handoff, and ticket workflow
 - PDF, text, FAQ, and website ingestion with SSRF and file-security controls
 - Admin model routing, fallback models, token limits, audit logs, and encrypted provider keys
@@ -58,7 +58,7 @@ Never use demo credentials in a public environment.
 
 ```dotenv
 POSTGRES_PASSWORD=use-a-long-random-database-password
-JWT_SECRET_CURRENT=generate-a-long-random-value
+BETTER_AUTH_SECRET=generate-a-long-random-value-at-least-32-characters
 ENCRYPTION_SECRET_CURRENT=generate-a-different-long-random-value
 ENCRYPTION_KEY_ID=v1
 CORS_ORIGIN=https://app.example.com
@@ -85,7 +85,7 @@ The `migrate` service applies Drizzle migrations before the API starts. Producti
 [`backend/.env.example`](backend/.env.example) documents backend variables. The required production values are:
 
 - `DATABASE_URL`: PostgreSQL connection string with pgvector enabled
-- `JWT_SECRET_CURRENT`: signs new sessions; mandatory in production
+- `BETTER_AUTH_SECRET`: signs Better Auth session cookies; mandatory in production and at least 32 characters
 - `ENCRYPTION_SECRET_CURRENT`: encrypts provider keys at rest; mandatory in production
 - `CORS_ORIGIN`: comma-separated dashboard origins, never `*`
 - Provider keys: optional platform defaults; tenants can add their own under Admin → API Keys
@@ -93,7 +93,7 @@ The `migrate` service applies Drizzle migrations before the API starts. Producti
 - `daily_token_budget`: hard per-tenant daily token budget, default `100000`; configure it through `PUT /api/v1/admin/settings/quotas` together with `widget_requests_per_minute`.
 - `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`: optional OTLP/HTTP endpoint for distributed traces; `OTEL_SERVICE_NAME` defaults to `ai-customer-support`.
 - `METRICS_TOKEN`: mandatory in production; protects the Prometheus-compatible `/metrics` endpoint.
-- `WIDGET_SESSION_SECRET`: mandatory in production; signs browser conversation access tokens and must differ from the JWT secret.
+- `WIDGET_SESSION_SECRET`: mandatory in production; signs widget conversation capabilities and must differ from the Better Auth secret.
 - `AI_REQUEST_TIMEOUT_MS`, `AI_MAX_RETRIES`, `AI_CIRCUIT_COOLDOWN_MS`, and `SHUTDOWN_TIMEOUT_MS`: bounded provider/retry/shutdown settings documented in `backend/.env.example`.
 - `DATABASE_URL`: in production, a `supportai_app` non-owner login. `db:migrate` provisions it from `DATABASE_APP_USER`/`DATABASE_APP_PASSWORD`, enables forced RLS policies, and uses `DATABASE_ADMIN_URL` only in the migration container. Do not give `DATABASE_ADMIN_URL` to API or worker containers.
 
@@ -107,6 +107,12 @@ The `migrate` service applies Drizzle migrations before the API starts. Producti
 4. Add a tenant provider key if no platform default is configured.
 5. Test answers, source quality, ticket escalation, and agent handoff.
 6. Embed the widget on your website.
+
+## Organization dashboard domains
+
+An organization owner can add a dashboard hostname through `POST /api/v1/organizations/current/dashboard-domains` with `{ "domain": "dashboard.customer.example" }`. The API returns a DNS TXT challenge. Publish its exact value at `_supportai.dashboard.customer.example`, then call `POST /api/v1/organizations/current/dashboard-domains/:id/verify`.
+
+Only verified domains are accepted as dashboard origins. Requests and Socket.IO room joins originating from a verified domain are pinned server-side to that organization; a conflicting `X-Organization-Id` is rejected. Configure the reverse proxy to serve the dashboard and proxy `/api` and `/socket.io` for each verified hostname. Custom domains on an unrelated registrable domain require HTTPS because Better Auth uses secure cross-site cookies.
 
 ## Widget installation
 
@@ -137,11 +143,11 @@ The widget does not require tenant-supplied HTML or JavaScript. Treat any future
 
 ## Release checklist
 
-- Use HTTPS and set unique `JWT_SECRET_CURRENT`, `ENCRYPTION_SECRET_CURRENT`, and `POSTGRES_PASSWORD` values.
+- Use HTTPS and set unique `BETTER_AUTH_SECRET`, `ENCRYPTION_SECRET_CURRENT`, and `POSTGRES_PASSWORD` values.
 - Limit `CORS_ORIGIN` to dashboard domains.
 - Back up PostgreSQL and test restore procedures.
 - Configure provider-spend limits and review audit logs.
-- Rotate keys after any suspected exposure: introduce `*_PREVIOUS` and a new `*_CURRENT`/`ENCRYPTION_KEY_ID` in Infisical, deploy the dual-key release, run `npm run secrets:rotate` once through Infisical, then remove the previous values after the seven-day JWT overlap. Back up PostgreSQL before re-encryption.
+- Rotate keys after any suspected exposure: use Better Auth's versioned-secret configuration for session-key rotation, and use `*_PREVIOUS`/`ENCRYPTION_KEY_ID` for encrypted application secrets. Back up PostgreSQL before re-encryption.
 - Compose uses an `edge` network for a reverse proxy, frontend, and API plus an internal `data` network for Postgres and Redis. Only the reverse proxy may publish host ports; join it to the external `supportai-edge` network.
 - Socket.IO uses Redis Pub/Sub through the Redis adapter, so events propagate across API replicas. Configure sticky sessions at the reverse proxy for WebSocket connection affinity.
 - Ingestion endpoints return `202` and enqueue BullMQ jobs; run at least one `worker` service. Completed/failed job retention and retry backoff are configured in the queue.

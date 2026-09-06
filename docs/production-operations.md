@@ -12,7 +12,7 @@ Application rollback means redeploying the preceding image. Do not automatically
 
 ## Required configuration
 
-Production requires `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET_CURRENT`, `ENCRYPTION_SECRET_CURRENT`, `WIDGET_SESSION_SECRET`, `CORS_ORIGIN`, and `METRICS_TOKEN`. The application fails fast when these are absent. Set `DATABASE_POOL_MAX` per API replica so the sum of all replicas stays within PostgreSQL capacity; the default is 10.
+Production requires `DATABASE_URL`, `REDIS_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `ENCRYPTION_SECRET_CURRENT`, `WIDGET_SESSION_SECRET`, `CORS_ORIGIN`, and `METRICS_TOKEN`. The application fails fast when these are absent. Set `DATABASE_POOL_MAX` per API replica so the sum of all replicas stays within PostgreSQL capacity; the default is 10.
 
 `AI_REQUEST_TIMEOUT_MS` defaults to 30 seconds and `HTTP_REQUEST_TIMEOUT_MS` to 65 seconds. `AI_MAX_RETRIES` defaults to 2 and retries only transient provider failures with exponential backoff plus jitter. `SHUTDOWN_TIMEOUT_MS` defaults to 30 seconds and must be lower than the platform/container termination grace period.
 

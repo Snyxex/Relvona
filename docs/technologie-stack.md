@@ -42,7 +42,7 @@ RAG, Embeddings und LLM-Anbieter
 | `@socket.io/redis-adapter` | Socket.IO-Skalierung über Redis Pub/Sub |
 | CORS | Kontrollierter Zugriff des Dashboards und Widgets |
 | dotenv | Laden lokaler Umgebungsvariablen |
-| jsonwebtoken | JWT-basierte Anmeldung für Dashboard-Nutzer |
+| Better Auth + Drizzle Adapter | Serverseitige, Cookie-basierte Anmeldung für Dashboard-Nutzer |
 | bcryptjs | Sichere Passwort-Hashes |
 | multer | Datei-Uploads |
 | pdf-parse | Text-Extraktion aus PDF-Dateien |

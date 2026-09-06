@@ -8,7 +8,7 @@ This is an ongoing review, not a production-readiness certificate.
 - Frontend lint: 56 errors and 88 warnings.
 - Frontend build fails fetching Google Fonts in this environment.
 - Docker daemon is unavailable; database, Redis, container and real-provider integration checks are pending.
-- Existing foundations: JWT authentication, organization membership, tenant query filters, PostgreSQL RLS setup, signed widget sessions, domain restrictions, ingestion queue, provider gateway, escalation ticket deduplication, upload validation, crawler address validation.
+- Existing foundations: Better Auth sessions, organization membership, tenant query filters, PostgreSQL RLS setup, signed widget sessions, domain restrictions, ingestion queue, provider gateway, escalation ticket deduplication, upload validation, crawler address validation.
 
 ## Confirmed defects and priorities
 

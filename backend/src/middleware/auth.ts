@@ -1,12 +1,14 @@
 import { Request, Response, NextFunction } from "express";
 import { db } from "../db/index.js";
-import { users, organizationMembers, organizations, apiKeys, platformSupportSessions } from "../db/schema.js";
+import { organizationMembers, organizations, apiKeys, platformSupportSessions } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { setLogContext } from "../observability/logger.js";
 import crypto from "crypto";
-import { getCurrentUser } from "../auth/session.js";
+import { getCurrentUser, getOrganizationMembership, hasOrganizationRole, type OrganizationRole } from "../auth/session.js";
+import { dashboardDomainFromRequest, organizationForVerifiedDashboardDomain } from "../services/dashboardDomainService.js";
 
 export interface AuthRequest extends Request {
+  dashboardOrganizationId?: string;
   user?: {
     id: string;
     email: string;
@@ -19,8 +21,18 @@ export interface AuthRequest extends Request {
     id: string;
     name: string;
     slug: string;
-    role: string;
+    role: OrganizationRole;
   };
+}
+
+/** Bind a browser request from a verified dashboard hostname to its tenant. */
+export async function bindDashboardDomain(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const domain = dashboardDomainFromRequest(req.get("origin") || req.get("host"));
+    const organizationId = await organizationForVerifiedDashboardDomain(domain);
+    if (organizationId) req.dashboardOrganizationId = organizationId;
+    return next();
+  } catch { return res.status(503).json({ error: "Dashboard domain verification unavailable" }); }
 }
 
 // Better Auth is the sole browser-session authority.  Do not accept bearer
@@ -42,6 +54,14 @@ export function requirePlatformAdmin(req: AuthRequest, res: Response, next: Next
   next();
 }
 
+export async function requireOrganizationMember(req: AuthRequest, res: Response, next: NextFunction) {
+  if (!req.user || !req.organization) return res.status(403).json({ error: "Organization context missing" });
+  const membership = await getOrganizationMembership(req.user.id, req.organization.id);
+  if (!membership) return res.status(403).json({ error: "Organization membership required" });
+  req.organization = membership;
+  return next();
+}
+
 // Middleware: Require Tenant Context & Resolve Role
 export async function tenantContext(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -49,8 +69,13 @@ export async function tenantContext(req: AuthRequest, res: Response, next: NextF
       return res.status(401).json({ error: "Authentication required before context selection" });
     }
 
-    const orgId = req.headers["x-organization-id"] as string;
+    const requestedOrgId = req.headers["x-organization-id"] as string;
+    const orgId = req.dashboardOrganizationId || requestedOrgId;
     const orgSlug = req.headers["x-organization-slug"] as string;
+
+    if (req.dashboardOrganizationId && ((requestedOrgId && requestedOrgId !== req.dashboardOrganizationId) || orgSlug)) {
+      return res.status(403).json({ error: "DASHBOARD_DOMAIN_TENANT_MISMATCH" });
+    }
 
     if (!orgId && !orgSlug) {
       // Find first organization user belongs to
@@ -68,13 +93,14 @@ export async function tenantContext(req: AuthRequest, res: Response, next: NextF
         return res.status(403).json({ error: "User does not belong to any organization" });
       }
 
-      req.organization = {
+      const organization = {
         id: firstMembership.org.id,
         name: firstMembership.org.name,
         slug: firstMembership.org.slug,
-        role: firstMembership.member.role,
+        role: firstMembership.member.role as OrganizationRole,
       };
-      setLogContext({ organizationId: req.organization.id });
+      req.organization = organization;
+      setLogContext({ organizationId: organization.id });
 
       return next();
     }
@@ -125,13 +151,14 @@ export async function tenantContext(req: AuthRequest, res: Response, next: NextF
       return res.status(403).json({ error: "Access denied: User is not a member of this organization" });
     }
 
-    req.organization = {
+    const organization = {
       id: membership.org.id,
       name: membership.org.name,
       slug: membership.org.slug,
-      role: membership.member.role,
+      role: membership.member.role as OrganizationRole,
     };
-    setLogContext({ organizationId: req.organization.id });
+    req.organization = organization;
+    setLogContext({ organizationId: organization.id });
 
     next();
   } catch (error) {
@@ -141,18 +168,23 @@ export async function tenantContext(req: AuthRequest, res: Response, next: NextF
 
 // Middleware: Role-Based Access Control (RBAC)
 export function requireRole(allowedRoles: string[]) {
+  const roles = allowedRoles as OrganizationRole[];
   return (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.organization) {
       return res.status(403).json({ error: "Organization context missing" });
     }
 
-    if (!allowedRoles.includes(req.organization.role)) {
+    if (!hasOrganizationRole(req.organization, roles)) {
       return res.status(403).json({ error: `Insufficient permissions. Required role: ${allowedRoles.join(" or ")}` });
     }
 
     next();
   };
 }
+
+export const requireOrganizationRole = requireRole;
+/** Permissions currently map directly to the established role model. */
+export const requireOrganizationPermission = requireRole;
 
 // Middleware: API Key Authentication (for external integrations)
 export async function authenticateApiKey(req: AuthRequest, res: Response, next: NextFunction) {
