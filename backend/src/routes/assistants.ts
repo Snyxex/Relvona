@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { authenticate, tenantContext, requireRole, AuthRequest } from "../middleware/auth.js";
+import { authenticate, tenantContext, requireRole, requirePlatformAdmin, AuthRequest } from "../middleware/auth.js";
 import { db } from "../db/index.js";
 import { assistants } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
@@ -69,6 +69,9 @@ router.get("/", async (req: AuthRequest, res) => {
       .where(eq(assistants.organizationId, req.organization!.id));
 
     if (list.length === 0) {
+      // A read endpoint must not turn a Viewer or Agent into a tenant writer.
+      // Only organization administrators may initialize the first assistant.
+      if (!["owner", "admin"].includes(req.organization!.role)) return res.json([]);
       const [newAssistant] = await db
         .insert(assistants)
         .values({

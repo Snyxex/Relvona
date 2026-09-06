@@ -5,16 +5,18 @@ import cors from "cors";
 import http from "http";
 import path from "path";
 import { Server as SocketIOServer } from "socket.io";
+import { toNodeHandler } from "better-auth/node";
+import { auth } from "./auth/betterAuth.js";
 import { createAdapter } from "@socket.io/redis-adapter";
 import Redis from "ioredis";
 import apiRouter from "./routes/api.js";
 import { applySecurityHeaders, createRateLimiter } from "./middleware/security.js";
 import { db } from "./db/index.js";
-import { conversations, organizationMembers, users } from "./db/schema.js";
+import { conversations, organizationMembers, organizations, users } from "./db/schema.js";
 import { setDatabaseTenant } from "./db/tenantContext.js";
 import { domainEventBus } from "./services/domainEventBus.js";
 import { eq, and } from "drizzle-orm";
-import { verifyToken } from "./middleware/auth.js";
+import { getCurrentUser } from "./auth/session.js";
 import { logger, requestLogging, withLogContext } from "./observability/logger.js";
 import { readiness } from "./services/healthService.js";
 import { closeHealthDependencies } from "./services/healthService.js";
@@ -38,7 +40,7 @@ const io = new SocketIOServer(server, {
   cors: {
     origin: (process.env.CORS_ORIGIN || "http://localhost:3000").split(",").map((value) => value.trim()),
     methods: ["GET", "POST"],
-    credentials: false,
+    credentials: true,
   },
 });
 
@@ -65,11 +67,13 @@ app.use(createRateLimiter({ keyPrefix: "global", limit: Number(process.env.GLOBA
 const dashboardCors = cors({ origin: (origin, callback) => {
   if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
   return callback(new Error("Origin is not allowed by CORS"));
-}, methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], allowedHeaders: ["Authorization", "Content-Type", "X-Organization-Id", "X-Organization-Slug", "X-API-Key"] });
+}, methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], credentials: true, allowedHeaders: ["Content-Type", "X-Organization-Id", "X-Organization-Slug", "X-API-Key", "X-Support-Session-Id"] });
 // Customer websites are not known at process start. Widget routes perform a
 // per-assistant origin check after validating the public integration key.
 const widgetCors = cors({ origin: true, methods: ["GET", "POST", "OPTIONS"], allowedHeaders: ["Content-Type"] });
 app.use((req, res, next) => (req.path.startsWith("/api/v1/widget/") ? widgetCors : dashboardCors)(req, res, next));
+// Better Auth consumes request bodies itself. Mount it before Express parsers.
+app.all("/api/auth/*", toNodeHandler(auth));
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true, limit: "20mb" }));
 
@@ -113,10 +117,9 @@ domainEventBus.subscribe("message.created", async (event) => {
   const recipients = await io.in(`conv:${event.conversationId}`).fetchSockets();
   await Promise.allSettled(recipients.map(async (recipient) => {
     try {
-      const decoded = verifyToken(recipient.handshake.auth.token);
-      const [user] = await db.select({ tokenVersion: users.tokenVersion }).from(users).where(eq(users.id, decoded.userId)).limit(1);
-      const [member] = await db.select({ role: organizationMembers.role }).from(organizationMembers).where(and(eq(organizationMembers.organizationId, event.organizationId), eq(organizationMembers.userId, decoded.userId))).limit(1);
-      if (!user || user.tokenVersion !== decoded.tokenVersion || !member || !["owner", "admin", "agent"].includes(member.role)) {
+      const user = await getCurrentUser({ headers: recipient.handshake.headers as any });
+      const [member] = user ? await db.select({ role: organizationMembers.role }).from(organizationMembers).where(and(eq(organizationMembers.organizationId, event.organizationId), eq(organizationMembers.userId, user.id))).limit(1) : [];
+      if (!user || !member || !["owner", "admin", "agent"].includes(member.role)) {
         recipient.disconnect(true);
         return;
       }
@@ -132,15 +135,12 @@ io.on("connection", (socket) => {
   metrics.increment("supportai_websocket_connections_total");
   logger.info("socket.connected", { socketId: socket.id });
 
-  // Socket.IO serves authenticated dashboard operators only.
-  const token = socket.handshake.auth?.token;
-  let userPayload: any = null;
-  if (typeof token === "string") {
-    try {
-      userPayload = verifyToken(token);
-    } catch { socket.disconnect(true); return; }
-  }
-  if (!userPayload?.userId) { socket.disconnect(true); return; }
+  // Socket.IO accepts only the same HttpOnly Better Auth session as HTTP.
+  let sessionUser: Awaited<ReturnType<typeof getCurrentUser>> = null;
+  void getCurrentUser({ headers: socket.handshake.headers as any }).then((user) => {
+    sessionUser = user;
+    if (!user) socket.disconnect(true);
+  }).catch(() => socket.disconnect(true));
 
   // Join Room with Server-Side Authorization Check
   socket.on("join_room", async (data: { organizationId?: string; conversationId?: string } = {}) => withLogContext({}, async () => {
@@ -151,12 +151,12 @@ io.on("connection", (socket) => {
         return;
       }
 
-      const decoded = verifyToken(token);
-      const [user] = await db.select().from(users).where(eq(users.id, decoded.userId)).limit(1);
-      if (!user || user.tokenVersion !== decoded.tokenVersion) throw new Error("Revoked session");
+      const user = sessionUser || await getCurrentUser({ headers: socket.handshake.headers as any });
+      if (!user) throw new Error("Revoked session");
       const [member] = await db.select().from(organizationMembers)
         .where(and(eq(organizationMembers.organizationId, data.organizationId), eq(organizationMembers.userId, user.id))).limit(1);
-      if (!member || !["owner", "admin", "agent"].includes(member.role)) throw new Error("Access denied");
+      const [organization] = await db.select({ status: organizations.status }).from(organizations).where(eq(organizations.id, data.organizationId)).limit(1);
+      if (!member || member.status !== "active" || organization?.status !== "active" || !["owner", "admin", "agent"].includes(member.role)) throw new Error("Access denied");
       setDatabaseTenant(data.organizationId);
       // Bind RLS only after membership validation.
       const [conv] = await db
@@ -178,7 +178,7 @@ io.on("connection", (socket) => {
       const [membership] = await db
         .select({ id: organizationMembers.id })
         .from(organizationMembers)
-        .where(and(eq(organizationMembers.organizationId, conv.organizationId), eq(organizationMembers.userId, userPayload.userId)))
+        .where(and(eq(organizationMembers.organizationId, conv.organizationId), eq(organizationMembers.userId, user.id)))
         .limit(1);
       if (!membership) {
         socket.emit("error", { message: "Access denied: You are not a member of this organization" });
@@ -186,10 +186,6 @@ io.on("connection", (socket) => {
       }
       const room = `conv:${targetConvId}`;
       socket.join(room);
-      const expiresAt = (decoded as typeof decoded & { exp: number }).exp * 1000;
-      const expiryTimer = setTimeout(() => socket.disconnect(true), Math.max(0, expiresAt - Date.now()));
-      expiryTimer.unref();
-      socket.once("disconnect", () => clearTimeout(expiryTimer));
       logger.info("socket.room.joined", { socketId: socket.id, room });
     } catch (err) {
       logger.warn("socket.room.join_failed", { socketId: socket.id });

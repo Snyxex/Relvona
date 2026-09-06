@@ -1,18 +1,10 @@
 import { Request, Response, NextFunction } from "express";
-import jwt from "jsonwebtoken";
 import { db } from "../db/index.js";
-import { users, organizationMembers, organizations, apiKeys } from "../db/schema.js";
+import { users, organizationMembers, organizations, apiKeys, platformSupportSessions } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { setLogContext } from "../observability/logger.js";
 import crypto from "crypto";
-
-const JWT_SECRET = process.env.JWT_SECRET_CURRENT || process.env.JWT_SECRET;
-const PREVIOUS_JWT_SECRET = process.env.JWT_SECRET_PREVIOUS;
-if (process.env.NODE_ENV === "production" && !JWT_SECRET) {
-  throw new Error("JWT_SECRET_CURRENT must be injected in production");
-}
-const jwtSecret = JWT_SECRET || "development-only-jwt-secret-do-not-use-in-production";
-const verificationSecrets = [jwtSecret, PREVIOUS_JWT_SECRET].filter((secret): secret is string => Boolean(secret));
+import { getCurrentUser } from "../auth/session.js";
 
 export interface AuthRequest extends Request {
   user?: {
@@ -22,7 +14,6 @@ export interface AuthRequest extends Request {
     avatarUrl: string | null;
     preferredLanguage: string;
     systemRole: string;
-    tokenVersion: number;
   };
   organization?: {
     id: string;
@@ -32,52 +23,23 @@ export interface AuthRequest extends Request {
   };
 }
 
-export function generateToken(payload: { userId: string; email: string; systemRole: string; tokenVersion: number }, expiresIn = "60m") {
-  return jwt.sign(payload, jwtSecret, { expiresIn: expiresIn as jwt.SignOptions["expiresIn"], jwtid: crypto.randomUUID(), issuer: "supportai", audience: "dashboard" });
-}
-
-export function verifyToken(token: string) {
-  let lastError: unknown;
-  for (const secret of verificationSecrets) {
-    try {
-      return jwt.verify(token, secret, { issuer: "supportai", audience: "dashboard" }) as { userId: string; email: string; systemRole: string; tokenVersion: number };
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError || new Error("Invalid token");
-}
-
-// Middleware: Authenticate User JWT
+// Better Auth is the sole browser-session authority.  Do not accept bearer
+// credentials here: dashboard requests must carry the HttpOnly session cookie.
 export async function authenticate(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "Missing or invalid authorization token" });
-    }
-
-    const token = authHeader.split(" ")[1];
-    const decoded = verifyToken(token);
-
-    const [user] = await db.select().from(users).where(eq(users.id, decoded.userId)).limit(1);
-    if (!user || decoded.tokenVersion !== user.tokenVersion) {
-      return res.status(401).json({ error: "Invalid or expired token" });
-    }
-
-    req.user = {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      avatarUrl: user.avatarUrl,
-      preferredLanguage: user.preferredLanguage,
-      systemRole: user.systemRole,
-      tokenVersion: user.tokenVersion,
-    };
-
+    const user = await getCurrentUser(req);
+    if (!user) return res.status(401).json({ error: "Authentication required" });
+    req.user = user;
     next();
   } catch (error) {
-    return res.status(401).json({ error: "Invalid or expired token" });
+    return res.status(401).json({ error: "Authentication required" });
   }
+}
+
+export function requirePlatformAdmin(req: AuthRequest, res: Response, next: NextFunction) {
+  if (!req.user) return res.status(401).json({ error: "Authentication required" });
+  if (req.user.systemRole !== "superadmin") return res.status(403).json({ error: "Nur Plattformadministratoren dürfen diese Einstellungen verwalten." });
+  next();
 }
 
 // Middleware: Require Tenant Context & Resolve Role
@@ -102,7 +64,7 @@ export async function tenantContext(req: AuthRequest, res: Response, next: NextF
         .where(eq(organizationMembers.userId, req.user.id))
         .limit(1);
 
-      if (!firstMembership) {
+      if (!firstMembership || firstMembership.org.status !== "active" || firstMembership.member.status !== "active") {
         return res.status(403).json({ error: "User does not belong to any organization" });
       }
 
@@ -117,6 +79,22 @@ export async function tenantContext(req: AuthRequest, res: Response, next: NextF
       return next();
     }
 
+    if (req.user.systemRole === "superadmin" && orgId) {
+      if (!/^[0-9a-f-]{36}$/i.test(orgId)) return res.status(400).json({ error: "Invalid organization ID" });
+      const supportSessionId = req.headers["x-support-session-id"] as string;
+      if (!supportSessionId || !/^[0-9a-f-]{36}$/i.test(supportSessionId)) return res.status(403).json({ error: "SUPPORT_ACCESS_REQUIRED" });
+      const [supportSession] = await db.select().from(platformSupportSessions).where(and(
+        eq(platformSupportSessions.id, supportSessionId),
+        eq(platformSupportSessions.platformAdminUserId, req.user.id),
+        eq(platformSupportSessions.organizationId, orgId),
+      )).limit(1);
+      if (!supportSession || supportSession.endedAt || supportSession.expiresAt <= new Date()) return res.status(403).json({ error: "SUPPORT_ACCESS_EXPIRED" });
+      const [org] = await db.select().from(organizations).where(eq(organizations.id, orgId)).limit(1);
+      if (!org) return res.status(404).json({ error: "Organization not found" });
+      req.organization = { id: org.id, name: org.name, slug: org.slug, role: "admin" };
+      setLogContext({ organizationId: org.id });
+      return next();
+    }
     // Resolve requested org
     let targetOrgId = orgId;
     if (!targetOrgId && orgSlug) {
@@ -143,7 +121,7 @@ export async function tenantContext(req: AuthRequest, res: Response, next: NextF
       )
       .limit(1);
 
-    if (!membership) {
+    if (!membership || membership.org.status !== "active" || membership.member.status !== "active") {
       return res.status(403).json({ error: "Access denied: User is not a member of this organization" });
     }
 
@@ -168,7 +146,7 @@ export function requireRole(allowedRoles: string[]) {
       return res.status(403).json({ error: "Organization context missing" });
     }
 
-    if (!allowedRoles.includes(req.organization.role) && req.user?.systemRole !== "superadmin") {
+    if (!allowedRoles.includes(req.organization.role)) {
       return res.status(403).json({ error: `Insufficient permissions. Required role: ${allowedRoles.join(" or ")}` });
     }
 

@@ -1,11 +1,14 @@
 import { Router } from "express";
-import { authenticate, tenantContext, requireRole, AuthRequest } from "../middleware/auth.js";
+import { authenticate, tenantContext, requireRole, requirePlatformAdmin, AuthRequest } from "../middleware/auth.js";
 import { db } from "../db/index.js";
-import { organizations, organizationMembers, users, apiKeys } from "../db/schema.js";
-import { eq, and, isNull } from "drizzle-orm";
+import { organizations, organizationMembers, users, apiKeys, organizationInvitations, organizationSettings } from "../db/schema.js";
+import { eq, and, isNull, count } from "drizzle-orm";
 import crypto from "crypto";
+import { encryptSecret } from "../utils/crypto.js";
+import { AuditService } from "../services/auditService.js";
 
 const router = Router();
+const ipOf = (req: AuthRequest) => req.ip || req.socket.remoteAddress || null;
 router.use(authenticate);
 router.use(tenantContext);
 
@@ -77,6 +80,76 @@ router.get("/members", async (req: AuthRequest, res) => {
   } catch (error) {
     return res.status(500).json({ error: (error as Error).message });
   }
+});
+
+async function settingsFor(organizationId: string) {
+  const [existing] = await db.select().from(organizationSettings).where(eq(organizationSettings.organizationId, organizationId)).limit(1);
+  if (existing) return existing;
+  const [created] = await db.insert(organizationSettings).values({ organizationId }).returning();
+  return created;
+}
+const normalizeDomains = (value: unknown) => Array.isArray(value) ? [...new Set(value.map((domain) => typeof domain === "string" ? domain.trim().toLowerCase().replace(/^@/, "") : "").filter((domain) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(domain)))].slice(0, 50) : [];
+
+router.get("/current/auth-settings", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
+  const settings = await settingsFor(req.organization!.id);
+  res.json({ localLoginEnabled: settings.localLoginEnabled, invitationEnabled: settings.invitationEnabled, ssoEnabled: settings.ssoEnabled, entraTenantId: settings.entraTenantId, entraClientId: settings.entraClientId, entraClientSecretConfigured: Boolean(settings.entraClientSecretEncrypted), allowedDomains: settings.allowedDomains, autoJoinEnabled: settings.autoJoinEnabled, defaultAutoJoinRole: settings.defaultAutoJoinRole, redirectUri: `${process.env.APP_PUBLIC_URL || ""}/api/v1/auth/entra/callback` });
+});
+
+router.patch("/current/auth-settings", requireRole(["owner"]), async (req: AuthRequest, res) => {
+  const body = req.body || {};
+  const allowedDomains = normalizeDomains(body.allowedDomains);
+  const defaultAutoJoinRole = body.defaultAutoJoinRole;
+  if (body.localLoginEnabled !== undefined && typeof body.localLoginEnabled !== "boolean" || body.invitationEnabled !== undefined && typeof body.invitationEnabled !== "boolean" || body.ssoEnabled !== undefined && typeof body.ssoEnabled !== "boolean" || body.autoJoinEnabled !== undefined && typeof body.autoJoinEnabled !== "boolean" || !["agent", "viewer"].includes(defaultAutoJoinRole ?? "agent") || (body.ssoEnabled && (typeof body.entraTenantId !== "string" || !/^[0-9a-f-]{36}$/i.test(body.entraTenantId) || typeof body.entraClientId !== "string" || !/^[0-9a-f-]{36}$/i.test(body.entraClientId)))) return res.status(400).json({ error: "Invalid authentication settings" });
+  const current = await settingsFor(req.organization!.id);
+  const [settings] = await db.update(organizationSettings).set({
+    localLoginEnabled: body.localLoginEnabled ?? current.localLoginEnabled,
+    invitationEnabled: body.invitationEnabled ?? current.invitationEnabled,
+    ssoEnabled: body.ssoEnabled ?? current.ssoEnabled,
+    entraTenantId: typeof body.entraTenantId === "string" ? body.entraTenantId.trim() : current.entraTenantId,
+    entraClientId: typeof body.entraClientId === "string" ? body.entraClientId.trim() : current.entraClientId,
+    entraClientSecretEncrypted: typeof body.entraClientSecret === "string" && body.entraClientSecret ? encryptSecret(body.entraClientSecret) : current.entraClientSecretEncrypted,
+    allowedDomains,
+    autoJoinEnabled: body.autoJoinEnabled ?? current.autoJoinEnabled,
+    defaultAutoJoinRole: defaultAutoJoinRole ?? current.defaultAutoJoinRole,
+    updatedAt: new Date(),
+  }).where(eq(organizationSettings.id, current.id)).returning();
+  await AuditService.logAction({ organizationId: req.organization!.id, actorUserId: req.user!.id, action: "settings.authentication.update", resourceType: "organization_settings", resourceId: settings.id, metadata: { ssoEnabled: settings.ssoEnabled, autoJoinEnabled: settings.autoJoinEnabled, allowedDomains: settings.allowedDomains, clientSecretUpdated: Boolean(body.entraClientSecret) }, ipAddress: ipOf(req) });
+  res.json({ localLoginEnabled: settings.localLoginEnabled, invitationEnabled: settings.invitationEnabled, ssoEnabled: settings.ssoEnabled, entraTenantId: settings.entraTenantId, entraClientId: settings.entraClientId, entraClientSecretConfigured: Boolean(settings.entraClientSecretEncrypted), allowedDomains: settings.allowedDomains, autoJoinEnabled: settings.autoJoinEnabled, defaultAutoJoinRole: settings.defaultAutoJoinRole });
+});
+
+const validRoles = new Set(["owner", "admin", "agent", "viewer"]);
+const inviteToken = () => crypto.randomBytes(32).toString("base64url");
+const hashInvite = (token: string) => crypto.createHash("sha256").update(token).digest("hex");
+router.use("/invitations", requireRole(["owner", "admin"]));
+router.get("/invitations", async (req: AuthRequest, res) => {
+  const invites = await db.select().from(organizationInvitations).where(eq(organizationInvitations.organizationId, req.organization!.id));
+  res.json(invites.map(({ tokenHash, ...invite }) => ({ ...invite, status: invite.revokedAt ? "REVOKED" : invite.acceptedAt ? "ACCEPTED" : invite.expiresAt <= new Date() ? "EXPIRED" : "PENDING" })));
+});
+router.post("/invitations", async (req: AuthRequest, res) => {
+  const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : ""; const role = req.body?.role;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !validRoles.has(role) || (role === "owner" && req.organization!.role !== "owner")) return res.status(400).json({ error: "Invalid invitation" });
+  if (!(await settingsFor(req.organization!.id)).invitationEnabled) return res.status(403).json({ error: "INVITATIONS_DISABLED" });
+  const rawToken = inviteToken(); const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60_000);
+  const [invite] = await db.insert(organizationInvitations).values({ organizationId: req.organization!.id, email, role, tokenHash: hashInvite(rawToken), invitedByUserId: req.user!.id, expiresAt }).returning();
+  await AuditService.logAction({ organizationId: req.organization!.id, actorUserId: req.user!.id, action: "invitation.created", resourceType: "organization_invitation", resourceId: invite.id, metadata: { email, role, expiresAt: expiresAt.toISOString() }, ipAddress: ipOf(req) });
+  res.status(201).json({ id: invite.id, email, role, expiresAt, inviteUrl: `${process.env.APP_PUBLIC_URL || ""}/invite/${rawToken}` });
+});
+router.post("/invitations/:id/revoke", async (req: AuthRequest, res) => {
+  const [invite] = await db.update(organizationInvitations).set({ revokedAt: new Date(), updatedAt: new Date() }).where(and(eq(organizationInvitations.id, req.params.id), eq(organizationInvitations.organizationId, req.organization!.id), isNull(organizationInvitations.acceptedAt))).returning();
+  if (!invite) return res.status(404).json({ error: "Invitation not found" }); await AuditService.logAction({ organizationId: req.organization!.id, actorUserId: req.user!.id, action: "invitation.revoked", resourceType: "organization_invitation", resourceId: invite.id, ipAddress: ipOf(req) }); res.status(204).end();
+});
+router.patch("/members/:memberId", requireRole(["owner"]), async (req: AuthRequest, res) => {
+  if (!validRoles.has(req.body?.role)) return res.status(400).json({ error: "Invalid role" });
+  const [member] = await db.select().from(organizationMembers).where(and(eq(organizationMembers.id, req.params.memberId), eq(organizationMembers.organizationId, req.organization!.id))).limit(1);
+  if (!member) return res.status(404).json({ error: "Member not found" });
+  if (member.role === "owner" && req.body.role !== "owner") { const [owners] = await db.select({ value: count() }).from(organizationMembers).where(and(eq(organizationMembers.organizationId, req.organization!.id), eq(organizationMembers.role, "owner"), eq(organizationMembers.status, "active"))); if (Number(owners.value) <= 1) return res.status(409).json({ error: "LAST_OWNER_REQUIRED" }); }
+  await db.update(organizationMembers).set({ role: req.body.role }).where(eq(organizationMembers.id, member.id)); await AuditService.logAction({ organizationId: req.organization!.id, actorUserId: req.user!.id, action: "membership.role_changed", resourceType: "organization_member", resourceId: member.id, metadata: { oldRole: member.role, newRole: req.body.role }, ipAddress: ipOf(req) }); res.status(204).end();
+});
+router.delete("/members/:memberId", requireRole(["owner"]), async (req: AuthRequest, res) => {
+  const [member] = await db.select().from(organizationMembers).where(and(eq(organizationMembers.id, req.params.memberId), eq(organizationMembers.organizationId, req.organization!.id))).limit(1);
+  if (!member) return res.status(404).json({ error: "Member not found" });
+  if (member.role === "owner") { const [owners] = await db.select({ value: count() }).from(organizationMembers).where(and(eq(organizationMembers.organizationId, req.organization!.id), eq(organizationMembers.role, "owner"), eq(organizationMembers.status, "active"))); if (Number(owners.value) <= 1) return res.status(409).json({ error: "LAST_OWNER_REQUIRED" }); }
+  await db.delete(organizationMembers).where(eq(organizationMembers.id, member.id)); await AuditService.logAction({ organizationId: req.organization!.id, actorUserId: req.user!.id, action: "membership.removed", resourceType: "organization_member", resourceId: member.id, ipAddress: ipOf(req) }); res.status(204).end();
 });
 
 export default router;

@@ -34,7 +34,7 @@ router.get("/", async (req: AuthRequest, res) => {
 router.post("/", async (req: AuthRequest, res) => {
   try {
     const { customerId, conversationId, subject, description, priority, assignedAgentId, tags } = req.body;
-    if (!customerId || !subject) {
+    if (typeof customerId !== "string" || !/^[0-9a-f-]{36}$/i.test(customerId) || typeof subject !== "string" || !subject.trim() || subject.length > 300 || (conversationId !== undefined && (typeof conversationId !== "string" || !/^[0-9a-f-]{36}$/i.test(conversationId))) || (description !== undefined && (typeof description !== "string" || description.length > 10_000)) || (tags !== undefined && (!Array.isArray(tags) || tags.length > 20 || tags.some((tag) => typeof tag !== "string" || !tag.trim() || tag.length > 64)))) {
       return res.status(400).json({ error: "customerId and subject are required" });
     }
 
@@ -42,11 +42,11 @@ router.post("/", async (req: AuthRequest, res) => {
       organizationId: req.organization!.id,
       customerId,
       conversationId,
-      subject,
-      description,
+      subject: subject.trim(),
+      description: description?.trim(),
       priority,
       assignedAgentId,
-      tags,
+      tags: tags?.map((tag: string) => tag.trim()),
     });
 
     return res.status(201).json(ticket);
@@ -63,6 +63,7 @@ router.post("/", async (req: AuthRequest, res) => {
 router.put("/:id", async (req: AuthRequest, res) => {
   try {
     const { status, priority, assignedAgentId, tags } = req.body;
+    if (tags !== undefined && (!Array.isArray(tags) || tags.length > 20 || tags.some((tag) => typeof tag !== "string" || !tag.trim() || tag.length > 64))) return res.status(400).json({ error: "Invalid ticket tags" });
     if (assignedAgentId !== undefined) {
       if (typeof assignedAgentId !== "string") return res.status(400).json({ error: "Invalid assigned agent" });
       const [member] = await db.select({ id: organizationMembers.id }).from(organizationMembers).where(and(eq(organizationMembers.organizationId, req.organization!.id), eq(organizationMembers.userId, assignedAgentId))).limit(1);
@@ -122,15 +123,17 @@ router.get("/:id/comments", async (req: AuthRequest, res) => {
 // POST /api/v1/tickets/:id/comments
 router.post("/:id/comments", async (req: AuthRequest, res) => {
   try {
-    const { content, isInternal } = req.body;
-    if (!content) return res.status(400).json({ error: "Content is required" });
+    const { content } = req.body;
+    if (typeof content !== "string" || !content.trim() || content.length > 10_000) return res.status(400).json({ error: "Content is required" });
 
     const comment = await TicketService.addComment({
       organizationId: req.organization!.id,
       ticketId: req.params.id,
       userId: req.user!.id,
-      content,
-      isInternal,
+      content: content.trim(),
+      // Ticket comments from this authenticated staff-only endpoint are never
+      // client-controlled public messages.
+      isInternal: true,
     });
 
     return res.status(201).json(comment);

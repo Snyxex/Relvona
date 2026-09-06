@@ -53,7 +53,7 @@ export async function withTenantTransaction<T>(organizationId: string, work: (tx
   try {
     await client.query("BEGIN");
     await client.query("SELECT set_config('app.organization_id', $1, true)", [organizationId]);
-    const result = await work(drizzle(client, { schema }) as typeof db);
+    const result = await work(drizzle(client, { schema }) as unknown as typeof db);
     await client.query("COMMIT");
     return result;
   } catch (error) {

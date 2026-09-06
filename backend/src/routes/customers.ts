@@ -8,6 +8,9 @@ import { AuditService } from "../services/auditService.js";
 const router = Router();
 router.use(authenticate);
 router.use(tenantContext);
+// Customer records contain personal data. A Viewer may inspect aggregate
+// analytics but must not enumerate or retrieve individual customers.
+router.use(requireRole(["owner", "admin", "agent"]));
 
 // GET /api/v1/customers
 router.get("/", async (req: AuthRequest, res) => {

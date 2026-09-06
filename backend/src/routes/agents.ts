@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { authenticate, tenantContext, AuthRequest } from "../middleware/auth.js";
+import { authenticate, tenantContext, requireRole, AuthRequest } from "../middleware/auth.js";
 import { db } from "../db/index.js";
 import { organizationMembers, users } from "../db/schema.js";
 import { and, eq } from "drizzle-orm";
@@ -7,6 +7,7 @@ import { and, eq } from "drizzle-orm";
 const router = Router();
 router.use(authenticate);
 router.use(tenantContext);
+router.use(requireRole(["owner", "admin", "agent"]));
 
 // GET /api/v1/agents (List human support agents in organization)
 router.get("/", async (req: AuthRequest, res) => {

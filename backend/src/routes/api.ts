@@ -11,6 +11,7 @@ import analyticsRouter from "./analytics.js";
 import widgetRouter from "./widget.js";
 import adminSettingsRouter from "./adminSettings.js";
 import toolsRouter from "./tools.js";
+import platformAdminRouter from "./platformAdmin.js";
 
 const apiRouter = Router();
 
@@ -25,6 +26,7 @@ apiRouter.use("/v1/agents", agentsRouter);
 apiRouter.use("/v1/analytics", analyticsRouter);
 apiRouter.use("/v1/widget", widgetRouter);
 apiRouter.use("/v1/admin", adminSettingsRouter);
+apiRouter.use("/v1/platform-admin", platformAdminRouter);
 apiRouter.use("/v1/tools", toolsRouter);
 
 export default apiRouter;

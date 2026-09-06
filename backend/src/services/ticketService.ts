@@ -1,6 +1,7 @@
 import { db } from "../db/index.js";
 import { tickets, ticketComments, conversations, customers, users, organizationMembers } from "../db/schema.js";
 import { eq, and, desc, sql } from "drizzle-orm";
+import { GitHubIssueService } from "./githubIssueService.js";
 
 export class TicketService {
   private static async assertAssignableAgent(organizationId: string, userId: string | undefined) {
@@ -124,7 +125,13 @@ export class TicketService {
       })
       .returning();
 
-    if (created) return { ticket: created, created: true };
+    if (created) {
+      // The local ticket remains the system of record. A GitHub outage must not
+      // discard the customer handoff; the service records its error on the ticket.
+      await GitHubIssueService.createForEscalation(created);
+      const [synced] = await db.select().from(tickets).where(eq(tickets.id, created.id)).limit(1);
+      return { ticket: synced || created, created: true };
+    }
 
     // A simultaneous request inserted the ticket first. Read its committed row
     // and use it rather than creating a duplicate.

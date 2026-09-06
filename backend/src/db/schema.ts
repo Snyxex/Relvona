@@ -8,6 +8,7 @@ export const organizations = pgTable("organizations", {
   slug: text("slug").notNull().unique(),
   logoUrl: text("logo_url"),
   plan: text("plan").default("pro").notNull(),
+  status: text("status").default("active").notNull(),
   // Legacy column retained for a safe migration; newly issued keys are hashed
   // in api_keys and never stored here.
   apiKey: text("api_key").unique(),
@@ -19,11 +20,13 @@ export const organizations = pgTable("organizations", {
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   email: text("email").notNull().unique(),
+  emailVerified: boolean("email_verified").default(false).notNull(),
   passwordHash: text("password_hash").notNull(),
   name: text("name").notNull(),
   avatarUrl: text("avatar_url"),
   preferredLanguage: text("preferred_language").default("de").notNull(),
   systemRole: text("system_role").default("user").notNull(), // 'superadmin' | 'user'
+  status: text("status").default("active").notNull(),
   tokenVersion: integer("token_version").default(0).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -35,9 +38,11 @@ export const organizationMembers = pgTable("organization_members", {
   organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
   userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   role: text("role").default("agent").notNull(), // 'owner' | 'admin' | 'agent' | 'viewer'
+  status: text("status").default("active").notNull(),
+  joinedAt: timestamp("joined_at").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
-  orgUserIdx: index("org_user_idx").on(table.organizationId, table.userId),
+  orgUserIdx: uniqueIndex("org_user_unique").on(table.organizationId, table.userId),
 }));
 
 // 4. API Keys
@@ -256,6 +261,9 @@ export const tickets = pgTable("tickets", {
   priority: text("priority").default("normal").notNull(), // 'low' | 'normal' | 'high' | 'urgent'
   source: text("source").default("manual").notNull(), // 'manual' | 'ai_escalation'
   tags: jsonb("tags").default([]),
+  githubIssueNumber: integer("github_issue_number"),
+  githubIssueUrl: text("github_issue_url"),
+  githubIssueError: text("github_issue_error"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   }, (table) => ({
@@ -327,9 +335,59 @@ export const organizationSettings = pgTable("organization_settings", {
   primaryLanguage: text("primary_language").default("de").notNull(),
   fallbackLanguages: jsonb("fallback_languages").default(["en"]),
   logoUrl: text("logo_url"),
+  // The token is tenant scoped and encrypted with the platform encryption key.
+  // Only automatic AI escalations are exported to the configured repository.
+  githubIssuesEnabled: boolean("github_issues_enabled").default(false).notNull(),
+  githubRepository: text("github_repository"),
+  githubTokenEncrypted: text("github_token_encrypted"),
+  activeDirectoryEnabled: boolean("active_directory_enabled").default(false).notNull(),
+  activeDirectoryUrl: text("active_directory_url"),
+  activeDirectoryBaseDn: text("active_directory_base_dn"),
+  activeDirectoryBindDn: text("active_directory_bind_dn"),
+  activeDirectoryBindPasswordEncrypted: text("active_directory_bind_password_encrypted"),
+  localLoginEnabled: boolean("local_login_enabled").default(true).notNull(),
+  invitationEnabled: boolean("invitation_enabled").default(true).notNull(),
+  ssoEnabled: boolean("sso_enabled").default(false).notNull(),
+  entraTenantId: text("entra_tenant_id"),
+  entraClientId: text("entra_client_id"),
+  entraClientSecretEncrypted: text("entra_client_secret_encrypted"),
+  allowedDomains: jsonb("allowed_domains").default([]).notNull(),
+  autoJoinEnabled: boolean("auto_join_enabled").default(false).notNull(),
+  defaultAutoJoinRole: text("default_auto_join_role").default("agent").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+// Better Auth owns credentials and server-side sessions. The existing users
+// table remains the single identity table so every business foreign key keeps
+// its stable UUID during the migration.
+export const authSessions = pgTable("auth_sessions", {
+  id: text("id").primaryKey(), userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(), token: text("token").notNull().unique(), expiresAt: timestamp("expires_at").notNull(), ipAddress: text("ip_address"), userAgent: text("user_agent"), createdAt: timestamp("created_at").defaultNow().notNull(), updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({ authSessionUserIdx: index("auth_session_user_idx").on(table.userId, table.expiresAt) }));
+
+export const authAccounts = pgTable("auth_accounts", {
+  id: text("id").primaryKey(), accountId: text("account_id").notNull(), providerId: text("provider_id").notNull(), issuer: text("issuer").notNull(), userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(), accessToken: text("access_token"), refreshToken: text("refresh_token"), idToken: text("id_token"), accessTokenExpiresAt: timestamp("access_token_expires_at"), refreshTokenExpiresAt: timestamp("refresh_token_expires_at"), scope: text("scope"), password: text("password"), createdAt: timestamp("created_at").defaultNow().notNull(), updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({ authAccountProviderUnique: uniqueIndex("auth_account_provider_unique").on(table.providerId, table.accountId), authAccountUserIdx: index("auth_account_user_idx").on(table.userId) }));
+
+export const authVerifications = pgTable("auth_verifications", {
+  id: text("id").primaryKey(), identifier: text("identifier").notNull(), value: text("value").notNull(), expiresAt: timestamp("expires_at").notNull(), createdAt: timestamp("created_at").defaultNow(), updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({ authVerificationIdentifierIdx: index("auth_verification_identifier_idx").on(table.identifier, table.expiresAt) }));
+
+export const organizationInvitations = pgTable("organization_invitations", {
+  id: uuid("id").primaryKey().defaultRandom(), organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(), email: text("email").notNull(), role: text("role").notNull(), tokenHash: text("token_hash").notNull().unique(), invitedByUserId: uuid("invited_by_user_id").references(() => users.id, { onDelete: "set null" }), expiresAt: timestamp("expires_at").notNull(), acceptedAt: timestamp("accepted_at"), revokedAt: timestamp("revoked_at"), createdAt: timestamp("created_at").defaultNow().notNull(), updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({ orgInviteIdx: index("org_invitation_idx").on(table.organizationId, table.email, table.expiresAt) }));
+
+export const platformSupportSessions = pgTable("platform_support_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(), platformAdminUserId: uuid("platform_admin_user_id").references(() => users.id, { onDelete: "cascade" }).notNull(), organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(), reason: text("reason").notNull(), startedAt: timestamp("started_at").defaultNow().notNull(), expiresAt: timestamp("expires_at").notNull(), endedAt: timestamp("ended_at"), createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({ supportSessionIdx: index("support_session_idx").on(table.platformAdminUserId, table.organizationId, table.expiresAt) }));
+
+export const ssoLoginStates = pgTable("sso_login_states", {
+  id: uuid("id").primaryKey().defaultRandom(), organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(), stateHash: text("state_hash").notNull().unique(), nonce: text("nonce").notNull(), expiresAt: timestamp("expires_at").notNull(), consumedAt: timestamp("consumed_at"), createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({ ssoStateExpiryIdx: index("sso_state_expiry_idx").on(table.expiresAt) }));
+
+export const userExternalIdentities = pgTable("user_external_identities", {
+  id: uuid("id").primaryKey().defaultRandom(), userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(), provider: text("provider").notNull(), issuer: text("issuer").notNull(), subject: text("subject").notNull(), email: text("email").notNull(), createdAt: timestamp("created_at").defaultNow().notNull(), updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({ providerSubjectUnique: uniqueIndex("external_identity_provider_subject_unique").on(table.provider, table.issuer, table.subject), userProviderUnique: uniqueIndex("external_identity_user_provider_unique").on(table.userId, table.provider, table.issuer) }));
 
 export const modelRoutingRules = pgTable("model_routing_rules", {
   id: uuid("id").primaryKey().defaultRandom(),

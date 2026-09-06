@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import SettingsClient from "../settings-client";
 
-const sections = ["ai-models", "api-keys", "organization", "security", "audit-log"] as const;
+const sections = ["quotas", "ai-models", "api-keys", "github", "organization", "security", "audit-log"] as const;
 
 export default async function SettingsPage({ params }: PageProps<"/admin/settings/[section]">) {
   const { section } = await params;

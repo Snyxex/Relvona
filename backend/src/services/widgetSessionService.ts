@@ -7,12 +7,14 @@ type WidgetSession = {
   expiresAt: number;
 };
 
-const currentSecret = process.env.JWT_SECRET_CURRENT || process.env.JWT_SECRET;
-const previousSecret = process.env.JWT_SECRET_PREVIOUS;
+// Widget conversation capabilities are independent HMAC credentials, not user
+// authentication JWTs.  Keeping a distinct key prevents cross-purpose reuse.
+const currentSecret = process.env.WIDGET_SESSION_SECRET;
+const previousSecret = process.env.WIDGET_SESSION_SECRET_PREVIOUS;
 
 function signingSecrets(): string[] {
   if (currentSecret) return [currentSecret, previousSecret].filter((value): value is string => Boolean(value));
-  if (process.env.NODE_ENV === "production") throw new Error("JWT_SECRET_CURRENT is required for widget sessions");
+  if (process.env.NODE_ENV === "production") throw new Error("WIDGET_SESSION_SECRET is required for widget sessions");
   return ["development-only-widget-session-secret-do-not-use-in-production"];
 }
 

@@ -1,127 +1,24 @@
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { db } from "../db/index.js";
-import { users, organizations, organizationMembers, assistants, knowledgeBases, organizationSettings } from "../db/schema.js";
-import { eq, and, inArray } from "drizzle-orm";
-import { generateToken } from "../middleware/auth.js";
-import { setDatabaseTenant } from "../db/tenantContext.js";
+import { pool } from "../db/index.js";
 
 export class AuthService {
-  private static async tokenExpiryForOrganizations(organizationIds: string[]) {
-    if (!organizationIds.length) return "60m";
-    const settings = await db.select({ organizationId: organizationSettings.organizationId, sessionTimeout: organizationSettings.sessionTimeout }).from(organizationSettings).where(inArray(organizationSettings.organizationId, organizationIds));
-    const configured = settings.map((setting) => setting.sessionTimeout).filter((minutes) => Number.isInteger(minutes) && minutes >= 5 && minutes <= 10_080);
-    return `${Math.min(...configured, 60)}m`;
-  }
-  static async registerUser(data: { name: string; email: string; password: string; orgName: string }) {
-    const existingUser = await db.select().from(users).where(eq(users.email, data.email.toLowerCase().trim())).limit(1);
-    if (existingUser.length > 0) {
-      throw new Error("Email address already registered");
-    }
-
-    const salt = await bcrypt.genSalt(10);
-    const passwordHash = await bcrypt.hash(data.password, salt);
-
-    // 1. Create User
-    const [newUser] = await db.insert(users).values({
-      name: data.name,
-      email: data.email.toLowerCase().trim(),
-      passwordHash,
-    }).returning();
-
-    // 2. Create Default Organization
-    const slug = data.orgName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + crypto.randomBytes(2).toString("hex");
-    const [newOrg] = await db.insert(organizations).values({
-      name: data.orgName,
-      slug,
-    }).returning();
-
-    // 3. Link User as Organization Owner
-    await db.insert(organizationMembers).values({
-      organizationId: newOrg.id,
-      userId: newUser.id,
-      role: "owner",
-    });
-
-    // The organization has just been created. Bind it before writing any
-    // tenant-owned rows so PostgreSQL RLS accepts only this new tenant.
-    setDatabaseTenant(newOrg.id);
-
-    // 4. Create Default AI Assistant for Organization
-    await db.insert(assistants).values({
-      organizationId: newOrg.id,
-      name: `${data.orgName} Support AI`,
-      welcomeMessage: `Welcome to ${data.orgName}! How can we assist you today?`,
-      widgetApiKey: `wpk_${crypto.randomBytes(24).toString("base64url")}`,
-    });
-
-    // 5. Create Default Knowledge Base
-    await db.insert(knowledgeBases).values({
-      organizationId: newOrg.id,
-      name: "General Knowledge",
-      description: "Default knowledge base for public documentation and FAQs",
-    });
-
-    const token = generateToken({ userId: newUser.id, email: newUser.email, systemRole: newUser.systemRole, tokenVersion: newUser.tokenVersion }, "60m");
-
-    return {
-      user: {
-        id: newUser.id,
-        name: newUser.name,
-        email: newUser.email,
-        avatarUrl: newUser.avatarUrl,
-        preferredLanguage: newUser.preferredLanguage,
-        systemRole: newUser.systemRole,
-      },
-      organization: {
-        id: newOrg.id,
-        name: newOrg.name,
-        slug: newOrg.slug,
-        role: "owner",
-      },
-      token,
-    };
-  }
-
-  static async loginUser(data: { email: string; password: string }) {
-    const [user] = await db.select().from(users).where(eq(users.email, data.email.toLowerCase().trim())).limit(1);
-    if (!user) {
-      throw new Error("Invalid email or password");
-    }
-
-    const isMatch = await bcrypt.compare(data.password, user.passwordHash);
-    if (!isMatch) {
-      throw new Error("Invalid email or password");
-    }
-
-    // Get user memberships
-    const memberships = await db
-      .select({
-        org: organizations,
-        member: organizationMembers,
-      })
-      .from(organizationMembers)
-      .innerJoin(organizations, eq(organizationMembers.organizationId, organizations.id))
-      .where(eq(organizationMembers.userId, user.id));
-
-    const token = generateToken({ userId: user.id, email: user.email, systemRole: user.systemRole, tokenVersion: user.tokenVersion }, await this.tokenExpiryForOrganizations(memberships.map((membership) => membership.org.id)));
-
-    return {
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        avatarUrl: user.avatarUrl,
-        preferredLanguage: user.preferredLanguage,
-        systemRole: user.systemRole,
-      },
-      organizations: memberships.map((m) => ({
-        id: m.org.id,
-        name: m.org.name,
-        slug: m.org.slug,
-        role: m.member.role,
-      })),
-      token,
-    };
+  static async platformBootstrapRequired() { const result = await pool.query("SELECT 1 FROM users WHERE system_role = 'superadmin' LIMIT 1"); return result.rowCount === 0; }
+  static async bootstrapPlatformAdmin(data: { name: string; email: string; password: string }) {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(724019)");
+      if ((await client.query("SELECT 1 FROM users WHERE system_role = 'superadmin' LIMIT 1")).rowCount) throw new Error("PLATFORM_ADMIN_ALREADY_EXISTS");
+      const existing = await client.query("SELECT 1 FROM users WHERE email = $1", [data.email.toLowerCase().trim()]);
+      if (existing.rowCount) throw new Error("Email address already registered");
+      const passwordHash = await bcrypt.hash(data.password, 12);
+      const created = await client.query("INSERT INTO users (name, email, password_hash, email_verified, system_role) VALUES ($1, $2, $3, true, 'superadmin') RETURNING id, name, email, avatar_url, preferred_language, system_role", [data.name.trim(), data.email.toLowerCase().trim(), passwordHash]);
+      const user = created.rows[0];
+      await client.query("INSERT INTO auth_accounts (id, account_id, provider_id, issuer, user_id, password) VALUES ($1, $2, 'credential', 'local:credential', $3, $4)", [crypto.randomUUID(), user.id, user.id, passwordHash]);
+      await client.query("COMMIT");
+      return { user: { id: user.id, name: user.name, email: user.email, avatarUrl: user.avatar_url, preferredLanguage: user.preferred_language, systemRole: user.system_role }, organizations: [] };
+    } catch (error) { await client.query("ROLLBACK").catch(() => undefined); throw error; } finally { client.release(); }
   }
 }
