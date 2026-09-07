@@ -77,10 +77,11 @@ app.use(bindDashboardDomain as (req: AuthRequest, res: express.Response, next: e
 app.use(requireTrustedOrigin);
 // Better Auth consumes request bodies itself. Mount it before Express parsers.
 app.all("/api/auth/*", toNodeHandler(auth));
-// Most API requests are small. Keep a narrow explicit exception for manual
-// knowledge text ingestion, whose route validates content up to 500k chars.
-app.use("/api/v1/knowledge/text", express.json({ limit: "768kb" }));
-app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "128kb" }));
+const defaultJsonParser = express.json({ limit: process.env.JSON_BODY_LIMIT || "128kb" });
+// Manual knowledge-text ingestion intentionally uses a larger authenticated
+// route-local parser. Skip the global parser here so unauthenticated callers do
+// not get the larger allowance before auth/tenant/RBAC checks run.
+app.use((req, res, next) => req.path === "/api/v1/knowledge/text" ? next() : defaultJsonParser(req, res, next));
 app.use(express.urlencoded({ extended: true, limit: process.env.URLENCODED_BODY_LIMIT || "64kb" }));
 
 const publicDir = path.join(process.cwd(), "public");
