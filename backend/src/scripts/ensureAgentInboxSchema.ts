@@ -8,6 +8,7 @@ try {
   await client.query(`
     ALTER TABLE conversations ADD COLUMN IF NOT EXISTS assigned_team_id uuid;
     ALTER TABLE conversations ADD COLUMN IF NOT EXISTS priority text NOT NULL DEFAULT 'NORMAL';
+    ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS resolved_auto_close_hours integer;
     CREATE INDEX IF NOT EXISTS conversation_inbox_idx ON conversations (organization_id, state, priority, updated_at DESC);
     CREATE TABLE IF NOT EXISTS conversation_activities (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), organization_id uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, actor_user_id uuid REFERENCES users(id) ON DELETE SET NULL, event_type text NOT NULL, payload jsonb NOT NULL DEFAULT '{}'::jsonb, created_at timestamp NOT NULL DEFAULT now());
     CREATE INDEX IF NOT EXISTS conversation_timeline_idx ON conversation_activities (organization_id, conversation_id, created_at);

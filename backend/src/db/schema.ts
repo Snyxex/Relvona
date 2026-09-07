@@ -393,6 +393,9 @@ export const organizationSettings = pgTable("organization_settings", {
   costAlertThreshold: real("cost_alert_threshold").default(50).notNull(),
   sessionTimeout: integer("session_timeout").default(60).notNull(),
   apiKeyExpiryDays: integer("api_key_expiry_days").default(90).notNull(),
+  // Null disables auto-close. The retention period is an organization policy,
+  // never a hard-coded conversation lifecycle value.
+  resolvedAutoCloseHours: integer("resolved_auto_close_hours"),
   ipWhitelist: jsonb("ip_whitelist").default([]),
   supportEmail: text("support_email"),
   businessHours: jsonb("business_hours").default({}),

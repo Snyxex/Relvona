@@ -7,6 +7,7 @@ import { gt } from "drizzle-orm";
 import { db, closeDatabasePool } from "./db/index.js";
 import { organizations } from "./db/schema.js";
 import { IngestionJobService } from "./services/ingestionJobService.js";
+import { ConversationAutoCloseService } from "./services/conversationAutoCloseService.js";
 import { closeQueues, publishIngestion } from "./services/queueService.js";
 import type { IngestionInput, IngestionReference } from "./services/ingestionTypes.js";
 import { logger, withLogContext, setLogContext } from "./observability/logger.js";
@@ -46,6 +47,7 @@ worker.on("failed", (job) => logger.error("ingestion.delivery_failed", { jobId: 
 
 let shuttingDown = false;
 let dispatching: Promise<void> | undefined;
+let autoClosing: Promise<void> | undefined;
 async function dispatch() {
   let cursor: string | undefined;
   while (!shuttingDown) {
@@ -64,19 +66,30 @@ function scheduleDispatch() {
   if (dispatching || shuttingDown) return;
   dispatching = dispatch().catch(() => logger.warn("ingestion.dispatch_retry_pending")).finally(() => { dispatching = undefined; });
 }
+function scheduleAutoClose() {
+  if (autoClosing || shuttingDown) return;
+  autoClosing = (async () => {
+    const tenants = await db.select({ id: organizations.id }).from(organizations).limit(10_000);
+    for (const tenant of tenants) await ConversationAutoCloseService.closeDue(tenant.id);
+  })().catch(() => logger.warn("conversation.auto_close_retry_pending")).finally(() => { autoClosing = undefined; });
+}
 const dispatchTimer = setInterval(scheduleDispatch, 10_000);
+const autoCloseTimer = setInterval(scheduleAutoClose, Number(process.env.CONVERSATION_AUTO_CLOSE_SWEEP_MS || 60_000));
 scheduleDispatch();
+scheduleAutoClose();
 
 async function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   clearInterval(dispatchTimer);
+  clearInterval(autoCloseTimer);
   logger.info("worker.shutdown_started", { signal });
   const timer = setTimeout(() => { logger.error("worker.shutdown_timeout"); process.exit(1); }, Number(process.env.SHUTDOWN_TIMEOUT_MS || 30_000));
   timer.unref();
   try {
     await worker.close();
     await dispatching;
+    await autoClosing;
     await closeQueues();
     connection.disconnect();
     await closeDatabasePool();
