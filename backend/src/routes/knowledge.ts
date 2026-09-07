@@ -12,7 +12,7 @@ import { IngestionJobService, IngestionInputError } from "../services/ingestionJ
 import { sendInternalError } from "../utils/httpErrors.js";
 
 const upload = multer({
-  limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 4, parts: 5, fieldNameSize: 100, fieldSize: 10_000, fieldNestingDepth: 2, ...{ fieldArrayIndexLimit: 10 } },
+  limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 4, parts: 5, fieldNameSize: 100, fieldSize: 10_000 },
   fileFilter: (_req, file, cb) => file.mimetype === "application/pdf" && file.originalname.toLowerCase().endsWith(".pdf") ? cb(null, true) : cb(new Error("Only PDF files are supported")),
 });
 
