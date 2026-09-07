@@ -1,10 +1,11 @@
 import crypto from "crypto";
 import { pool } from "../db/index.js";
 import { hashPassword, LEGACY_PASSWORD_SENTINEL } from "../auth/password.js";
+import { PLATFORM_ADMIN_ROLE } from "../db/platformRoles.js";
 
 export class AuthService {
   static async platformBootstrapRequired() {
-    const result = await pool.query("SELECT 1 FROM users WHERE system_role = 'superadmin' LIMIT 1");
+    const result = await pool.query("SELECT 1 FROM platform_roles WHERE role = $1 LIMIT 1", [PLATFORM_ADMIN_ROLE]);
     return result.rowCount === 0;
   }
 
@@ -13,7 +14,7 @@ export class AuthService {
     try {
       await client.query("BEGIN");
       await client.query("SELECT pg_advisory_xact_lock(724019)");
-      if ((await client.query("SELECT 1 FROM users WHERE system_role = 'superadmin' LIMIT 1")).rowCount) {
+      if ((await client.query("SELECT 1 FROM platform_roles WHERE role = $1 LIMIT 1", [PLATFORM_ADMIN_ROLE])).rowCount) {
         throw new Error("PLATFORM_ADMIN_ALREADY_EXISTS");
       }
 
@@ -23,7 +24,7 @@ export class AuthService {
 
       const credentialHash = await hashPassword(data.password);
       const created = await client.query(
-        "INSERT INTO users (name, email, password_hash, email_verified, system_role) VALUES ($1, $2, $3, true, 'superadmin') RETURNING id, name, email, avatar_url, preferred_language, system_role",
+        "INSERT INTO users (name, email, password_hash, email_verified, system_role) VALUES ($1, $2, $3, true, 'user') RETURNING id, name, email, avatar_url, preferred_language",
         [data.name.trim(), email, LEGACY_PASSWORD_SENTINEL],
       );
       const user = created.rows[0];
@@ -31,6 +32,10 @@ export class AuthService {
       await client.query(
         "INSERT INTO auth_accounts (id, account_id, provider_id, issuer, user_id, password) VALUES ($1, $2, 'credential', 'local:credential', $3, $4)",
         [crypto.randomUUID(), user.id, user.id, credentialHash],
+      );
+      await client.query(
+        "INSERT INTO platform_roles (user_id, role) VALUES ($1, $2)",
+        [user.id, PLATFORM_ADMIN_ROLE],
       );
 
       await client.query("COMMIT");
@@ -41,7 +46,7 @@ export class AuthService {
           email: user.email,
           avatarUrl: user.avatar_url,
           preferredLanguage: user.preferred_language,
-          systemRole: user.system_role,
+          isPlatformAdmin: true,
         },
         organizations: [],
       };
