@@ -13,6 +13,7 @@ import adminSettingsRouter from "./adminSettings.js";
 import toolsRouter from "./tools.js";
 import platformAdminRouter from "./platformAdmin.js";
 import visitorMemoryRouter from "./visitorMemory.js";
+import customerPortalRouter from "./customerPortal.js";
 
 const apiRouter = Router();
 
@@ -26,6 +27,7 @@ apiRouter.use("/v1/customers", customersRouter);
 apiRouter.use("/v1/agents", agentsRouter);
 apiRouter.use("/v1/analytics", analyticsRouter);
 apiRouter.use("/v1/widget", widgetRouter);
+apiRouter.use("/v1/customer-portal", customerPortalRouter);
 apiRouter.use("/v1/admin", adminSettingsRouter);
 apiRouter.use("/v1/platform-admin", platformAdminRouter);
 apiRouter.use("/v1/tools", toolsRouter);
