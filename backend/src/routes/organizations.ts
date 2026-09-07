@@ -7,6 +7,7 @@ import crypto from "crypto";
 import { encryptSecret } from "../utils/crypto.js";
 import { AuditService } from "../services/auditService.js";
 import { newDashboardDomainVerificationToken, normalizeDashboardDomain, verifyDashboardDomain } from "../services/dashboardDomainService.js";
+import { sendInternalError } from "../utils/httpErrors.js";
 
 const router = Router();
 const ipOf = (req: AuthRequest) => req.ip || req.socket.remoteAddress || null;
@@ -19,7 +20,7 @@ router.get("/current", async (req: AuthRequest, res) => {
     const [org] = await db.select().from(organizations).where(eq(organizations.id, req.organization!.id)).limit(1);
     return res.json({ organization: org, userRole: req.organization!.role });
   } catch (error) {
-    return res.status(500).json({ error: (error as Error).message });
+    return sendInternalError(req, res, error, { code: "ORGANIZATION_LOAD_FAILED", message: "Unable to load organization" });
   }
 });
 
@@ -40,7 +41,7 @@ router.put("/current", requireRole(["owner", "admin"]), async (req: AuthRequest,
 
     return res.json(updated);
   } catch (error) {
-    return res.status(500).json({ error: (error as Error).message });
+    return sendInternalError(req, res, error, { code: "ORGANIZATION_UPDATE_FAILED", message: "Unable to update organization" });
   }
 });
 
@@ -54,7 +55,7 @@ router.post("/api-key", requireRole(["owner", "admin"]), async (req: AuthRequest
     await db.insert(apiKeys).values({ organizationId: req.organization!.id, keyPrefix, keyHash: crypto.createHash("sha256").update(newApiKey).digest("hex"), name: "Default API key", scopes: ["*"], expiresAt });
     return res.status(201).json({ apiKey: newApiKey, keyPrefix, expiresAt: expiresAt.toISOString() });
   } catch (error) {
-    return res.status(500).json({ error: (error as Error).message });
+    return sendInternalError(req, res, error, { code: "API_KEY_ROTATION_FAILED", message: "Unable to regenerate API key" });
   }
 });
 
@@ -79,7 +80,7 @@ router.get("/members", async (req: AuthRequest, res) => {
 
     return res.json(members);
   } catch (error) {
-    return res.status(500).json({ error: (error as Error).message });
+    return sendInternalError(req, res, error, { code: "ORGANIZATION_MEMBERS_LOAD_FAILED", message: "Unable to load organization members" });
   }
 });
 
@@ -208,15 +209,31 @@ router.patch("/members/:id", requireRole(["owner", "admin"]), async (req: AuthRe
   const [target] = await db.select().from(organizationMembers).where(and(eq(organizationMembers.id, req.params.id), eq(organizationMembers.organizationId, req.organization!.id))).limit(1);
   if (!target) return res.status(404).json({ error: "Member not found" });
   if ((role === "owner" || target.role === "owner") && req.organization!.role !== "owner") return res.status(403).json({ error: "Only owners may manage owner roles" });
-  try { const before = await changeMembershipSafely(req.organization!.id, req.params.id, role); await AuditService.logAction({ organizationId: req.organization!.id, actorUserId: req.user!.id, action: "member.role.changed", resourceType: "organization_member", resourceId: req.params.id, metadata: { from: before.role, to: role }, ipAddress: ipOf(req) }); return res.json({ id: req.params.id, role }); }
-  catch (error) { return res.status((error as Error).message === "LAST_OWNER_REQUIRED" ? 409 : 400).json({ error: (error as Error).message }); }
+  try {
+    const before = await changeMembershipSafely(req.organization!.id, req.params.id, role);
+    await AuditService.logAction({ organizationId: req.organization!.id, actorUserId: req.user!.id, action: "member.role.changed", resourceType: "organization_member", resourceId: req.params.id, metadata: { from: before.role, to: role }, ipAddress: ipOf(req) });
+    return res.json({ id: req.params.id, role });
+  } catch (error) {
+    const message = (error as Error).message;
+    if (message === "LAST_OWNER_REQUIRED") return res.status(409).json({ error: "At least one organization owner is required" });
+    if (message === "MEMBER_NOT_FOUND") return res.status(404).json({ error: "Member not found" });
+    return sendInternalError(req, res, error, { code: "MEMBER_ROLE_UPDATE_FAILED", message: "Unable to update member role" });
+  }
 });
 router.delete("/members/:id", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
   const [target] = await db.select().from(organizationMembers).where(and(eq(organizationMembers.id, req.params.id), eq(organizationMembers.organizationId, req.organization!.id))).limit(1);
   if (!target) return res.status(404).json({ error: "Member not found" });
   if (target.role === "owner" && req.organization!.role !== "owner") return res.status(403).json({ error: "Only owners may remove owners" });
-  try { const before = await changeMembershipSafely(req.organization!.id, req.params.id, null); await AuditService.logAction({ organizationId: req.organization!.id, actorUserId: req.user!.id, action: "member.removed", resourceType: "organization_member", resourceId: req.params.id, metadata: { role: before.role }, ipAddress: ipOf(req) }); return res.status(204).end(); }
-  catch (error) { return res.status((error as Error).message === "LAST_OWNER_REQUIRED" ? 409 : 400).json({ error: (error as Error).message }); }
+  try {
+    const before = await changeMembershipSafely(req.organization!.id, req.params.id, null);
+    await AuditService.logAction({ organizationId: req.organization!.id, actorUserId: req.user!.id, action: "member.removed", resourceType: "organization_member", resourceId: req.params.id, metadata: { role: before.role }, ipAddress: ipOf(req) });
+    return res.status(204).end();
+  } catch (error) {
+    const message = (error as Error).message;
+    if (message === "LAST_OWNER_REQUIRED") return res.status(409).json({ error: "At least one organization owner is required" });
+    if (message === "MEMBER_NOT_FOUND") return res.status(404).json({ error: "Member not found" });
+    return sendInternalError(req, res, error, { code: "MEMBER_REMOVE_FAILED", message: "Unable to remove organization member" });
+  }
 });
 
 export default router;
