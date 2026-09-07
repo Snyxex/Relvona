@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, lt, lte, or, sql } from "drizzle-orm";
 import { withTenantTransaction } from "../db/index.js";
-import { documentChunks, knowledgeBases, knowledgeIngestionJobs as jobs, knowledgeSources, websites, websitePages } from "../db/schema.js";
+import { documentChunks, knowledgeBases, knowledgeIngestionJobs as jobs, knowledgeSources, websites, websitePages, organizationSettings } from "../db/schema.js";
 import { IngestionService, type PreparedSource } from "./ingestionService.js";
 import { canCommitIngestion, INGESTION_LEASE_MS, MAX_INGESTION_ATTEMPTS, type IngestionInput, type IngestionReference } from "./ingestionTypes.js";
+import { decryptSecret } from "../utils/crypto.js";
 
 export class IngestionInputError extends Error {}
 
@@ -66,7 +67,12 @@ export class IngestionJobService {
     });
   }
 
-  static async process(ref: IngestionReference, prepare = (input: IngestionInput) => IngestionService.prepare(input)) {
+  private static async prepareForOrganization(organizationId: string, input: IngestionInput) {
+    const [settings] = await withTenantTransaction(organizationId, (tx) => tx.select({ openaiKeyEncrypted: organizationSettings.openaiKeyEncrypted }).from(organizationSettings).where(eq(organizationSettings.organizationId, organizationId)).limit(1));
+    return IngestionService.prepare(input, { apiKey: decryptSecret(settings?.openaiKeyEncrypted) });
+  }
+
+  static async process(ref: IngestionReference, prepare?: (input: IngestionInput) => Promise<PreparedSource>) {
     const token = randomUUID();
     const claimed = await withTenantTransaction(ref.organizationId, async (tx) => {
       const [job] = await tx.update(jobs).set({ status: "processing", leaseToken: token, leaseUntil: new Date(Date.now() + INGESTION_LEASE_MS), attempts: sql`${jobs.attempts} + 1`, startedAt: new Date(), updatedAt: new Date() })
@@ -76,7 +82,8 @@ export class IngestionJobService {
     });
     if (!claimed) return { skipped: true };
     try {
-      const prepared = await prepare(claimed.payload as IngestionInput);
+      const input = claimed.payload as IngestionInput;
+      const prepared = prepare ? await prepare(input) : await this.prepareForOrganization(ref.organizationId, input);
       return await this.complete(ref, token, prepared);
     } catch {
       // Provider error bodies can include credentials or internal URLs. Store only a public error.

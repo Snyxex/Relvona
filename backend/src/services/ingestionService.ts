@@ -14,7 +14,18 @@ export type PreparedSource = {
   pages: { url: string; title: string; contentHash: string; chunkCount: number }[];
 };
 
+export type EmbeddingConfig = {
+  apiKey?: string | null;
+};
+
 export class IngestionService {
+  // All tenant knowledge currently shares one pgvector index with a fixed
+  // 1536-dimensional schema. Keep ingestion and retrieval in one embedding
+  // space until per-index embedding profiles are introduced.
+  static readonly embeddingProvider = "openai" as const;
+  static readonly embeddingModel = "text-embedding-3-small";
+  static readonly embeddingDimensions = 1536;
+
   // Reuse the existing bounded splitter; expensive work never holds a DB transaction.
   private static readonly chunking = { chunkSize: 1800, chunkOverlap: 180 };
   static cleanIndexText(text: string): string {
@@ -43,7 +54,7 @@ export class IngestionService {
       .replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/&quot;/gi, '"').replace(/&#39;/g, "'")
       .replace(/\s+/g, " ").trim();
   }
-  static async prepare(input: IngestionInput): Promise<PreparedSource> {
+  static async prepare(input: IngestionInput, embedding: EmbeddingConfig = {}): Promise<PreparedSource> {
     const documents: { text: string; title: string; url?: string }[] = [];
     let pageCount: number | undefined;
     if (input.type === "pdf") {
@@ -92,15 +103,15 @@ export class IngestionService {
       suspicious ||= FileSecurity.scanForPoisoningPatterns(text).isSuspicious;
       const parts = this.splitText(text).map((part) => PiiRedactionService.redact(part).text).filter(Boolean);
       if (chunks.length + parts.length > 512) throw new Error("Document exceeds the 512 chunk limit");
-      for (const content of parts) chunks.push({ content, embedding: [], metadata: { title: document.title, sourceType: input.type, sourceUrl: document.url, category: input.category || null, language: input.language || "und", pageCount } });
+      for (const content of parts) chunks.push({ content, embedding: [], metadata: { title: document.title, sourceType: input.type, sourceUrl: document.url, category: input.category || null, language: input.language || "und", pageCount, embeddingProvider: this.embeddingProvider, embeddingModel: this.embeddingModel } });
       if (document.url) pages.push({ url: document.url, title: document.title, contentHash: crypto.createHash("sha256").update(text).digest("hex"), chunkCount: parts.length });
     }
     if (!chunks.length) throw new Error("Document contains no indexable text");
     // Unsupported or unavailable embedding providers fail explicitly, never fabricate vectors.
     for (let offset = 0; offset < chunks.length; offset += 32) {
       const batch = chunks.slice(offset, offset + 32);
-      const vectors = await UniversalAIGateway.generateEmbeddings({ provider: "openai", texts: batch.map((chunk) => chunk.content) });
-      if (vectors.length !== batch.length || vectors.some((v) => !Array.isArray(v) || v.length !== 1536 || v.some((n) => !Number.isFinite(n)) || !v.some((n) => n !== 0))) throw new Error("Invalid embedding vector response");
+      const vectors = await UniversalAIGateway.generateEmbeddings({ provider: this.embeddingProvider, model: this.embeddingModel, texts: batch.map((chunk) => chunk.content), apiKey: embedding.apiKey });
+      if (vectors.length !== batch.length || vectors.some((v) => !Array.isArray(v) || v.length !== this.embeddingDimensions || v.some((n) => !Number.isFinite(n)) || !v.some((n) => n !== 0))) throw new Error("Invalid embedding vector response");
       batch.forEach((chunk, index) => { chunk.embedding = vectors[index]; });
     }
     return { title: input.title, chunks, pages, securityStatus: suspicious ? "SUSPICIOUS" : "SAFE", contentHash: crypto.createHash("sha256").update(chunks.map((chunk) => chunk.content).join("\n")).digest("hex") };
