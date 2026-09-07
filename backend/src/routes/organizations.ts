@@ -128,7 +128,8 @@ const normalizeDomains = (value: unknown) => Array.isArray(value) ? [...new Set(
 
 router.get("/current/auth-settings", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
   const settings = await settingsFor(req.organization!.id);
-  res.json({ localLoginEnabled: settings.localLoginEnabled, invitationEnabled: settings.invitationEnabled, ssoEnabled: settings.ssoEnabled, entraTenantId: settings.entraTenantId, entraClientId: settings.entraClientId, entraClientSecretConfigured: Boolean(settings.entraClientSecretEncrypted), allowedDomains: settings.allowedDomains, autoJoinEnabled: settings.autoJoinEnabled, defaultAutoJoinRole: settings.defaultAutoJoinRole, redirectUri: `${process.env.APP_PUBLIC_URL || ""}/api/v1/auth/entra/callback` });
+  const authBaseUrl = (process.env.BETTER_AUTH_URL || process.env.APP_PUBLIC_URL || "").replace(/\/$/, "");
+  res.json({ localLoginEnabled: settings.localLoginEnabled, invitationEnabled: settings.invitationEnabled, ssoEnabled: settings.ssoEnabled, entraTenantId: settings.entraTenantId, entraClientId: settings.entraClientId, entraClientSecretConfigured: Boolean(settings.entraClientSecretEncrypted), allowedDomains: settings.allowedDomains, autoJoinEnabled: settings.autoJoinEnabled, defaultAutoJoinRole: settings.defaultAutoJoinRole, redirectUri: `${authBaseUrl}/api/auth/entra/callback` });
 });
 
 router.patch("/current/auth-settings", requireRole(["owner"]), async (req: AuthRequest, res) => {
@@ -197,22 +198,25 @@ async function changeMembershipSafely(organizationId: string, memberId: string, 
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     throw error;
-  } finally { client.release(); }
+  } finally {
+    client.release();
+  }
 }
-router.patch("/members/:memberId", requireRole(["owner"]), async (req: AuthRequest, res) => {
-  if (!validRoles.has(req.body?.role)) return res.status(400).json({ error: "Invalid role" });
-  try {
-    const member = await changeMembershipSafely(req.organization!.id, req.params.memberId, req.body.role);
-    await AuditService.logAction({ organizationId: req.organization!.id, actorUserId: req.user!.id, action: "membership.role_changed", resourceType: "organization_member", resourceId: member.id, metadata: { oldRole: member.role, newRole: req.body.role }, ipAddress: ipOf(req) });
-    return res.status(204).end();
-  } catch (error) { return res.status((error as Error).message === "MEMBER_NOT_FOUND" ? 404 : (error as Error).message === "LAST_OWNER_REQUIRED" ? 409 : 500).json({ error: (error as Error).message }); }
+
+router.patch("/members/:id", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
+  const role = req.body?.role; if (!validRoles.has(role)) return res.status(400).json({ error: "Invalid role" });
+  const [target] = await db.select().from(organizationMembers).where(and(eq(organizationMembers.id, req.params.id), eq(organizationMembers.organizationId, req.organization!.id))).limit(1);
+  if (!target) return res.status(404).json({ error: "Member not found" });
+  if ((role === "owner" || target.role === "owner") && req.organization!.role !== "owner") return res.status(403).json({ error: "Only owners may manage owner roles" });
+  try { const before = await changeMembershipSafely(req.organization!.id, req.params.id, role); await AuditService.logAction({ organizationId: req.organization!.id, actorUserId: req.user!.id, action: "member.role.changed", resourceType: "organization_member", resourceId: req.params.id, metadata: { from: before.role, to: role }, ipAddress: ipOf(req) }); return res.json({ id: req.params.id, role }); }
+  catch (error) { return res.status((error as Error).message === "LAST_OWNER_REQUIRED" ? 409 : 400).json({ error: (error as Error).message }); }
 });
-router.delete("/members/:memberId", requireRole(["owner"]), async (req: AuthRequest, res) => {
-  try {
-    const member = await changeMembershipSafely(req.organization!.id, req.params.memberId, null);
-    await AuditService.logAction({ organizationId: req.organization!.id, actorUserId: req.user!.id, action: "membership.removed", resourceType: "organization_member", resourceId: member.id, ipAddress: ipOf(req) });
-    return res.status(204).end();
-  } catch (error) { return res.status((error as Error).message === "MEMBER_NOT_FOUND" ? 404 : (error as Error).message === "LAST_OWNER_REQUIRED" ? 409 : 500).json({ error: (error as Error).message }); }
+router.delete("/members/:id", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
+  const [target] = await db.select().from(organizationMembers).where(and(eq(organizationMembers.id, req.params.id), eq(organizationMembers.organizationId, req.organization!.id))).limit(1);
+  if (!target) return res.status(404).json({ error: "Member not found" });
+  if (target.role === "owner" && req.organization!.role !== "owner") return res.status(403).json({ error: "Only owners may remove owners" });
+  try { const before = await changeMembershipSafely(req.organization!.id, req.params.id, null); await AuditService.logAction({ organizationId: req.organization!.id, actorUserId: req.user!.id, action: "member.removed", resourceType: "organization_member", resourceId: req.params.id, metadata: { role: before.role }, ipAddress: ipOf(req) }); return res.status(204).end(); }
+  catch (error) { return res.status((error as Error).message === "LAST_OWNER_REQUIRED" ? 409 : 400).json({ error: (error as Error).message }); }
 });
 
 export default router;
