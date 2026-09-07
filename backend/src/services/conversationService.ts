@@ -8,6 +8,7 @@ import { PiiRedactionService } from "./piiRedactionService.js";
 import { TicketService } from "./ticketService.js";
 import { domainEventBus } from "./domainEventBus.js";
 import { ConversationWorkflowService } from "./conversationWorkflowService.js";
+import { VisitorIdentityService } from "./visitorIdentityService.js";
 
 export class ConversationService {
   private static ticketConfirmation(language: string, ticketNumber: number, created: boolean): string {
@@ -202,19 +203,38 @@ export class ConversationService {
       ? this.compactHistory(historyBeforeCurrentMessage.slice(0, -4))
       : conv.summary;
 
+    // Visitor memory is intentionally retrieved separately from the conversation
+    // transcript. It is not persisted into messages or the rolling conversation
+    // summary. Only active, non-expired memories are included and the total
+    // context is tightly bounded.
+    const visitorMemories = await VisitorIdentityService.memoriesForConversation(data.organizationId, conv.id, 8);
+    const visitorMemoryContext = visitorMemories.length
+      ? `Previous support context for this pseudonymous visitor:\n${visitorMemories
+          .map((memory) => `- [${memory.type}] ${memory.summary.slice(0, 320)}`)
+          .join("\n")}`.slice(0, 2_200)
+      : undefined;
+    const aiContextSummary = [rollingSummary, visitorMemoryContext].filter(Boolean).join("\n\n") || undefined;
+    if (visitorMemories.length) {
+      await db.insert(analyticsEvents).values({
+        organizationId: data.organizationId,
+        eventType: "visitor_memory_context_used",
+        metadata: { conversationId: conv.id, memoryCount: visitorMemories.length },
+      });
+    }
+
     // Execute RAG Engine
     let ragResult;
     try {
       ragResult = await RAGService.generateRAGAnswer({
         organizationId: data.organizationId,
         assistantId: conv.assistantId!,
-      customerQuery: redactedInput.text,
+        customerQuery: redactedInput.text,
         // The opening message determines the customer-facing language. Do not
         // switch languages mid-conversation just because a later message has
         // fewer detectable language markers.
         responseLanguage: historyBeforeCurrentMessage.some((message) => message.senderType === "customer") ? conv.detectedLanguage : undefined,
         conversationHistory: formattedHistory,
-        conversationSummary: rollingSummary,
+        conversationSummary: aiContextSummary,
         onToken: data.onToken,
       });
     } catch (error) {
@@ -249,7 +269,8 @@ export class ConversationService {
 
     const sentiment = RAGService.analyzeSentiment(redactedInput.text);
 
-    // Update conversation metadata
+    // Update conversation metadata. Persist only the conversation's own rolling
+    // summary; visitor memory remains in its dedicated storage and retention path.
     await db
       .update(conversations)
       .set({
