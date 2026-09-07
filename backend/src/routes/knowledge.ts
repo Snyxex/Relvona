@@ -1,4 +1,4 @@
-import { Router, type Response, type NextFunction } from "express";
+import { Router, json, type Response, type NextFunction } from "express";
 import multer from "multer";
 import { authenticate, tenantContext, requireRole, AuthRequest } from "../middleware/auth.js";
 import { db } from "../db/index.js";
@@ -15,6 +15,7 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 4, parts: 5, fieldNameSize: 100, fieldSize: 10_000 },
   fileFilter: (_req, file, cb) => file.mimetype === "application/pdf" && file.originalname.toLowerCase().endsWith(".pdf") ? cb(null, true) : cb(new Error("Only PDF files are supported")),
 });
+const knowledgeTextJson = json({ limit: "2mb" });
 
 function pdfUpload(req: AuthRequest, res: Response, next: NextFunction) {
   upload.single("file")(req, res, (error: unknown) => {
@@ -70,7 +71,7 @@ router.get("/sources", async (req: AuthRequest, res) => {
   } catch (error) { return sendInternalError(req, res, error, { code: "KNOWLEDGE_SOURCES_LOAD_FAILED", message: "Unable to load knowledge sources" }); }
 });
 
-router.post("/text", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
+router.post("/text", requireRole(["owner", "admin"]), knowledgeTextJson, async (req: AuthRequest, res) => {
   try {
     const { knowledgeBaseId, title, type, content, category, language } = req.body;
     if (typeof title !== "string" || !title.trim() || title.length > 300 || typeof content !== "string" || !content.trim() || content.length > 500_000) return res.status(400).json({ error: "Missing required fields: knowledgeBaseId, title, content" });
