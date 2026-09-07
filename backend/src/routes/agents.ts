@@ -3,6 +3,7 @@ import { authenticate, tenantContext, requireRole, AuthRequest } from "../middle
 import { db } from "../db/index.js";
 import { organizationMembers, users } from "../db/schema.js";
 import { and, eq } from "drizzle-orm";
+import { sendInternalError } from "../utils/httpErrors.js";
 
 const router = Router();
 router.use(authenticate);
@@ -25,7 +26,7 @@ router.get("/", async (req: AuthRequest, res) => {
 
     return res.json(agents);
   } catch (error) {
-    return res.status(500).json({ error: (error as Error).message });
+    return sendInternalError(req, res, error, { code: "AGENTS_LIST_FAILED", message: "Unable to load support agents" });
   }
 });
 
