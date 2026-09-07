@@ -104,6 +104,7 @@ export default function Dashboard({
   const [inboxSearch, setInboxSearch] = useState("");
   const [inboxSort, setInboxSort] = useState("newest");
   const [inboxTags, setInboxTags] = useState<any[]>([]);
+  const [inboxTagId, setInboxTagId] = useState("");
   const [inboxTimeline, setInboxTimeline] = useState<any[]>([]);
   const [inboxHandoff, setInboxHandoff] = useState<any | null>(null);
   const [suggestion, setSuggestion] = useState<{
@@ -320,7 +321,7 @@ export default function Dashboard({
       }
 
       if (activeTab === "conversations") {
-        const res = await api.get("/conversations", { params: { state: inboxState || undefined, priority: inboxPriority || undefined, q: inboxSearch || undefined, sort: inboxSort } });
+        const res = await api.get("/conversations", { params: { state: inboxState || undefined, priority: inboxPriority || undefined, tagId: inboxTagId || undefined, q: inboxSearch || undefined, sort: inboxSort } });
         setConversationsList(res.data);
         const tags = await api.get("/conversations/meta/tags");
         setInboxTags(tags.data);
@@ -363,7 +364,7 @@ export default function Dashboard({
     } catch (err: any) {
       console.error("Failed to load tenant data", err);
     }
-  }, [activeTab, selectedKbId, inboxState, inboxPriority, inboxSearch, inboxSort]);
+  }, [activeTab, selectedKbId, inboxState, inboxPriority, inboxSearch, inboxSort, inboxTagId]);
 
   useEffect(() => {
     if (auth && activeOrg) void fetchTenantData();
@@ -497,6 +498,18 @@ export default function Dashboard({
       await handleSelectConversation({ ...selectedConv, ...(result.data || {}) });
       void fetchTenantData();
     } catch (err: any) { showNotify(err.response?.data?.error || "Aktion konnte nicht ausgeführt werden."); }
+  };
+
+  const handleToggleConversationTag = async (tag: any) => {
+    if (!selectedConv) return;
+    const existing = selectedConv.tags || [];
+    const nextTags = existing.some((item: any) => item.id === tag.id) ? existing.filter((item: any) => item.id !== tag.id) : [...existing, tag];
+    try {
+      await api.put(`/conversations/${selectedConv.id}/tags`, { tagIds: nextTags.map((item: any) => item.id) });
+      setSelectedConv((current: any) => ({ ...current, tags: nextTags }));
+      await handleSelectConversation({ ...selectedConv, tags: nextTags });
+      void fetchTenantData();
+    } catch (err: any) { showNotify(err.response?.data?.error || "Tags konnten nicht aktualisiert werden."); }
   };
 
   const handleAddInternalNote = async () => {
@@ -1616,6 +1629,7 @@ export default function Dashboard({
                 <input value={inboxSearch} onChange={(event) => setInboxSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void fetchTenantData(); }} placeholder="Kunde, E-Mail, ID oder Nachricht" className="w-full rounded bg-slate-800 px-2 py-1.5 text-xs" />
                 <div className="grid grid-cols-2 gap-1">
                   <select value={inboxState} onChange={(event) => setInboxState(event.target.value)} className="rounded bg-slate-800 p-1 text-[10px]"><option value="">Alle Status</option>{["AI_ACTIVE","NEEDS_HUMAN","WAITING_FOR_AGENT","AGENT_ACTIVE","WAITING_FOR_CUSTOMER","RESOLVED","CLOSED"].map((state) => <option key={state}>{state}</option>)}</select>
+                  <select value={inboxTagId} onChange={(event) => setInboxTagId(event.target.value)} className="rounded bg-slate-800 p-1 text-[10px]"><option value="">Alle Tags</option>{inboxTags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}</select>
                   <select value={inboxPriority} onChange={(event) => setInboxPriority(event.target.value)} className="rounded bg-slate-800 p-1 text-[10px]"><option value="">Alle Prioritäten</option>{["LOW","NORMAL","HIGH","URGENT"].map((priority) => <option key={priority}>{priority}</option>)}</select>
                   <select value={inboxSort} onChange={(event) => setInboxSort(event.target.value)} className="col-span-2 rounded bg-slate-800 p-1 text-[10px]"><option value="newest">Neueste Aktivität</option><option value="oldest_waiting">Älteste wartende Anfrage</option><option value="priority">Höchste Priorität</option><option value="sla_risk">SLA-Risiko</option></select>
                 </div>
@@ -1688,6 +1702,7 @@ export default function Dashboard({
                     <div className="flex gap-2"><select value={selectedConv.priority || "NORMAL"} onChange={(event) => void handleInboxAction("priority", { priority: event.target.value })} className="rounded bg-slate-800 px-2 text-[10px]">{["LOW","NORMAL","HIGH","URGENT"].map((priority) => <option key={priority}>{priority}</option>)}</select><button type="button" onClick={() => void handleInboxAction("assignment", { agentId: auth?.user?.id })} className="rounded bg-violet-700 px-2 py-1 text-xs">Assign to me</button><button type="button" onClick={() => handleResolveConversation(selectedConv.id)} className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded">Mark Resolved</button></div>
                   </div>
 
+                  {inboxTags.length > 0 && <div className="flex flex-wrap gap-1 border-b border-slate-800 bg-slate-900 px-3 py-2">{inboxTags.map((tag) => { const active = (selectedConv.tags || []).some((item: any) => item.id === tag.id); return <button type="button" key={tag.id} onClick={() => void handleToggleConversationTag(tag)} className={`rounded px-2 py-1 text-[10px] ${active ? "bg-blue-700 text-white" : "bg-slate-800 text-slate-400 hover:text-white"}`}>{active ? "✓ " : "+ "}{tag.name}</button>; })}</div>}
                   <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-950/40">
                     {inboxHandoff && (
                       <section className="rounded-lg border border-amber-800/80 bg-amber-950/35 p-3 text-xs text-amber-100">
