@@ -1,11 +1,9 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { PublicRequestError } from "../utils/httpErrors.js";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const routesDir = path.resolve(here, "../routes");
+const routesDir = path.resolve(process.cwd(), "src/routes");
 const routeFiles = fs.readdirSync(routesDir).filter((name) => name.endsWith(".ts"));
 const offenders: string[] = [];
 
