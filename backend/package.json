@@ -8,7 +8,7 @@
     "dev": "tsx watch src/index.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
-    "db:migrate": "tsx src/scripts/ensureVectorExtension.ts && tsx src/scripts/ensureApplicationSchema.ts && tsx src/scripts/ensureWidgetIntegrationSchema.ts && tsx src/scripts/ensureIngestionSchema.ts && drizzle-kit push && tsx src/scripts/migrateLegacyPasswordHashes.ts && tsx src/scripts/migratePlatformRoles.ts && tsx src/scripts/migrateLegacyApiKeys.ts && tsx src/scripts/ensureVectorIndexes.ts && tsx src/scripts/enableRls.ts",
+    "db:migrate": "tsx src/scripts/ensureVectorExtension.ts && drizzle-kit push && tsx src/scripts/ensureApplicationSchema.ts && tsx src/scripts/ensureWidgetIntegrationSchema.ts && tsx src/scripts/ensureIngestionSchema.ts && tsx src/scripts/migrateLegacyPasswordHashes.ts && tsx src/scripts/migratePlatformRoles.ts && tsx src/scripts/migrateLegacyApiKeys.ts && tsx src/scripts/ensureVectorIndexes.ts && tsx src/scripts/enableRls.ts",
     "db:seed": "tsx src/db/seed.ts",
     "test:security": "tsx src/tests/security.test.ts",
     "test:tenant-isolation": "tsx src/tests/tenantIsolation.integration.test.ts",
