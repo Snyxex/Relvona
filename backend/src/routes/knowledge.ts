@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Response, type NextFunction } from "express";
 import multer from "multer";
 import { authenticate, tenantContext, requireRole, AuthRequest } from "../middleware/auth.js";
 import { db } from "../db/index.js";
@@ -11,8 +11,17 @@ import { AuditService } from "../services/auditService.js";
 import { IngestionJobService, IngestionInputError } from "../services/ingestionJobService.js";
 
 const upload = multer({
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
-  fileFilter: (req, file, cb) => {
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+    files: 1,
+    fields: 4,
+    parts: 5,
+    fieldNameSize: 100,
+    fieldSize: 10_000,
+    fieldNestingDepth: 2,
+    fieldArrayIndexLimit: 10,
+  },
+  fileFilter: (_req, file, cb) => {
     if (file.mimetype === "application/pdf" && file.originalname.toLowerCase().endsWith(".pdf")) {
       cb(null, true);
     } else {
@@ -20,6 +29,17 @@ const upload = multer({
     }
   },
 });
+
+function pdfUpload(req: AuthRequest, res: Response, next: NextFunction) {
+  upload.single("file")(req, res, (error: unknown) => {
+    if (!error) return next();
+    if (error instanceof multer.MulterError) {
+      const tooLarge = error.code === "LIMIT_FILE_SIZE";
+      return res.status(tooLarge ? 413 : 400).json({ error: tooLarge ? "PDF file exceeds the 10 MB upload limit" : "Invalid multipart PDF upload" });
+    }
+    return res.status(400).json({ error: "Invalid PDF upload" });
+  });
+}
 
 const router = Router();
 router.use(authenticate);
@@ -153,7 +173,7 @@ router.post("/text", requireRole(["owner", "admin"]), async (req: AuthRequest, r
 });
 
 // POST /api/v1/knowledge/pdf (PDF Upload with Magic Byte & Poisoning Check)
-router.post("/pdf", requireRole(["owner", "admin"]), upload.single("file"), async (req: AuthRequest, res) => {
+router.post("/pdf", requireRole(["owner", "admin"]), pdfUpload, async (req: AuthRequest, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "PDF file is required" });
