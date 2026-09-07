@@ -12,6 +12,7 @@ import widgetRouter from "./widget.js";
 import adminSettingsRouter from "./adminSettings.js";
 import toolsRouter from "./tools.js";
 import platformAdminRouter from "./platformAdmin.js";
+import visitorMemoryRouter from "./visitorMemory.js";
 
 const apiRouter = Router();
 
@@ -28,5 +29,6 @@ apiRouter.use("/v1/widget", widgetRouter);
 apiRouter.use("/v1/admin", adminSettingsRouter);
 apiRouter.use("/v1/platform-admin", platformAdminRouter);
 apiRouter.use("/v1/tools", toolsRouter);
+apiRouter.use("/v1/visitor-memory", visitorMemoryRouter);
 
 export default apiRouter;
