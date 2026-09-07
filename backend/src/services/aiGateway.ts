@@ -1,4 +1,5 @@
 import { metrics } from "../observability/metrics.js";
+import { OutboundUrlPolicy } from "./outboundUrlPolicy.js";
 
 export type AIProvider = "openai" | "anthropic" | "google" | "nvidia" | "local";
 
@@ -41,6 +42,10 @@ export class UniversalAIGateway {
   private static transient(error: unknown) { return /\b(408|409|425|429|500|502|503|504)\b|fetch failed|network|timeout/i.test((error as Error).message || ""); }
   private static fetchWithTimeout(input: Parameters<typeof fetch>[0], init: RequestInit = {}) {
     return fetch(input, { ...init, signal: AbortSignal.timeout(this.timeoutMs) });
+  }
+  private static async fetchLocalWithTimeout(input: string, init: RequestInit = {}) {
+    await OutboundUrlPolicy.assertLocalAiUrlAllowed(input);
+    return fetch(input, { ...init, redirect: "error", signal: AbortSignal.timeout(this.timeoutMs) });
   }
 
   static async generateCompletion(req: CompletionRequest): Promise<string> {
@@ -309,7 +314,7 @@ export class UniversalAIGateway {
           headers["Authorization"] = `Bearer ${req.apiKey}`;
         }
 
-        const response = await this.fetchWithTimeout(endpoint, {
+        const response = await this.fetchLocalWithTimeout(endpoint, {
           method: "POST",
           headers,
           body: JSON.stringify({
@@ -370,7 +375,7 @@ export class UniversalAIGateway {
 
       if (provider === "local" && req.baseUrl) {
         const endpoint = `${req.baseUrl.replace(/\/$/, "")}/embeddings`;
-        const res = await this.fetchWithTimeout(endpoint, {
+        const res = await this.fetchLocalWithTimeout(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
