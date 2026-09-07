@@ -11,6 +11,7 @@
     "db:migrate": "tsx src/scripts/ensureVectorExtension.ts && drizzle-kit push && tsx src/scripts/ensureApplicationSchema.ts && tsx src/scripts/ensureWidgetIntegrationSchema.ts && tsx src/scripts/ensureIngestionSchema.ts && tsx src/scripts/migrateLegacyPasswordHashes.ts && tsx src/scripts/migratePlatformRoles.ts && tsx src/scripts/migrateLegacyApiKeys.ts && tsx src/scripts/normalizeEmbeddingConfig.ts && tsx src/scripts/ensureVectorIndexes.ts && tsx src/scripts/enableRls.ts",
     "db:seed": "tsx src/db/seed.ts",
     "test:security": "tsx src/tests/security.test.ts",
+    "test:error-responses": "tsx src/tests/errorResponses.test.ts",
     "test:tenant-isolation": "tsx src/tests/tenantIsolation.integration.test.ts",
     "test:auth-regression": "tsx src/tests/authRegression.integration.test.ts",
     "test:tools": "tsx src/tests/toolRegistry.test.ts",
@@ -20,7 +21,7 @@
     "test:active-directory": "tsx src/tests/activeDirectoryService.test.ts",
     "test:authorization": "tsx src/tests/authorizationMiddleware.test.ts",
     "test:ingestion-integration": "tsx src/tests/ingestion.integration.test.ts",
-    "test:ci-auth": "npm run build && npm run test:security && npm run test:authorization && npm run test:tenant-isolation && npm run test:auth-regression",
+    "test:ci-auth": "npm run build && npm run test:security && npm run test:error-responses && npm run test:authorization && npm run test:tenant-isolation && npm run test:auth-regression",
     "secrets:rotate": "tsx src/scripts/rotateEncryptionKey.ts",
     "worker": "node dist/worker.js"
   },
