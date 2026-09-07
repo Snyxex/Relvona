@@ -115,6 +115,7 @@ router.get("/page/:assistantId", async (req, res) => {
   const widgetKey = String(req.query.widgetKey || ""); const assistant = await publicWidgetAssistant(req.params.assistantId, widgetKey);
   if (!assistant || !assistant.chat_page_enabled) return res.status(404).send("Chat page not found");
   const apiBase = publicApiBase(req); const escapeAttribute = (value: string) => value.replace(/[&"<>]/g, (character) => ({ "&": "&amp;", '"': "&quot;", "<": "&lt;", ">": "&gt;" }[character]!));
-  res.type("html").send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeAttribute(assistant.name)}</title></head><body><script src="${escapeAttribute(apiBase)}/public/widget.js?v=20260907-visitor-memory" data-assistant-id="${escapeAttribute(assistant.id)}" data-widget-key="${escapeAttribute(widgetKey)}" data-api-base="${escapeAttribute(apiBase)}" data-auto-open="true"></script></body></html>`);
+  const attrs = `data-assistant-id="${escapeAttribute(assistant.id)}" data-widget-key="${escapeAttribute(widgetKey)}" data-api-base="${escapeAttribute(apiBase)}"`;
+  res.type("html").send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeAttribute(assistant.name)}</title></head><body><script src="${escapeAttribute(apiBase)}/public/widget.js?v=20260907-visitor-memory" ${attrs} data-auto-open="true"></script><script src="${escapeAttribute(apiBase)}/public/widget-privacy.js?v=20260907-1" ${attrs}></script></body></html>`);
 });
 export default router;
