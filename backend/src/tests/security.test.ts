@@ -6,6 +6,7 @@ import { RAGService } from "../services/ragService.js";
 import { createWidgetSessionToken, verifyWidgetSessionToken } from "../services/widgetSessionService.js";
 import { hasBetterAuthSessionCookie } from "../middleware/security.js";
 import { dashboardDomainFromRequest, normalizeDashboardDomain } from "../services/dashboardDomainService.js";
+import { OutboundUrlPolicy } from "../services/outboundUrlPolicy.js";
 
 async function runSecurityTests() {
   console.log("🔒 Running Automated AI Security & Compliance Verification Test Suite...\n");
@@ -47,6 +48,28 @@ async function runSecurityTests() {
   } catch (e) {
     assert(true, "Reject file:// Protocol");
   }
+
+  // Local AI endpoints are tenant-configurable and therefore require the same
+  // hosted-deployment SSRF boundary. Self-hosted operators can explicitly opt in.
+  const previousPrivateLocalAi = process.env.LOCAL_AI_ALLOW_PRIVATE_NETWORKS;
+  delete process.env.LOCAL_AI_ALLOW_PRIVATE_NETWORKS;
+  try {
+    OutboundUrlPolicy.normalizeLocalAiBaseUrl("http://127.0.0.1:11434/v1");
+    assert(false, "Block private local AI endpoint by default");
+  } catch {
+    assert(true, "Block private local AI endpoint by default");
+  }
+  try {
+    await OutboundUrlPolicy.assertLocalAiUrlAllowed("http://169.254.169.254/latest/meta-data");
+    assert(false, "Block metadata endpoint for local AI requests");
+  } catch {
+    assert(true, "Block metadata endpoint for local AI requests");
+  }
+  assert(OutboundUrlPolicy.normalizeLocalAiBaseUrl("https://8.8.8.8/v1") === "https://8.8.8.8/v1", "Allow a public local-AI endpoint in hosted mode");
+  process.env.LOCAL_AI_ALLOW_PRIVATE_NETWORKS = "true";
+  assert(OutboundUrlPolicy.normalizeLocalAiBaseUrl("http://127.0.0.1:11434/v1") === "http://127.0.0.1:11434/v1", "Allow explicit self-hosted private local-AI endpoint");
+  if (previousPrivateLocalAi === undefined) delete process.env.LOCAL_AI_ALLOW_PRIVATE_NETWORKS;
+  else process.env.LOCAL_AI_ALLOW_PRIVATE_NETWORKS = previousPrivateLocalAi;
 
   // --- TEST GROUP 2: FILE UPLOAD & RAG POISONING SANITIZATION ---
   console.log("\n--- Test Group 2: File Upload Magic Bytes & Poisoning Detection ---");
