@@ -5,10 +5,22 @@ import { RAGService } from "../services/ragService.js";
 import { db } from "../db/index.js";
 import { conversations, conversationMessages, customers, conversationActivities, conversationHandoffs, conversationTags, conversationTagLinks, agentPresence, organizationMembers, users } from "../db/schema.js";
 import { eq, and, desc, asc, gte, lte, ilike, isNull, or, sql, inArray } from "drizzle-orm";
-import { ConversationWorkflowService, CONVERSATION_PRIORITIES, CONVERSATION_STATES } from "../services/conversationWorkflowService.js";
+import { ConversationWorkflowService } from "../services/conversationWorkflowService.js";
 import { sendInternalError } from "../utils/httpErrors.js";
 
 const router = Router();
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 100;
+const MAX_OFFSET = 100_000;
+
+function pagination(query: AuthRequest["query"]) {
+  const requestedLimit = Number(query.limit ?? DEFAULT_PAGE_SIZE);
+  const requestedOffset = Number(query.offset ?? 0);
+  const limit = Number.isInteger(requestedLimit) ? Math.min(MAX_PAGE_SIZE, Math.max(1, requestedLimit)) : DEFAULT_PAGE_SIZE;
+  const offset = Number.isInteger(requestedOffset) ? Math.min(MAX_OFFSET, Math.max(0, requestedOffset)) : 0;
+  return { limit, offset };
+}
+
 router.use(authenticate);
 router.use(tenantContext);
 // Viewers can read the inbox; every mutation below remains limited to support staff.
@@ -32,6 +44,7 @@ router.post("/:id/suggested-reply", async (req: AuthRequest, res) => {
 router.get("/", async (req: AuthRequest, res) => {
   try {
     const { state, priority, agentId, customerId, tagId, q, from, to, sort = "newest" } = req.query;
+    const { limit, offset } = pagination(req.query);
     let whereClause = eq(conversations.organizationId, req.organization!.id);
     if (state) whereClause = and(whereClause, eq(conversations.state, state as string))!;
     if (priority) whereClause = and(whereClause, eq(conversations.priority, priority as string))!;
@@ -42,10 +55,21 @@ router.get("/", async (req: AuthRequest, res) => {
     if (to && !Number.isNaN(Date.parse(to as string))) whereClause = and(whereClause, lte(conversations.updatedAt, new Date(to as string)))!;
     if (q && typeof q === "string" && q.length <= 200) whereClause = and(whereClause, or(ilike(customers.name, `%${q}%`), ilike(customers.email, `%${q}%`), sql`cast(${conversations.id} as text) ILIKE ${`%${q}%`}`, sql`EXISTS (SELECT 1 FROM conversation_messages cm WHERE cm.conversation_id = ${conversations.id} AND cm.organization_id = ${req.organization!.id} AND cm.content ILIKE ${`%${q}%`})`))!;
     if (tagId && typeof tagId === "string") whereClause = and(whereClause, sql`EXISTS (SELECT 1 FROM conversation_tag_links ctl WHERE ctl.conversation_id = ${conversations.id} AND ctl.organization_id = ${req.organization!.id} AND ctl.tag_id = ${tagId})`)!;
-    const list = await db.select({ conversation: conversations, customer: customers }).from(conversations).innerJoin(customers, eq(conversations.customerId, customers.id)).where(whereClause).orderBy(desc(conversations.updatedAt));
+
+    // Bound every inbox query before rows reach application memory. This keeps
+    // wildcard message search and tag hydration from becoming tenant-level DoS primitives.
+    const list = await db.select({ conversation: conversations, customer: customers })
+      .from(conversations)
+      .innerJoin(customers, eq(conversations.customerId, customers.id))
+      .where(whereClause)
+      .orderBy(desc(conversations.updatedAt), desc(conversations.id))
+      .limit(limit)
+      .offset(offset);
     const ordered = sort === "oldest_waiting" ? list.sort((a, b) => a.conversation.updatedAt.getTime() - b.conversation.updatedAt.getTime()) : sort === "priority" || sort === "sla_risk" ? list.sort((a, b) => (["URGENT", "HIGH", "NORMAL", "LOW"].indexOf(a.conversation.priority) - ["URGENT", "HIGH", "NORMAL", "LOW"].indexOf(b.conversation.priority)) || b.conversation.updatedAt.getTime() - a.conversation.updatedAt.getTime()) : list;
     const ids = ordered.map((row) => row.conversation.id);
     const links = ids.length ? await db.select({ conversationId: conversationTagLinks.conversationId, tag: conversationTags }).from(conversationTagLinks).innerJoin(conversationTags, eq(conversationTagLinks.tagId, conversationTags.id)).where(and(eq(conversationTagLinks.organizationId, req.organization!.id), inArray(conversationTagLinks.conversationId, ids))) : [];
+    res.setHeader("X-Page-Limit", String(limit));
+    res.setHeader("X-Page-Offset", String(offset));
     return res.json(ordered.map((item) => ({ ...item.conversation, customer: { id: item.customer.id, name: item.customer.name, email: item.customer.email }, tags: links.filter((link) => link.conversationId === item.conversation.id).map((link) => link.tag) })));
   } catch (error) {
     return sendInternalError(req, res, error, { code: "CONVERSATIONS_LIST_FAILED", message: "Unable to load conversations" });

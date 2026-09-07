@@ -7,13 +7,32 @@ import { AuditService } from "../services/auditService.js";
 import { sendInternalError } from "../utils/httpErrors.js";
 
 const router = Router();
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 100;
+const MAX_OFFSET = 100_000;
+
+function pagination(query: AuthRequest["query"]) {
+  const requestedLimit = Number(query.limit ?? DEFAULT_PAGE_SIZE);
+  const requestedOffset = Number(query.offset ?? 0);
+  const limit = Number.isInteger(requestedLimit) ? Math.min(MAX_PAGE_SIZE, Math.max(1, requestedLimit)) : DEFAULT_PAGE_SIZE;
+  const offset = Number.isInteger(requestedOffset) ? Math.min(MAX_OFFSET, Math.max(0, requestedOffset)) : 0;
+  return { limit, offset };
+}
+
 router.use(authenticate);
 router.use(tenantContext);
 router.use(requireRole(["owner", "admin", "agent"]));
 
 router.get("/", async (req: AuthRequest, res) => {
   try {
-    const list = await db.select().from(customers).where(eq(customers.organizationId, req.organization!.id)).orderBy(desc(customers.createdAt));
+    const { limit, offset } = pagination(req.query);
+    const list = await db.select().from(customers)
+      .where(eq(customers.organizationId, req.organization!.id))
+      .orderBy(desc(customers.createdAt), desc(customers.id))
+      .limit(limit)
+      .offset(offset);
+    res.setHeader("X-Page-Limit", String(limit));
+    res.setHeader("X-Page-Offset", String(offset));
     return res.json(list);
   } catch (error) {
     return sendInternalError(req, res, error, { code: "CUSTOMERS_LIST_FAILED", message: "Unable to load customers" });
