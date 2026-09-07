@@ -5,9 +5,9 @@ import { db, pool } from "../db/index.js";
 import { users, organizationInvitations, organizationMembers, organizations } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { createRateLimiter } from "../middleware/security.js";
-import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import { hashPassword, LEGACY_PASSWORD_SENTINEL } from "../auth/password.js";
 
 const router = Router();
 const inviteHash = (token: string) => crypto.createHash("sha256").update(token).digest("hex");
@@ -32,10 +32,10 @@ async function acceptInvitation(token: string, user: { id: string; email: string
       if (!name || !password) throw new Error("INVALID_INVITATION_ACCEPTANCE");
       const existing = await client.query("SELECT id FROM users WHERE email = $1", [invite.email.toLowerCase()]);
       if (existing.rowCount) throw new Error("LOGIN_REQUIRED");
-      const passwordHash = await bcrypt.hash(password, 12);
-      const created = await client.query("INSERT INTO users (email, name, password_hash, email_verified) VALUES ($1, $2, $3, true) RETURNING id", [invite.email.toLowerCase(), name, passwordHash]);
+      const credentialHash = await hashPassword(password);
+      const created = await client.query("INSERT INTO users (email, name, password_hash, email_verified) VALUES ($1, $2, $3, true) RETURNING id", [invite.email.toLowerCase(), name, LEGACY_PASSWORD_SENTINEL]);
       userId = created.rows[0].id;
-      await client.query("INSERT INTO auth_accounts (id, account_id, provider_id, issuer, user_id, password) VALUES ($1, $2, 'credential', 'local:credential', $3, $4)", [crypto.randomUUID(), userId, userId, passwordHash]);
+      await client.query("INSERT INTO auth_accounts (id, account_id, provider_id, issuer, user_id, password) VALUES ($1, $2, 'credential', 'local:credential', $3, $4)", [crypto.randomUUID(), userId, userId, credentialHash]);
     }
     const membership = await client.query("INSERT INTO organization_members (organization_id, user_id, role, status, joined_at) VALUES ($1, $2, $3, 'active', now()) ON CONFLICT (organization_id, user_id) DO NOTHING RETURNING id", [invite.organization_id, userId, invite.role]);
     if (!membership.rowCount) throw new Error("MEMBERSHIP_ALREADY_EXISTS");
@@ -129,7 +129,7 @@ router.get("/entra/callback", async (req, res) => {
         if (!membership.rowCount && !invitation.rowCount) { await client.query("ROLLBACK"); return fail("SSO_ACCOUNT_LINKING_REQUIRED"); }
         userId = existing.rows[0].id;
       }
-      else { const created = await client.query("INSERT INTO users (email, name, password_hash) VALUES ($1, $2, $3) RETURNING id", [email, typeof claims.name === "string" ? claims.name.slice(0, 100) : email, await bcrypt.hash(base64url(crypto.randomBytes(32)), 10)]); userId = created.rows[0].id; }
+      else { const created = await client.query("INSERT INTO users (email, name, password_hash) VALUES ($1, $2, $3) RETURNING id", [email, typeof claims.name === "string" ? claims.name.slice(0, 100) : email, LEGACY_PASSWORD_SENTINEL]); userId = created.rows[0].id; }
       await client.query("INSERT INTO user_external_identities (user_id, provider, issuer, subject, email) VALUES ($1, 'entra', $2, $3, $4) ON CONFLICT (provider, issuer, subject) DO NOTHING", [userId, issuer, claims.sub, email]);
     }
     if (!userId) throw new Error("SSO_USER_CREATION_FAILED");

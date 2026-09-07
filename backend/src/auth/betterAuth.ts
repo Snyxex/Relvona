@@ -1,9 +1,9 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
-import bcrypt from "bcryptjs";
 import { db } from "../db/index.js";
 import * as schema from "../db/schema.js";
 import { verifiedDashboardOrigins } from "../services/dashboardDomainService.js";
+import { hashPassword, verifyPassword } from "./password.js";
 
 const configuredOrigins = (process.env.CORS_ORIGIN || "http://localhost:3000").split(",").map((origin) => origin.trim()).filter(Boolean);
 const betterAuthSecret = process.env.BETTER_AUTH_SECRET;
@@ -23,9 +23,8 @@ export const auth = betterAuth({
   verification: { modelName: "authVerifications" },
   emailAndPassword: {
     enabled: true, disableSignUp: true, minPasswordLength: 12, maxPasswordLength: 128,
-    // Existing accounts already use bcrypt. Keeping bcrypt here permits an
-    // in-place migration without changing user IDs or weakening passwords.
-    password: { hash: async (password) => bcrypt.hash(password, 12), verify: async ({ hash, password }) => bcrypt.compare(password, hash) },
+    // Credential material has exactly one source of truth: auth_accounts.password.
+    password: { hash: hashPassword, verify: async ({ hash, password }) => verifyPassword(hash, password) },
     revokeSessionsOnPasswordReset: true,
   },
   advanced: {
