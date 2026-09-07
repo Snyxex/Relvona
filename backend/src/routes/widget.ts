@@ -8,6 +8,7 @@ import { createRateLimiter, validateInputLimits } from "../middleware/security.j
 import { setLogContext } from "../observability/logger.js";
 import { TenantQuotaExceededError } from "../services/tenantQuotaService.js";
 import { createWidgetSessionToken, verifyWidgetSessionToken } from "../services/widgetSessionService.js";
+import { VisitorIdentityService } from "../services/visitorIdentityService.js";
 
 const router = Router();
 type PublicAssistant = { id: string; organization_id: string; name: string; welcome_message: string; primary_color: string; avatar_url: string | null; handoff_enabled: boolean; widget_allowed_origins: unknown; chat_page_enabled: boolean; widget_settings: Record<string, unknown> | null };
@@ -15,14 +16,8 @@ async function publicWidgetAssistant(id: string, widgetKey: string) { return (aw
 function allowsRequestOrigin(req: { get(name: string): string | undefined }, assistant: PublicAssistant) {
   const origin = req.get("origin");
   const allowed = Array.isArray(assistant.widget_allowed_origins) ? assistant.widget_allowed_origins.filter((value): value is string => typeof value === "string") : [];
-  // A widget key is intentionally public, so the key alone must never grant
-  // access from arbitrary websites. Require an explicitly configured origin.
   const hostedPageOrigin = `${req.get("x-forwarded-proto") || "http"}://${req.get("host")}`;
   if (origin) return allowed.includes(origin) || origin === hostedPageOrigin;
-
-  // Browsers commonly omit Origin on same-origin GET requests. The hosted page
-  // is served by this exact origin, so accept only its page referrer as a
-  // fallback; an external embed still has to match the explicit allowlist.
   const referer = req.get("referer");
   try {
     const url = referer ? new URL(referer) : undefined;
@@ -50,30 +45,28 @@ router.post("/session", createRateLimiter({ keyPrefix: "widget-session", limit: 
     const { organizationId } = req.body; const assistant = await authenticateWidget(req);
     if (!assistant || (organizationId && organizationId !== assistant.organization_id)) return res.status(401).json({ error: "Invalid widget integration or origin" });
     setLogContext({ organizationId: assistant.organization_id });
-    // Opening a widget is not a support request. Create no customer,
-    // conversation, analytics event, or database row until a message arrives.
     return res.json({ customerId: null, conversationId: null, state: "IDLE" });
   } catch { return res.status(500).json({ error: "Unable to start chat session" }); }
 });
 async function validateConversationRequest(req: any) {
   const assistant = await authenticateWidget(req);
   if (!assistant || req.body?.organizationId !== assistant.organization_id) return undefined;
-  // Public widget calls are authenticated by the widget key rather than the
-  // dashboard middleware. Bind the verified organization before the first
-  // tenant-scoped database operation (customer/conversation creation).
   setLogContext({ organizationId: assistant.organization_id });
   return assistant;
 }
 async function conversationForMessage(assistant: PublicAssistant, body: any) {
+  const visitor = await VisitorIdentityService.resolveVisitor(assistant.organization_id, body.visitorToken);
   if (typeof body.conversationId === "string" && body.conversationId) {
     if (!verifyWidgetSessionToken(body.conversationToken, { assistantId: assistant.id, organizationId: assistant.organization_id, conversationId: body.conversationId })) throw new Error("Invalid widget conversation session");
     const [conversation] = await db.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.id, body.conversationId), eq(conversations.organizationId, assistant.organization_id), eq(conversations.assistantId, assistant.id))).limit(1);
     if (!conversation) throw new Error("Conversation not found");
-    return { id: conversation.id, token: body.conversationToken as string };
+    if (visitor) await VisitorIdentityService.linkConversation({ organizationId: assistant.organization_id, visitorId: visitor.id, conversationId: conversation.id });
+    return { id: conversation.id, token: body.conversationToken as string, visitorId: visitor?.id };
   }
   const customer = await ConversationService.getOrCreateCustomer({ organizationId: assistant.organization_id, email: body.email, name: body.name, externalId: body.externalId });
   const conversation = await ConversationService.getOrCreateConversation({ organizationId: assistant.organization_id, assistantId: assistant.id, customerId: customer.id });
-  return { id: conversation.id, token: createWidgetSessionToken({ assistantId: assistant.id, organizationId: assistant.organization_id, conversationId: conversation.id }) };
+  if (visitor) await VisitorIdentityService.linkConversation({ organizationId: assistant.organization_id, visitorId: visitor.id, conversationId: conversation.id });
+  return { id: conversation.id, token: createWidgetSessionToken({ assistantId: assistant.id, organizationId: assistant.organization_id, conversationId: conversation.id }), visitorId: visitor?.id };
 }
 router.post("/message", createRateLimiter({ keyPrefix: "widget-message", limit: 20, windowMs: 60_000 }), validateInputLimits, async (req, res) => {
   try {
@@ -95,9 +88,6 @@ router.post("/message/stream", createRateLimiter({ keyPrefix: "widget-stream", l
     let streamedContent = false;
     const result = await ConversationService.processCustomerMessage({ organizationId: assistant.organization_id, conversationId, content, onToken: async (token) => { streamedContent = true; send("token", { content: token }); } });
     if (result.aiResponse?.content) {
-      // Short-circuit answers (for example, an unsupported question) do not
-      // produce provider tokens. Include their content in `complete` so the
-      // widget can render it immediately without a page refresh.
       send("complete", { messageId: result.aiResponse.id, content: streamedContent ? undefined : result.aiResponse.content, conversationId, conversationToken: conversation.token, customerId: result.customerMessage.senderId || undefined, state: result.state, handoffTriggered: result.handoffTriggered, ticketId: result.ticketId, ticketNumber: result.ticketNumber, ticketCreated: result.ticketCreated });
     } else {
       if (result.fallbackMessage) send("token", { content: result.fallbackMessage });
@@ -125,6 +115,6 @@ router.get("/page/:assistantId", async (req, res) => {
   const widgetKey = String(req.query.widgetKey || ""); const assistant = await publicWidgetAssistant(req.params.assistantId, widgetKey);
   if (!assistant || !assistant.chat_page_enabled) return res.status(404).send("Chat page not found");
   const apiBase = publicApiBase(req); const escapeAttribute = (value: string) => value.replace(/[&"<>]/g, (character) => ({ "&": "&amp;", '"': "&quot;", "<": "&lt;", ">": "&gt;" }[character]!));
-  res.type("html").send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeAttribute(assistant.name)}</title></head><body><script src="${escapeAttribute(apiBase)}/public/widget.js?v=20260902-3" data-assistant-id="${escapeAttribute(assistant.id)}" data-widget-key="${escapeAttribute(widgetKey)}" data-api-base="${escapeAttribute(apiBase)}" data-auto-open="true"></script></body></html>`);
+  res.type("html").send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeAttribute(assistant.name)}</title></head><body><script src="${escapeAttribute(apiBase)}/public/widget.js?v=20260907-visitor-memory" data-assistant-id="${escapeAttribute(assistant.id)}" data-widget-key="${escapeAttribute(widgetKey)}" data-api-base="${escapeAttribute(apiBase)}" data-auto-open="true"></script></body></html>`);
 });
 export default router;
