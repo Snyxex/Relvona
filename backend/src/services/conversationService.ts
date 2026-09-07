@@ -7,6 +7,7 @@ import { organizationSettings } from "../db/schema.js";
 import { PiiRedactionService } from "./piiRedactionService.js";
 import { TicketService } from "./ticketService.js";
 import { domainEventBus } from "./domainEventBus.js";
+import { ConversationWorkflowService } from "./conversationWorkflowService.js";
 
 export class ConversationService {
   private static ticketConfirmation(language: string, ticketNumber: number, created: boolean): string {
@@ -97,7 +98,7 @@ export class ConversationService {
       .orderBy(desc(conversations.createdAt))
       .limit(1);
 
-    if (existing && existing.state !== "RESOLVED") {
+    if (existing && existing.state !== "RESOLVED" && existing.state !== "CLOSED") {
       return existing;
     }
 
@@ -143,7 +144,11 @@ export class ConversationService {
     // 1. Fetch Conversation
     const [conv] = await db.select().from(conversations).where(and(eq(conversations.id, data.conversationId), eq(conversations.organizationId, data.organizationId))).limit(1);
     if (!conv) throw new Error("Conversation not found");
-    if (conv.state === "RESOLVED") throw new Error("Conversation is resolved");
+    // A customer reply reopens a completed case into the human queue. AI is not
+    // silently re-enabled after a human-owned lifecycle.
+    if (conv.state === "CLOSED" || conv.state === "RESOLVED") {
+      await db.update(conversations).set({ state: conv.state === "CLOSED" ? "WAITING_FOR_AGENT" : "AGENT_ACTIVE", updatedAt: new Date() }).where(and(eq(conversations.id, conv.id), eq(conversations.organizationId, data.organizationId)));
+    }
     const [settings] = await db.select({ widgetRequestsPerMinute: organizationSettings.widgetRequestsPerMinute }).from(organizationSettings).where(eq(organizationSettings.organizationId, data.organizationId)).limit(1);
     await TenantQuotaService.consumeWidgetRequest(data.organizationId, settings?.widgetRequestsPerMinute ?? 120);
     await TenantQuotaService.consumeWidgetEndUserRequest(data.organizationId, conv.customerId, settings?.widgetRequestsPerMinute ?? 120);
@@ -166,7 +171,7 @@ export class ConversationService {
 
     await domainEventBus.emit({ type: "message.created", organizationId: data.organizationId, conversationId: conv.id, payload: custMsg });
     // Human-owned and queued conversations must not auto-respond with AI.
-    if (conv.state === "AGENT_ACTIVE" || conv.state === "WAITING_FOR_AGENT") {
+    if (["AGENT_ACTIVE", "WAITING_FOR_AGENT", "WAITING_FOR_CUSTOMER", "RESOLVED", "CLOSED"].includes(conv.state)) {
       await db.update(conversations).set({ updatedAt: new Date() })
         .where(and(eq(conversations.id, conv.id), eq(conversations.organizationId, data.organizationId)));
       return {
@@ -218,6 +223,7 @@ export class ConversationService {
       if (error instanceof TenantQuotaExceededError) {
         if (error.message === "Widget request quota exceeded") throw error;
         await db.update(conversations).set({ state: "WAITING_FOR_AGENT", updatedAt: new Date() }).where(eq(conversations.id, conv.id));
+        await ConversationWorkflowService.recordHandoff({ organizationId: data.organizationId, conversationId: conv.id, reason: "AI_BUDGET_EXHAUSTED", requestedPriority: "NORMAL" });
         const ticket = await TicketService.getOrCreateEscalationTicket({ organizationId: data.organizationId, customerId: conv.customerId, conversationId: conv.id, subject: "AI budget exhausted - customer needs assistance", description: "Created automatically because the tenant's daily AI token budget is exhausted.", priority: "normal", tags: ["budget-fallback", "needs-human-review"] });
         await db.insert(analyticsEvents).values({ organizationId: data.organizationId, eventType: "budget_handoff_requested", metadata: { conversationId: conv.id, ticketId: ticket.ticket.id, ticketNumber: ticket.ticket.ticketNumber, ticketCreated: ticket.created } });
         return { customerMessage: custMsg, aiResponse: null, state: "WAITING_FOR_AGENT", handoffTriggered: true, budgetFallback: true, fallbackMessage: "Unser KI-Support ist für heute ausgeschöpft. Wir haben Ihre Anfrage an unser Support-Team weitergegeben.", ticketId: ticket.ticket.id, ticketNumber: ticket.ticket.ticketNumber, ticketCreated: ticket.created };
@@ -226,6 +232,7 @@ export class ConversationService {
       // Provider, embedding, or model failures must not discard a customer's
       // issue. Do not expose technical errors; create a durable human handoff.
       await db.update(conversations).set({ state: "WAITING_FOR_AGENT", updatedAt: new Date() }).where(eq(conversations.id, conv.id));
+      await ConversationWorkflowService.recordHandoff({ organizationId: data.organizationId, conversationId: conv.id, reason: "AI_PROCESSING_FAILED", requestedPriority: RAGService.analyzeSentiment(redactedInput.text) === "frustrated" ? "HIGH" : "NORMAL" });
       const escalation = await TicketService.getOrCreateEscalationTicket({
         organizationId: data.organizationId,
         customerId: conv.customerId,
@@ -296,6 +303,7 @@ export class ConversationService {
         .update(conversations)
         .set({ state: "WAITING_FOR_AGENT", updatedAt: new Date() })
         .where(eq(conversations.id, conv.id));
+      await ConversationWorkflowService.recordHandoff({ organizationId: data.organizationId, conversationId: conv.id, reason: "AI_ESCALATED", aiConfidence: ragResult.confidenceScore, lastAiAttempt: ragResult.answer.slice(0, 2_000), requestedPriority: sentiment === "frustrated" ? "HIGH" : "NORMAL" });
 
       await db.insert(analyticsEvents).values({
         organizationId: data.organizationId,
@@ -337,16 +345,20 @@ export class ConversationService {
       .limit(1);
     if (!conv) throw new Error("Conversation not found");
 
-    // Transition state to AGENT_ACTIVE if coming from WAITING_FOR_AGENT
-    if (conv.state !== "AGENT_ACTIVE") {
-      await db
-        .update(conversations)
-        .set({
-          state: "AGENT_ACTIVE",
-          assignedAgentId: data.agentId,
-          updatedAt: new Date(),
-        })
-        .where(and(eq(conversations.id, conv.id), eq(conversations.organizationId, data.organizationId)));
+    // Sending a reply is a claim operation, not a free-form state mutation. It
+    // must not let a second agent steal a conversation or reply while awaiting a
+    // customer / after resolution. The conditional assignment in the workflow
+    // service makes simultaneous "send" attempts deterministic.
+    if (conv.state === "WAITING_FOR_AGENT") {
+      if (conv.assignedAgentId && conv.assignedAgentId !== data.agentId) throw new Error("Conversation is assigned to another agent");
+      await ConversationWorkflowService.assign({
+        organizationId: data.organizationId,
+        conversationId: conv.id,
+        actorUserId: data.agentId,
+        assigneeId: data.agentId,
+      });
+    } else if (conv.state !== "AGENT_ACTIVE" || conv.assignedAgentId !== data.agentId) {
+      throw new Error("Conversation is not ready for an agent reply");
     }
 
     const [agentMsg] = await db
@@ -360,6 +372,13 @@ export class ConversationService {
         content: data.content,
       })
       .returning();
+
+    await ConversationWorkflowService.transition({
+      organizationId: data.organizationId,
+      conversationId: conv.id,
+      actorUserId: data.agentId,
+      target: "WAITING_FOR_CUSTOMER",
+    });
 
     await domainEventBus.emit({ type: "message.created", organizationId: data.organizationId, conversationId: conv.id, payload: agentMsg });
     // Claim the open ticket that caused this handoff as soon as an agent

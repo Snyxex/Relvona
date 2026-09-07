@@ -1,5 +1,6 @@
 export type DomainEventType =
   | "conversation.created"
+  | "conversation.updated"
   | "message.created"
   | "intent.detected"
   | "ticket.created"

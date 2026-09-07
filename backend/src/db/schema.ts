@@ -219,6 +219,8 @@ export const conversations = pgTable("conversations", {
   customerId: uuid("customer_id").references(() => customers.id, { onDelete: "cascade" }).notNull(),
   state: text("state").default("AI_ACTIVE").notNull(), // 'AI_ACTIVE' | 'WAITING_FOR_AGENT' | 'AGENT_ACTIVE' | 'RESOLVED'
   assignedAgentId: uuid("assigned_agent_id").references(() => users.id, { onDelete: "set null" }),
+  assignedTeamId: uuid("assigned_team_id"), // reserved for future team routing; never grants access
+  priority: text("priority").default("NORMAL").notNull(),
   detectedLanguage: text("detected_language").default("en").notNull(),
   sentiment: text("sentiment").default("neutral"), // 'positive' | 'neutral' | 'negative'
   summary: text("summary"),
@@ -226,14 +228,64 @@ export const conversations = pgTable("conversations", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
   orgStateIdx: index("org_state_idx").on(table.organizationId, table.state),
+  inboxIdx: index("conversation_inbox_idx").on(table.organizationId, table.state, table.priority, table.updatedAt),
 }));
+
+// Durable operational events. Unlike analytics, these records form the agent-visible
+// conversation timeline and are retained for auditability.
+export const conversationActivities = pgTable("conversation_activities", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
+  conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "cascade" }).notNull(),
+  actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  eventType: text("event_type").notNull(),
+  payload: jsonb("payload").default({}).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({ timelineIdx: index("conversation_timeline_idx").on(table.organizationId, table.conversationId, table.createdAt) }));
+
+// Immutable escalation context for the human queue. This is intentionally a
+// separate record from analytics so agents can see why a conversation arrived.
+export const conversationHandoffs = pgTable("conversation_handoffs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
+  conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "cascade" }).notNull(),
+  reason: text("reason").notNull(),
+  aiConfidence: real("ai_confidence"),
+  lastAiAttempt: text("last_ai_attempt"),
+  requestedPriority: text("requested_priority").default("NORMAL").notNull(),
+  claimedByUserId: uuid("claimed_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  claimedAt: timestamp("claimed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({ handoffInboxIdx: index("conversation_handoff_inbox_idx").on(table.organizationId, table.conversationId, table.createdAt) }));
+
+export const conversationTags = pgTable("conversation_tags", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  color: text("color").default("slate").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({ tagNameUnique: uniqueIndex("conversation_tag_name_unique").on(table.organizationId, table.name) }));
+
+export const conversationTagLinks = pgTable("conversation_tag_links", {
+  conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "cascade" }).notNull(),
+  tagId: uuid("tag_id").references(() => conversationTags.id, { onDelete: "cascade" }).notNull(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({ conversationTagUnique: uniqueIndex("conversation_tag_unique").on(table.conversationId, table.tagId), tagFilterIdx: index("conversation_tag_filter_idx").on(table.organizationId, table.tagId) }));
+
+export const agentPresence = pgTable("agent_presence", {
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  status: text("status").default("OFFLINE").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({ agentPresenceUnique: uniqueIndex("agent_presence_unique").on(table.organizationId, table.userId) }));
 
 // 13. Conversation Messages
 export const conversationMessages = pgTable("conversation_messages", {
   id: uuid("id").primaryKey().defaultRandom(),
   conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "cascade" }).notNull(),
   organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
-  senderType: text("sender_type").notNull(), // 'customer' | 'ai' | 'agent' | 'system'
+  senderType: text("sender_type").notNull(), // 'customer' | 'ai' | 'agent' | 'system' | 'internal_note'
   senderId: text("sender_id"),
   senderName: text("sender_name"),
   content: text("content").notNull(),
@@ -341,6 +393,9 @@ export const organizationSettings = pgTable("organization_settings", {
   costAlertThreshold: real("cost_alert_threshold").default(50).notNull(),
   sessionTimeout: integer("session_timeout").default(60).notNull(),
   apiKeyExpiryDays: integer("api_key_expiry_days").default(90).notNull(),
+  // Null disables auto-close. The retention period is an organization policy,
+  // never a hard-coded conversation lifecycle value.
+  resolvedAutoCloseHours: integer("resolved_auto_close_hours"),
   ipWhitelist: jsonb("ip_whitelist").default([]),
   supportEmail: text("support_email"),
   businessHours: jsonb("business_hours").default({}),

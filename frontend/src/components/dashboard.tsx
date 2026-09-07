@@ -98,6 +98,20 @@ export default function Dashboard({
   const [selectedConv, setSelectedConv] = useState<any>(null);
   const [convMessages, setConvMessages] = useState<any[]>([]);
   const [agentMsgInput, setAgentMsgInput] = useState("");
+  const [internalNoteInput, setInternalNoteInput] = useState("");
+  const [inboxState, setInboxState] = useState("");
+  const [inboxPriority, setInboxPriority] = useState("");
+  const [inboxAgentId, setInboxAgentId] = useState("");
+  const [inboxFrom, setInboxFrom] = useState("");
+  const [inboxTo, setInboxTo] = useState("");
+  const [inboxSearch, setInboxSearch] = useState("");
+  const [inboxSort, setInboxSort] = useState("newest");
+  const [inboxTags, setInboxTags] = useState<any[]>([]);
+  const [inboxAgents, setInboxAgents] = useState<any[]>([]);
+  const [agentPresence, setAgentPresence] = useState("ONLINE");
+  const [inboxTagId, setInboxTagId] = useState("");
+  const [inboxTimeline, setInboxTimeline] = useState<any[]>([]);
+  const [inboxHandoff, setInboxHandoff] = useState<any | null>(null);
   const [suggestion, setSuggestion] = useState<{
     content: string;
     sources: string[];
@@ -312,8 +326,13 @@ export default function Dashboard({
       }
 
       if (activeTab === "conversations") {
-        const res = await api.get("/conversations");
+        const res = await api.get("/conversations", { params: { state: inboxState || undefined, priority: inboxPriority || undefined, agentId: inboxAgentId || undefined, tagId: inboxTagId || undefined, from: inboxFrom || undefined, to: inboxTo || undefined, q: inboxSearch || undefined, sort: inboxSort } });
         setConversationsList(res.data);
+        const [tags, agents] = await Promise.all([api.get("/conversations/meta/tags"), api.get("/conversations/meta/agents")]);
+        setInboxTags(tags.data);
+        setInboxAgents(agents.data);
+        const ownPresence = agents.data.find((agent: any) => agent.id === auth?.user?.id)?.presence;
+        if (ownPresence) setAgentPresence(ownPresence);
       }
 
       if (activeTab === "tickets") {
@@ -353,7 +372,7 @@ export default function Dashboard({
     } catch (err: any) {
       console.error("Failed to load tenant data", err);
     }
-  }, [activeTab, selectedKbId]);
+  }, [activeTab, selectedKbId, inboxState, inboxPriority, inboxAgentId, inboxFrom, inboxTo, inboxSearch, inboxSort, inboxTagId, auth?.user?.id]);
 
   useEffect(() => {
     if (auth && activeOrg) void fetchTenantData();
@@ -470,10 +489,49 @@ export default function Dashboard({
 
   const handleSelectConversation = async (conv: any) => {
     setSelectedConv(conv);
+    setInboxHandoff(null);
     try {
-      const res = await api.get(`/conversations/${conv.id}/messages`);
-      setConvMessages(res.data);
+      const [messages, timeline, handoff] = await Promise.all([api.get(`/conversations/${conv.id}/messages`), api.get(`/conversations/${conv.id}/timeline`), api.get(`/conversations/${conv.id}/handoff`).catch(() => null)]);
+      setConvMessages(messages.data);
+      setInboxTimeline(timeline.data);
+      setInboxHandoff(handoff?.data || null);
     } catch (err) {}
+  };
+
+  const handleInboxAction = async (path: string, body?: any) => {
+    if (!selectedConv) return;
+    try {
+      const result = await api.put(`/conversations/${selectedConv.id}/${path}`, body);
+      if (result.data?.id) setSelectedConv((current: any) => ({ ...current, ...result.data }));
+      await handleSelectConversation({ ...selectedConv, ...(result.data || {}) });
+      void fetchTenantData();
+    } catch (err: any) { showNotify(err.response?.data?.error || "Aktion konnte nicht ausgeführt werden."); }
+  };
+
+  const handleToggleConversationTag = async (tag: any) => {
+    if (!selectedConv) return;
+    const existing = selectedConv.tags || [];
+    const nextTags = existing.some((item: any) => item.id === tag.id) ? existing.filter((item: any) => item.id !== tag.id) : [...existing, tag];
+    try {
+      await api.put(`/conversations/${selectedConv.id}/tags`, { tagIds: nextTags.map((item: any) => item.id) });
+      setSelectedConv((current: any) => ({ ...current, tags: nextTags }));
+      await handleSelectConversation({ ...selectedConv, tags: nextTags });
+      void fetchTenantData();
+    } catch (err: any) { showNotify(err.response?.data?.error || "Tags konnten nicht aktualisiert werden."); }
+  };
+
+  const handlePresenceChange = async (status: string) => {
+    try {
+      await api.put("/conversations/meta/presence", { status });
+      setAgentPresence(status);
+      showNotify(`Presence: ${status}`);
+    } catch (err: any) { showNotify(err.response?.data?.error || "Presence konnte nicht gespeichert werden."); }
+  };
+
+  const handleAddInternalNote = async () => {
+    if (!selectedConv || !internalNoteInput.trim()) return;
+    try { const res = await api.post(`/conversations/${selectedConv.id}/internal-notes`, { content: internalNoteInput }); setConvMessages((current) => [...current, res.data]); setInternalNoteInput(""); showNotify("Interne Notiz gespeichert."); }
+    catch (err: any) { showNotify(err.response?.data?.error || "Notiz konnte nicht gespeichert werden."); }
   };
 
   const handlePreferredLanguageChange = async (language: string) => {
@@ -1582,8 +1640,19 @@ export default function Dashboard({
           <div className="h-full flex gap-4 max-w-7xl mx-auto">
             {/* Conversation List */}
             <div className="w-1/3 bg-slate-900 border border-slate-800 rounded-xl overflow-hidden flex flex-col">
-              <div className="p-3 border-b border-slate-800 font-semibold text-sm">
-                Active Conversations
+              <div className="p-3 border-b border-slate-800 space-y-2">
+                <div className="font-semibold text-sm">Agent Inbox</div>
+                <input value={inboxSearch} onChange={(event) => setInboxSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void fetchTenantData(); }} placeholder="Kunde, E-Mail, ID oder Nachricht" className="w-full rounded bg-slate-800 px-2 py-1.5 text-xs" />
+                <div className="flex items-center justify-between gap-2 text-[10px] text-slate-400"><span>Meine Presence</span><select value={agentPresence} onChange={(event) => void handlePresenceChange(event.target.value)} className="rounded bg-slate-800 p-1 text-[10px] text-slate-200"><option>ONLINE</option><option>AWAY</option><option>OFFLINE</option></select></div>
+                <div className="grid grid-cols-2 gap-1">
+                  <select value={inboxState} onChange={(event) => setInboxState(event.target.value)} className="rounded bg-slate-800 p-1 text-[10px]"><option value="">Alle Status</option>{["AI_ACTIVE","NEEDS_HUMAN","WAITING_FOR_AGENT","AGENT_ACTIVE","WAITING_FOR_CUSTOMER","RESOLVED","CLOSED"].map((state) => <option key={state}>{state}</option>)}</select>
+                  <select value={inboxAgentId} onChange={(event) => setInboxAgentId(event.target.value)} className="rounded bg-slate-800 p-1 text-[10px]"><option value="">Alle Agenten</option><option value="unassigned">Nicht zugewiesen</option>{inboxAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name || agent.email}</option>)}</select>
+                  <select value={inboxTagId} onChange={(event) => setInboxTagId(event.target.value)} className="rounded bg-slate-800 p-1 text-[10px]"><option value="">Alle Tags</option>{inboxTags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}</select>
+                  <input type="date" value={inboxFrom} onChange={(event) => setInboxFrom(event.target.value)} aria-label="Von Datum" className="rounded bg-slate-800 p-1 text-[10px]" />
+                  <input type="date" value={inboxTo} onChange={(event) => setInboxTo(event.target.value)} aria-label="Bis Datum" className="rounded bg-slate-800 p-1 text-[10px]" />
+                  <select value={inboxPriority} onChange={(event) => setInboxPriority(event.target.value)} className="rounded bg-slate-800 p-1 text-[10px]"><option value="">Alle Prioritäten</option>{["LOW","NORMAL","HIGH","URGENT"].map((priority) => <option key={priority}>{priority}</option>)}</select>
+                  <select value={inboxSort} onChange={(event) => setInboxSort(event.target.value)} className="col-span-2 rounded bg-slate-800 p-1 text-[10px]"><option value="newest">Neueste Aktivität</option><option value="oldest_waiting">Älteste wartende Anfrage</option><option value="priority">Höchste Priorität</option><option value="sla_risk">SLA-Risiko</option></select>
+                </div>
               </div>
               <div className="flex-1 overflow-y-auto divide-y divide-slate-800/60">
                 {conversationsList.map((conv) => (
@@ -1601,6 +1670,7 @@ export default function Dashboard({
                       <span className="text-xs font-semibold text-slate-200">
                         {conv.customer?.name || "Visitor"}
                       </span>
+                      <span className={`text-[10px] font-semibold ${conv.priority === "URGENT" ? "text-red-400" : conv.priority === "HIGH" ? "text-amber-400" : "text-slate-400"}`}>{conv.priority || "NORMAL"}</span>
                       <span
                         className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
                           conv.state === "WAITING_FOR_AGENT"
@@ -1640,7 +1710,7 @@ export default function Dashboard({
             <div className="w-2/3 bg-slate-900 border border-slate-800 rounded-xl flex flex-col overflow-hidden">
               {selectedConv ? (
                 <>
-                  <div className="p-3 border-b border-slate-800 flex justify-between items-center bg-slate-900">
+                    <div className="p-3 border-b border-slate-800 flex justify-between items-center bg-slate-900">
                     <div>
                       <h3 className="text-sm font-semibold text-slate-200">
                         {selectedConv.customer?.name}
@@ -1649,21 +1719,47 @@ export default function Dashboard({
                         {selectedConv.customer?.email}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleResolveConversation(selectedConv.id)}
-                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded"
-                    >
-                      Mark Resolved
-                    </button>
+                    <div className="flex gap-2"><select value={selectedConv.priority || "NORMAL"} onChange={(event) => void handleInboxAction("priority", { priority: event.target.value })} className="rounded bg-slate-800 px-2 text-[10px]">{["LOW","NORMAL","HIGH","URGENT"].map((priority) => <option key={priority}>{priority}</option>)}</select><select value={selectedConv.assignedAgentId || ""} onChange={(event) => void handleInboxAction("assignment", { agentId: event.target.value || null })} className="max-w-32 rounded bg-slate-800 px-2 text-[10px]"><option value="">Unassign</option>{inboxAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name || agent.email}</option>)}</select><button type="button" onClick={() => void handleInboxAction("assignment", { agentId: auth?.user?.id })} className="rounded bg-violet-700 px-2 py-1 text-xs">Assign to me</button><button type="button" onClick={() => handleResolveConversation(selectedConv.id)} className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded">Mark Resolved</button></div>
                   </div>
 
+                  {inboxTags.length > 0 && <div className="flex flex-wrap gap-1 border-b border-slate-800 bg-slate-900 px-3 py-2">{inboxTags.map((tag) => { const active = (selectedConv.tags || []).some((item: any) => item.id === tag.id); return <button type="button" key={tag.id} onClick={() => void handleToggleConversationTag(tag)} className={`rounded px-2 py-1 text-[10px] ${active ? "bg-blue-700 text-white" : "bg-slate-800 text-slate-400 hover:text-white"}`}>{active ? "✓ " : "+ "}{tag.name}</button>; })}</div>}
                   <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-950/40">
+                    {inboxHandoff && (
+                      <section className="rounded-lg border border-amber-800/80 bg-amber-950/35 p-3 text-xs text-amber-100">
+                        <div className="flex items-center justify-between gap-2"><strong>Human Handoff</strong><span className="rounded bg-amber-900/70 px-1.5 py-0.5 font-mono text-[10px]">{inboxHandoff.requestedPriority}</span></div>
+                        <p className="mt-1">Grund: {inboxHandoff.reason}</p>
+                        {inboxHandoff.aiConfidence !== null && <p className="mt-1">AI Confidence: {Math.round(Number(inboxHandoff.aiConfidence) * 100)}%</p>}
+                        {inboxHandoff.lastAiAttempt && <p className="mt-2 rounded bg-slate-950/50 p-2 text-slate-300">Letzter AI-Versuch: {inboxHandoff.lastAiAttempt}</p>}
+                        <p className="mt-2 text-[10px] text-amber-300">{inboxHandoff.claimedAt ? `Übernommen am ${new Date(inboxHandoff.claimedAt).toLocaleString()}` : `Eskaliert am ${new Date(inboxHandoff.createdAt).toLocaleString()}`}</p>
+                      </section>
+                    )}
+                    {inboxTimeline.length > 0 && (
+                      <section className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-xs">
+                        <h4 className="font-semibold text-slate-200">Activity Timeline</h4>
+                        <ol className="mt-2 space-y-2 border-l border-slate-700 pl-3">
+                          {inboxTimeline.slice(-8).map((event) => {
+                            const labels: Record<string, string> = {
+                              handoff_requested: "Human handoff requested",
+                              assignment_changed: "Assignment changed",
+                              unassigned: "Conversation unassigned",
+                              priority_changed: "Priority changed",
+                              tags_changed: "Tags updated",
+                              internal_note_added: "Internal note added",
+                              status_changed: "Status changed",
+                              auto_closed: "Automatically closed",
+                            };
+                            return <li key={event.id} className="relative text-slate-400 before:absolute before:-left-[17px] before:top-1.5 before:size-1.5 before:rounded-full before:bg-blue-400"><span className="text-slate-200">{labels[event.eventType] || event.eventType}</span>{event.payload?.to && <span className="ml-1 text-slate-500">→ {event.payload.to}</span>}<time className="ml-2 text-[10px] text-slate-500">{new Date(event.createdAt).toLocaleString()}</time></li>;
+                          })}
+                        </ol>
+                      </section>
+                    )}
                     {convMessages.map((m) => (
                       <div
                         key={m.id}
                         className={`max-w-md p-3 rounded-xl text-xs ${
-                          m.senderType === "customer"
+                          m.senderType === "internal_note"
+                            ? "bg-amber-950/60 text-amber-100 mr-auto rounded border border-amber-800"
+                            : m.senderType === "customer"
                             ? "bg-blue-600 text-white ml-auto rounded-br-none"
                             : m.senderType === "agent"
                               ? "bg-purple-700 text-white ml-auto rounded-br-none"
@@ -1754,6 +1850,10 @@ export default function Dashboard({
                           </button>
                         </div>
                       )}
+                  </div>
+                  <div className="border-t border-amber-900/70 bg-amber-950/20 p-3">
+                    <p className="mb-2 text-[10px] font-semibold uppercase text-amber-300">Interne Notiz — wird niemals an den Kunden gesendet</p>
+                    <div className="flex gap-2"><input value={internalNoteInput} onChange={(event) => setInternalNoteInput(event.target.value)} className="flex-1 rounded border border-amber-800 bg-slate-900 px-3 py-2 text-xs" placeholder="Notiz für das Support-Team" /><button type="button" onClick={handleAddInternalNote} className="rounded bg-amber-700 px-3 text-xs font-semibold">Notiz speichern</button></div>
                   </div>
                   <form
                     onSubmit={handleSendAgentMessage}

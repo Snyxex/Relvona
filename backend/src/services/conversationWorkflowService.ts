@@ -1,0 +1,117 @@
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { db } from "../db/index.js";
+import { conversationActivities, conversationHandoffs, conversationMessages, conversationTagLinks, conversationTags, conversations, organizationMembers, users } from "../db/schema.js";
+import { AuditService } from "./auditService.js";
+import { domainEventBus } from "./domainEventBus.js";
+
+export const CONVERSATION_STATES = ["AI_ACTIVE", "NEEDS_HUMAN", "WAITING_FOR_AGENT", "AGENT_ACTIVE", "WAITING_FOR_CUSTOMER", "RESOLVED", "CLOSED"] as const;
+export const CONVERSATION_PRIORITIES = ["LOW", "NORMAL", "HIGH", "URGENT"] as const;
+const transitions: Record<string, readonly string[]> = {
+  AI_ACTIVE: ["NEEDS_HUMAN", "WAITING_FOR_AGENT", "CLOSED"],
+  NEEDS_HUMAN: ["WAITING_FOR_AGENT", "CLOSED"],
+  WAITING_FOR_AGENT: ["AGENT_ACTIVE", "CLOSED"],
+  AGENT_ACTIVE: ["WAITING_FOR_CUSTOMER", "RESOLVED", "WAITING_FOR_AGENT"],
+  WAITING_FOR_CUSTOMER: ["AGENT_ACTIVE", "RESOLVED", "CLOSED"],
+  RESOLVED: ["AGENT_ACTIVE", "CLOSED"],
+  CLOSED: ["WAITING_FOR_AGENT"],
+};
+
+export function canTransition(current: string, target: string, actorKind: "agent" | "customer" | "system" = "agent") {
+  if (!CONVERSATION_STATES.includes(target as (typeof CONVERSATION_STATES)[number])) return false;
+  if (!transitions[current]?.includes(target)) return false;
+  return !(current === "CLOSED" && target === "WAITING_FOR_AGENT" && actorKind === "agent");
+}
+
+export class ConversationWorkflowService {
+  static async recordHandoff(input: { organizationId: string; conversationId: string; reason: string; aiConfidence?: number | null; lastAiAttempt?: string | null; requestedPriority?: string }) {
+    const [handoff] = await db.insert(conversationHandoffs).values({
+      organizationId: input.organizationId,
+      conversationId: input.conversationId,
+      reason: input.reason,
+      aiConfidence: input.aiConfidence ?? null,
+      lastAiAttempt: input.lastAiAttempt ?? null,
+      requestedPriority: input.requestedPriority || "NORMAL",
+    }).returning();
+    await this.event(input.organizationId, input.conversationId, "handoff_requested", null, { handoffId: handoff.id, reason: handoff.reason, aiConfidence: handoff.aiConfidence, requestedPriority: handoff.requestedPriority });
+    return handoff;
+  }
+
+  static async event(organizationId: string, conversationId: string, eventType: string, actorUserId?: string | null, payload: Record<string, unknown> = {}) {
+    await db.insert(conversationActivities).values({ organizationId, conversationId, eventType, actorUserId: actorUserId || null, payload });
+    await domainEventBus.emit({ type: "conversation.updated", organizationId, conversationId, payload: { eventType, ...payload } });
+  }
+
+  static async transition(input: { organizationId: string; conversationId: string; actorUserId: string; target: string; actorKind?: "agent" | "customer" | "system" }) {
+    if (!CONVERSATION_STATES.includes(input.target as any)) throw new Error("Invalid conversation state");
+    const [current] = await db.select().from(conversations).where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).limit(1);
+    if (!current) throw new Error("Conversation not found");
+    if (!canTransition(current.state, input.target, input.actorKind || "agent")) {
+      if (current.state === "CLOSED" && input.target === "WAITING_FOR_AGENT") throw new Error("Closed conversations can only be reopened by a customer reply");
+      throw new Error("Invalid conversation state transition");
+    }
+    const [updated] = await db.update(conversations).set({ state: input.target, updatedAt: new Date() }).where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId), eq(conversations.state, current.state))).returning();
+    if (!updated) throw new Error("Conversation was updated by another agent");
+    await this.event(input.organizationId, input.conversationId, "status_changed", input.actorUserId, { from: current.state, to: input.target });
+    await AuditService.logAction({ organizationId: input.organizationId, actorUserId: input.actorUserId, action: `conversation.${input.target.toLowerCase()}`, resourceType: "conversation", resourceId: input.conversationId, metadata: { from: current.state, to: input.target } });
+    return updated;
+  }
+
+  static async assign(input: { organizationId: string; conversationId: string; actorUserId: string; assigneeId: string | null; canManageAssignment?: boolean }) {
+    if (input.assigneeId) {
+      const [member] = await db.select({ id: organizationMembers.id }).from(organizationMembers).where(and(eq(organizationMembers.organizationId, input.organizationId), eq(organizationMembers.userId, input.assigneeId), inArray(organizationMembers.role, ["owner", "admin", "agent"]), eq(organizationMembers.status, "active"))).limit(1);
+      if (!member) throw new Error("Assignee is not an active support agent");
+    }
+    const [before] = await db.select({ assignedAgentId: conversations.assignedAgentId, state: conversations.state }).from(conversations).where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).limit(1);
+    if (!before) throw new Error("Conversation not found");
+    if (!input.canManageAssignment && before.assignedAgentId && before.assignedAgentId !== input.actorUserId) {
+      throw new Error("Conversation is already assigned to another agent");
+    }
+    if (!input.canManageAssignment && input.assigneeId && input.assigneeId !== input.actorUserId) {
+      throw new Error("Only administrators can assign another agent");
+    }
+    // A claim is conditional: an already-owned conversation cannot be stolen by an agent.
+    const condition = !input.canManageAssignment && before.assignedAgentId === null
+      ? sql`${conversations.assignedAgentId} IS NULL`
+      : before.assignedAgentId === null
+        ? sql`${conversations.assignedAgentId} IS NULL`
+        : eq(conversations.assignedAgentId, before.assignedAgentId);
+    const [updated] = await db.update(conversations).set({ assignedAgentId: input.assigneeId, state: input.assigneeId && before.state === "WAITING_FOR_AGENT" ? "AGENT_ACTIVE" : before.state, updatedAt: new Date() }).where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId), condition)).returning();
+    if (!updated) throw new Error("Conversation is already assigned to another agent");
+    await this.event(input.organizationId, input.conversationId, input.assigneeId ? "assignment_changed" : "unassigned", input.actorUserId, { from: before.assignedAgentId, to: input.assigneeId });
+    if (updated.state !== before.state) {
+      await this.event(input.organizationId, input.conversationId, "status_changed", input.actorUserId, { from: before.state, to: updated.state, reason: "assignment" });
+    }
+    if (input.assigneeId) {
+      await db.update(conversationHandoffs).set({ claimedByUserId: input.assigneeId, claimedAt: new Date() }).where(and(eq(conversationHandoffs.organizationId, input.organizationId), eq(conversationHandoffs.conversationId, input.conversationId), isNull(conversationHandoffs.claimedAt)));
+    }
+    await AuditService.logAction({ organizationId: input.organizationId, actorUserId: input.actorUserId, action: input.assigneeId ? "conversation.assigned" : "conversation.unassigned", resourceType: "conversation", resourceId: input.conversationId, metadata: { assigneeId: input.assigneeId } });
+    return updated;
+  }
+
+  static async changePriority(input: { organizationId: string; conversationId: string; actorUserId: string; priority: string }) {
+    if (!CONVERSATION_PRIORITIES.includes(input.priority as any)) throw new Error("Invalid conversation priority");
+    const [before] = await db.select({ priority: conversations.priority }).from(conversations).where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).limit(1);
+    if (!before) throw new Error("Conversation not found");
+    const [updated] = await db.update(conversations).set({ priority: input.priority, updatedAt: new Date() }).where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).returning();
+    await this.event(input.organizationId, input.conversationId, "priority_changed", input.actorUserId, { from: before.priority, to: input.priority });
+    await AuditService.logAction({ organizationId: input.organizationId, actorUserId: input.actorUserId, action: "conversation.priority_changed", resourceType: "conversation", resourceId: input.conversationId, metadata: { from: before.priority, to: input.priority } });
+    return updated;
+  }
+
+  static async addInternalNote(input: { organizationId: string; conversationId: string; actorUserId: string; actorName: string; content: string }) {
+    const [message] = await db.insert(conversationMessages).values({ organizationId: input.organizationId, conversationId: input.conversationId, senderType: "internal_note", senderId: input.actorUserId, senderName: input.actorName, content: input.content }).returning();
+    await this.event(input.organizationId, input.conversationId, "internal_note_added", input.actorUserId, { messageId: message.id });
+    await AuditService.logAction({ organizationId: input.organizationId, actorUserId: input.actorUserId, action: "conversation.internal_note_added", resourceType: "conversation", resourceId: input.conversationId });
+    await domainEventBus.emit({ type: "message.created", organizationId: input.organizationId, conversationId: input.conversationId, payload: message });
+    return message;
+  }
+
+  static async setTags(input: { organizationId: string; conversationId: string; actorUserId: string; tagIds: string[] }) {
+    const [conversation] = await db.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).limit(1);
+    if (!conversation) throw new Error("Conversation not found");
+    const tags = input.tagIds.length ? await db.select({ id: conversationTags.id }).from(conversationTags).where(and(eq(conversationTags.organizationId, input.organizationId), inArray(conversationTags.id, input.tagIds))) : [];
+    if (tags.length !== input.tagIds.length) throw new Error("One or more tags do not belong to this organization");
+    await db.transaction(async (tx) => { await tx.delete(conversationTagLinks).where(and(eq(conversationTagLinks.organizationId, input.organizationId), eq(conversationTagLinks.conversationId, input.conversationId))); if (tags.length) await tx.insert(conversationTagLinks).values(tags.map((tag) => ({ organizationId: input.organizationId, conversationId: input.conversationId, tagId: tag.id }))); });
+    await this.event(input.organizationId, input.conversationId, "tags_changed", input.actorUserId, { tagIds: input.tagIds });
+  }
+}
