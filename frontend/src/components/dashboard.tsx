@@ -101,9 +101,11 @@ export default function Dashboard({
   const [internalNoteInput, setInternalNoteInput] = useState("");
   const [inboxState, setInboxState] = useState("");
   const [inboxPriority, setInboxPriority] = useState("");
+  const [inboxAgentId, setInboxAgentId] = useState("");
   const [inboxSearch, setInboxSearch] = useState("");
   const [inboxSort, setInboxSort] = useState("newest");
   const [inboxTags, setInboxTags] = useState<any[]>([]);
+  const [inboxAgents, setInboxAgents] = useState<any[]>([]);
   const [inboxTagId, setInboxTagId] = useState("");
   const [inboxTimeline, setInboxTimeline] = useState<any[]>([]);
   const [inboxHandoff, setInboxHandoff] = useState<any | null>(null);
@@ -321,10 +323,11 @@ export default function Dashboard({
       }
 
       if (activeTab === "conversations") {
-        const res = await api.get("/conversations", { params: { state: inboxState || undefined, priority: inboxPriority || undefined, tagId: inboxTagId || undefined, q: inboxSearch || undefined, sort: inboxSort } });
+        const res = await api.get("/conversations", { params: { state: inboxState || undefined, priority: inboxPriority || undefined, agentId: inboxAgentId || undefined, tagId: inboxTagId || undefined, q: inboxSearch || undefined, sort: inboxSort } });
         setConversationsList(res.data);
-        const tags = await api.get("/conversations/meta/tags");
+        const [tags, agents] = await Promise.all([api.get("/conversations/meta/tags"), api.get("/conversations/meta/agents")]);
         setInboxTags(tags.data);
+        setInboxAgents(agents.data);
       }
 
       if (activeTab === "tickets") {
@@ -364,7 +367,7 @@ export default function Dashboard({
     } catch (err: any) {
       console.error("Failed to load tenant data", err);
     }
-  }, [activeTab, selectedKbId, inboxState, inboxPriority, inboxSearch, inboxSort, inboxTagId]);
+  }, [activeTab, selectedKbId, inboxState, inboxPriority, inboxAgentId, inboxSearch, inboxSort, inboxTagId]);
 
   useEffect(() => {
     if (auth && activeOrg) void fetchTenantData();
@@ -1629,6 +1632,7 @@ export default function Dashboard({
                 <input value={inboxSearch} onChange={(event) => setInboxSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void fetchTenantData(); }} placeholder="Kunde, E-Mail, ID oder Nachricht" className="w-full rounded bg-slate-800 px-2 py-1.5 text-xs" />
                 <div className="grid grid-cols-2 gap-1">
                   <select value={inboxState} onChange={(event) => setInboxState(event.target.value)} className="rounded bg-slate-800 p-1 text-[10px]"><option value="">Alle Status</option>{["AI_ACTIVE","NEEDS_HUMAN","WAITING_FOR_AGENT","AGENT_ACTIVE","WAITING_FOR_CUSTOMER","RESOLVED","CLOSED"].map((state) => <option key={state}>{state}</option>)}</select>
+                  <select value={inboxAgentId} onChange={(event) => setInboxAgentId(event.target.value)} className="rounded bg-slate-800 p-1 text-[10px]"><option value="">Alle Agenten</option><option value="unassigned">Nicht zugewiesen</option>{inboxAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name || agent.email}</option>)}</select>
                   <select value={inboxTagId} onChange={(event) => setInboxTagId(event.target.value)} className="rounded bg-slate-800 p-1 text-[10px]"><option value="">Alle Tags</option>{inboxTags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}</select>
                   <select value={inboxPriority} onChange={(event) => setInboxPriority(event.target.value)} className="rounded bg-slate-800 p-1 text-[10px]"><option value="">Alle Prioritäten</option>{["LOW","NORMAL","HIGH","URGENT"].map((priority) => <option key={priority}>{priority}</option>)}</select>
                   <select value={inboxSort} onChange={(event) => setInboxSort(event.target.value)} className="col-span-2 rounded bg-slate-800 p-1 text-[10px]"><option value="newest">Neueste Aktivität</option><option value="oldest_waiting">Älteste wartende Anfrage</option><option value="priority">Höchste Priorität</option><option value="sla_risk">SLA-Risiko</option></select>

@@ -4,7 +4,7 @@ import { ConversationService } from "../services/conversationService.js";
 import { RAGService } from "../services/ragService.js";
 import { db } from "../db/index.js";
 import { conversations, conversationMessages, customers, conversationActivities, conversationHandoffs, conversationTags, conversationTagLinks, agentPresence, organizationMembers, users } from "../db/schema.js";
-import { eq, and, desc, asc, gte, lte, ilike, or, sql, inArray } from "drizzle-orm";
+import { eq, and, desc, asc, gte, lte, ilike, isNull, or, sql, inArray } from "drizzle-orm";
 import { ConversationWorkflowService, CONVERSATION_PRIORITIES, CONVERSATION_STATES } from "../services/conversationWorkflowService.js";
 import { sendInternalError } from "../utils/httpErrors.js";
 
@@ -35,7 +35,8 @@ router.get("/", async (req: AuthRequest, res) => {
     let whereClause = eq(conversations.organizationId, req.organization!.id);
     if (state) whereClause = and(whereClause, eq(conversations.state, state as string))!;
     if (priority) whereClause = and(whereClause, eq(conversations.priority, priority as string))!;
-    if (agentId) whereClause = and(whereClause, eq(conversations.assignedAgentId, agentId as string))!;
+    if (agentId === "unassigned") whereClause = and(whereClause, isNull(conversations.assignedAgentId))!;
+    else if (agentId) whereClause = and(whereClause, eq(conversations.assignedAgentId, agentId as string))!;
     if (customerId) whereClause = and(whereClause, eq(conversations.customerId, customerId as string))!;
     if (from && !Number.isNaN(Date.parse(from as string))) whereClause = and(whereClause, gte(conversations.updatedAt, new Date(from as string)))!;
     if (to && !Number.isNaN(Date.parse(to as string))) whereClause = and(whereClause, lte(conversations.updatedAt, new Date(to as string)))!;
