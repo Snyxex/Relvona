@@ -6,7 +6,7 @@ import { users, organizationMembers, organizations } from "../db/schema.js";
 import { platformRoles, PLATFORM_ADMIN_ROLE } from "../db/platformRoles.js";
 import { and, eq } from "drizzle-orm";
 
-export type AuthenticatedUser = { id: string; email: string; name: string; avatarUrl: string | null; preferredLanguage: string; isPlatformAdmin: boolean; status: string };
+export type AuthenticatedUser = { id: string; email: string; name: string; avatarUrl: string | null; preferredLanguage: string; isPlatformAdmin: boolean; systemRole: "superadmin" | "user"; status: string };
 export const ORGANIZATION_ROLES = ["owner", "admin", "agent", "viewer"] as const;
 export type OrganizationRole = typeof ORGANIZATION_ROLES[number];
 export type OrganizationMembership = { id: string; name: string; slug: string; role: OrganizationRole };
@@ -30,13 +30,16 @@ export async function getCurrentUser(request: Pick<Request, "headers">): Promise
   if (!session?.user?.id) return null;
   const [user] = await db.select().from(users).where(eq(users.id, session.user.id)).limit(1);
   if (!user || user.status !== "active") return null;
+  const platformAdmin = await isPlatformAdmin(user.id);
   return {
     id: user.id,
     email: user.email,
     name: user.name,
     avatarUrl: user.avatarUrl,
     preferredLanguage: user.preferredLanguage,
-    isPlatformAdmin: await isPlatformAdmin(user.id),
+    isPlatformAdmin: platformAdmin,
+    // Temporary response compatibility only. Authorization never reads users.system_role.
+    systemRole: platformAdmin ? "superadmin" : "user",
     status: user.status,
   };
 }
