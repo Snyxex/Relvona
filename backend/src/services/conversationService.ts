@@ -97,7 +97,7 @@ export class ConversationService {
       .orderBy(desc(conversations.createdAt))
       .limit(1);
 
-    if (existing && existing.state !== "RESOLVED") {
+    if (existing && existing.state !== "RESOLVED" && existing.state !== "CLOSED") {
       return existing;
     }
 
@@ -143,7 +143,11 @@ export class ConversationService {
     // 1. Fetch Conversation
     const [conv] = await db.select().from(conversations).where(and(eq(conversations.id, data.conversationId), eq(conversations.organizationId, data.organizationId))).limit(1);
     if (!conv) throw new Error("Conversation not found");
-    if (conv.state === "RESOLVED") throw new Error("Conversation is resolved");
+    // A customer reply reopens a completed case into the human queue. AI is not
+    // silently re-enabled after a human-owned lifecycle.
+    if (conv.state === "CLOSED" || conv.state === "RESOLVED") {
+      await db.update(conversations).set({ state: conv.state === "CLOSED" ? "WAITING_FOR_AGENT" : "AGENT_ACTIVE", updatedAt: new Date() }).where(and(eq(conversations.id, conv.id), eq(conversations.organizationId, data.organizationId)));
+    }
     const [settings] = await db.select({ widgetRequestsPerMinute: organizationSettings.widgetRequestsPerMinute }).from(organizationSettings).where(eq(organizationSettings.organizationId, data.organizationId)).limit(1);
     await TenantQuotaService.consumeWidgetRequest(data.organizationId, settings?.widgetRequestsPerMinute ?? 120);
     await TenantQuotaService.consumeWidgetEndUserRequest(data.organizationId, conv.customerId, settings?.widgetRequestsPerMinute ?? 120);
@@ -166,7 +170,7 @@ export class ConversationService {
 
     await domainEventBus.emit({ type: "message.created", organizationId: data.organizationId, conversationId: conv.id, payload: custMsg });
     // Human-owned and queued conversations must not auto-respond with AI.
-    if (conv.state === "AGENT_ACTIVE" || conv.state === "WAITING_FOR_AGENT") {
+    if (["AGENT_ACTIVE", "WAITING_FOR_AGENT", "WAITING_FOR_CUSTOMER", "RESOLVED", "CLOSED"].includes(conv.state)) {
       await db.update(conversations).set({ updatedAt: new Date() })
         .where(and(eq(conversations.id, conv.id), eq(conversations.organizationId, data.organizationId)));
       return {
@@ -342,7 +346,7 @@ export class ConversationService {
       await db
         .update(conversations)
         .set({
-          state: "AGENT_ACTIVE",
+          state: "WAITING_FOR_CUSTOMER",
           assignedAgentId: data.agentId,
           updatedAt: new Date(),
         })

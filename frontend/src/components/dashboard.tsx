@@ -98,6 +98,13 @@ export default function Dashboard({
   const [selectedConv, setSelectedConv] = useState<any>(null);
   const [convMessages, setConvMessages] = useState<any[]>([]);
   const [agentMsgInput, setAgentMsgInput] = useState("");
+  const [internalNoteInput, setInternalNoteInput] = useState("");
+  const [inboxState, setInboxState] = useState("");
+  const [inboxPriority, setInboxPriority] = useState("");
+  const [inboxSearch, setInboxSearch] = useState("");
+  const [inboxSort, setInboxSort] = useState("newest");
+  const [inboxTags, setInboxTags] = useState<any[]>([]);
+  const [inboxTimeline, setInboxTimeline] = useState<any[]>([]);
   const [suggestion, setSuggestion] = useState<{
     content: string;
     sources: string[];
@@ -312,8 +319,10 @@ export default function Dashboard({
       }
 
       if (activeTab === "conversations") {
-        const res = await api.get("/conversations");
+        const res = await api.get("/conversations", { params: { state: inboxState || undefined, priority: inboxPriority || undefined, q: inboxSearch || undefined, sort: inboxSort } });
         setConversationsList(res.data);
+        const tags = await api.get("/conversations/meta/tags");
+        setInboxTags(tags.data);
       }
 
       if (activeTab === "tickets") {
@@ -353,7 +362,7 @@ export default function Dashboard({
     } catch (err: any) {
       console.error("Failed to load tenant data", err);
     }
-  }, [activeTab, selectedKbId]);
+  }, [activeTab, selectedKbId, inboxState, inboxPriority, inboxSearch, inboxSort]);
 
   useEffect(() => {
     if (auth && activeOrg) void fetchTenantData();
@@ -471,9 +480,26 @@ export default function Dashboard({
   const handleSelectConversation = async (conv: any) => {
     setSelectedConv(conv);
     try {
-      const res = await api.get(`/conversations/${conv.id}/messages`);
-      setConvMessages(res.data);
+      const [messages, timeline] = await Promise.all([api.get(`/conversations/${conv.id}/messages`), api.get(`/conversations/${conv.id}/timeline`)]);
+      setConvMessages(messages.data);
+      setInboxTimeline(timeline.data);
     } catch (err) {}
+  };
+
+  const handleInboxAction = async (path: string, body?: any) => {
+    if (!selectedConv) return;
+    try {
+      const result = await api.put(`/conversations/${selectedConv.id}/${path}`, body);
+      if (result.data?.id) setSelectedConv((current: any) => ({ ...current, ...result.data }));
+      await handleSelectConversation({ ...selectedConv, ...(result.data || {}) });
+      void fetchTenantData();
+    } catch (err: any) { showNotify(err.response?.data?.error || "Aktion konnte nicht ausgeführt werden."); }
+  };
+
+  const handleAddInternalNote = async () => {
+    if (!selectedConv || !internalNoteInput.trim()) return;
+    try { const res = await api.post(`/conversations/${selectedConv.id}/internal-notes`, { content: internalNoteInput }); setConvMessages((current) => [...current, res.data]); setInternalNoteInput(""); showNotify("Interne Notiz gespeichert."); }
+    catch (err: any) { showNotify(err.response?.data?.error || "Notiz konnte nicht gespeichert werden."); }
   };
 
   const handlePreferredLanguageChange = async (language: string) => {
@@ -1582,8 +1608,14 @@ export default function Dashboard({
           <div className="h-full flex gap-4 max-w-7xl mx-auto">
             {/* Conversation List */}
             <div className="w-1/3 bg-slate-900 border border-slate-800 rounded-xl overflow-hidden flex flex-col">
-              <div className="p-3 border-b border-slate-800 font-semibold text-sm">
-                Active Conversations
+              <div className="p-3 border-b border-slate-800 space-y-2">
+                <div className="font-semibold text-sm">Agent Inbox</div>
+                <input value={inboxSearch} onChange={(event) => setInboxSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void fetchTenantData(); }} placeholder="Kunde, E-Mail, ID oder Nachricht" className="w-full rounded bg-slate-800 px-2 py-1.5 text-xs" />
+                <div className="grid grid-cols-2 gap-1">
+                  <select value={inboxState} onChange={(event) => setInboxState(event.target.value)} className="rounded bg-slate-800 p-1 text-[10px]"><option value="">Alle Status</option>{["AI_ACTIVE","NEEDS_HUMAN","WAITING_FOR_AGENT","AGENT_ACTIVE","WAITING_FOR_CUSTOMER","RESOLVED","CLOSED"].map((state) => <option key={state}>{state}</option>)}</select>
+                  <select value={inboxPriority} onChange={(event) => setInboxPriority(event.target.value)} className="rounded bg-slate-800 p-1 text-[10px]"><option value="">Alle Prioritäten</option>{["LOW","NORMAL","HIGH","URGENT"].map((priority) => <option key={priority}>{priority}</option>)}</select>
+                  <select value={inboxSort} onChange={(event) => setInboxSort(event.target.value)} className="col-span-2 rounded bg-slate-800 p-1 text-[10px]"><option value="newest">Neueste Aktivität</option><option value="oldest_waiting">Älteste wartende Anfrage</option><option value="priority">Höchste Priorität</option><option value="sla_risk">SLA-Risiko</option></select>
+                </div>
               </div>
               <div className="flex-1 overflow-y-auto divide-y divide-slate-800/60">
                 {conversationsList.map((conv) => (
@@ -1601,6 +1633,7 @@ export default function Dashboard({
                       <span className="text-xs font-semibold text-slate-200">
                         {conv.customer?.name || "Visitor"}
                       </span>
+                      <span className={`text-[10px] font-semibold ${conv.priority === "URGENT" ? "text-red-400" : conv.priority === "HIGH" ? "text-amber-400" : "text-slate-400"}`}>{conv.priority || "NORMAL"}</span>
                       <span
                         className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
                           conv.state === "WAITING_FOR_AGENT"
@@ -1640,7 +1673,7 @@ export default function Dashboard({
             <div className="w-2/3 bg-slate-900 border border-slate-800 rounded-xl flex flex-col overflow-hidden">
               {selectedConv ? (
                 <>
-                  <div className="p-3 border-b border-slate-800 flex justify-between items-center bg-slate-900">
+                    <div className="p-3 border-b border-slate-800 flex justify-between items-center bg-slate-900">
                     <div>
                       <h3 className="text-sm font-semibold text-slate-200">
                         {selectedConv.customer?.name}
@@ -1649,13 +1682,7 @@ export default function Dashboard({
                         {selectedConv.customer?.email}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleResolveConversation(selectedConv.id)}
-                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded"
-                    >
-                      Mark Resolved
-                    </button>
+                    <div className="flex gap-2"><select value={selectedConv.priority || "NORMAL"} onChange={(event) => void handleInboxAction("priority", { priority: event.target.value })} className="rounded bg-slate-800 px-2 text-[10px]">{["LOW","NORMAL","HIGH","URGENT"].map((priority) => <option key={priority}>{priority}</option>)}</select><button type="button" onClick={() => void handleInboxAction("assignment", { agentId: auth?.user?.id })} className="rounded bg-violet-700 px-2 py-1 text-xs">Assign to me</button><button type="button" onClick={() => handleResolveConversation(selectedConv.id)} className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded">Mark Resolved</button></div>
                   </div>
 
                   <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-950/40">
@@ -1663,7 +1690,9 @@ export default function Dashboard({
                       <div
                         key={m.id}
                         className={`max-w-md p-3 rounded-xl text-xs ${
-                          m.senderType === "customer"
+                          m.senderType === "internal_note"
+                            ? "bg-amber-950/60 text-amber-100 mr-auto rounded border border-amber-800"
+                            : m.senderType === "customer"
                             ? "bg-blue-600 text-white ml-auto rounded-br-none"
                             : m.senderType === "agent"
                               ? "bg-purple-700 text-white ml-auto rounded-br-none"
@@ -1754,6 +1783,10 @@ export default function Dashboard({
                           </button>
                         </div>
                       )}
+                  </div>
+                  <div className="border-t border-amber-900/70 bg-amber-950/20 p-3">
+                    <p className="mb-2 text-[10px] font-semibold uppercase text-amber-300">Interne Notiz — wird niemals an den Kunden gesendet</p>
+                    <div className="flex gap-2"><input value={internalNoteInput} onChange={(event) => setInternalNoteInput(event.target.value)} className="flex-1 rounded border border-amber-800 bg-slate-900 px-3 py-2 text-xs" placeholder="Notiz für das Support-Team" /><button type="button" onClick={handleAddInternalNote} className="rounded bg-amber-700 px-3 text-xs font-semibold">Notiz speichern</button></div>
                   </div>
                   <form
                     onSubmit={handleSendAgentMessage}
