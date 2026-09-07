@@ -19,7 +19,9 @@ const upload = multer({
     fieldNameSize: 100,
     fieldSize: 10_000,
     fieldNestingDepth: 2,
-    fieldArrayIndexLimit: 10,
+    // Multer 2.3.0 supports this runtime hardening option; the DefinitelyTyped
+    // declaration has not exposed it yet, so keep it as a spread extension.
+    ...{ fieldArrayIndexLimit: 10 },
   },
   fileFilter: (_req, file, cb) => {
     if (file.mimetype === "application/pdf" && file.originalname.toLowerCase().endsWith(".pdf")) {
