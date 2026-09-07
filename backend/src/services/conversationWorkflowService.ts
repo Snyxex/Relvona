@@ -1,6 +1,6 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { conversationActivities, conversationMessages, conversationTagLinks, conversationTags, conversations, organizationMembers, users } from "../db/schema.js";
+import { conversationActivities, conversationHandoffs, conversationMessages, conversationTagLinks, conversationTags, conversations, organizationMembers, users } from "../db/schema.js";
 import { AuditService } from "./auditService.js";
 import { domainEventBus } from "./domainEventBus.js";
 
@@ -17,6 +17,19 @@ const transitions: Record<string, readonly string[]> = {
 };
 
 export class ConversationWorkflowService {
+  static async recordHandoff(input: { organizationId: string; conversationId: string; reason: string; aiConfidence?: number | null; lastAiAttempt?: string | null; requestedPriority?: string }) {
+    const [handoff] = await db.insert(conversationHandoffs).values({
+      organizationId: input.organizationId,
+      conversationId: input.conversationId,
+      reason: input.reason,
+      aiConfidence: input.aiConfidence ?? null,
+      lastAiAttempt: input.lastAiAttempt ?? null,
+      requestedPriority: input.requestedPriority || "NORMAL",
+    }).returning();
+    await this.event(input.organizationId, input.conversationId, "handoff_requested", null, { handoffId: handoff.id, reason: handoff.reason, aiConfidence: handoff.aiConfidence, requestedPriority: handoff.requestedPriority });
+    return handoff;
+  }
+
   static async event(organizationId: string, conversationId: string, eventType: string, actorUserId?: string | null, payload: Record<string, unknown> = {}) {
     await db.insert(conversationActivities).values({ organizationId, conversationId, eventType, actorUserId: actorUserId || null, payload });
     await domainEventBus.emit({ type: "conversation.updated", organizationId, conversationId, payload: { eventType, ...payload } });
@@ -64,6 +77,9 @@ export class ConversationWorkflowService {
     await this.event(input.organizationId, input.conversationId, input.assigneeId ? "assignment_changed" : "unassigned", input.actorUserId, { from: before.assignedAgentId, to: input.assigneeId });
     if (updated.state !== before.state) {
       await this.event(input.organizationId, input.conversationId, "status_changed", input.actorUserId, { from: before.state, to: updated.state, reason: "assignment" });
+    }
+    if (input.assigneeId) {
+      await db.update(conversationHandoffs).set({ claimedByUserId: input.assigneeId, claimedAt: new Date() }).where(and(eq(conversationHandoffs.organizationId, input.organizationId), eq(conversationHandoffs.conversationId, input.conversationId), isNull(conversationHandoffs.claimedAt)));
     }
     await AuditService.logAction({ organizationId: input.organizationId, actorUserId: input.actorUserId, action: input.assigneeId ? "conversation.assigned" : "conversation.unassigned", resourceType: "conversation", resourceId: input.conversationId, metadata: { assigneeId: input.assigneeId } });
     return updated;

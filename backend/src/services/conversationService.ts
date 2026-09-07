@@ -223,6 +223,7 @@ export class ConversationService {
       if (error instanceof TenantQuotaExceededError) {
         if (error.message === "Widget request quota exceeded") throw error;
         await db.update(conversations).set({ state: "WAITING_FOR_AGENT", updatedAt: new Date() }).where(eq(conversations.id, conv.id));
+        await ConversationWorkflowService.recordHandoff({ organizationId: data.organizationId, conversationId: conv.id, reason: "AI_BUDGET_EXHAUSTED", requestedPriority: "NORMAL" });
         const ticket = await TicketService.getOrCreateEscalationTicket({ organizationId: data.organizationId, customerId: conv.customerId, conversationId: conv.id, subject: "AI budget exhausted - customer needs assistance", description: "Created automatically because the tenant's daily AI token budget is exhausted.", priority: "normal", tags: ["budget-fallback", "needs-human-review"] });
         await db.insert(analyticsEvents).values({ organizationId: data.organizationId, eventType: "budget_handoff_requested", metadata: { conversationId: conv.id, ticketId: ticket.ticket.id, ticketNumber: ticket.ticket.ticketNumber, ticketCreated: ticket.created } });
         return { customerMessage: custMsg, aiResponse: null, state: "WAITING_FOR_AGENT", handoffTriggered: true, budgetFallback: true, fallbackMessage: "Unser KI-Support ist für heute ausgeschöpft. Wir haben Ihre Anfrage an unser Support-Team weitergegeben.", ticketId: ticket.ticket.id, ticketNumber: ticket.ticket.ticketNumber, ticketCreated: ticket.created };
@@ -231,6 +232,7 @@ export class ConversationService {
       // Provider, embedding, or model failures must not discard a customer's
       // issue. Do not expose technical errors; create a durable human handoff.
       await db.update(conversations).set({ state: "WAITING_FOR_AGENT", updatedAt: new Date() }).where(eq(conversations.id, conv.id));
+      await ConversationWorkflowService.recordHandoff({ organizationId: data.organizationId, conversationId: conv.id, reason: "AI_PROCESSING_FAILED", requestedPriority: RAGService.analyzeSentiment(redactedInput.text) === "frustrated" ? "HIGH" : "NORMAL" });
       const escalation = await TicketService.getOrCreateEscalationTicket({
         organizationId: data.organizationId,
         customerId: conv.customerId,
@@ -301,6 +303,7 @@ export class ConversationService {
         .update(conversations)
         .set({ state: "WAITING_FOR_AGENT", updatedAt: new Date() })
         .where(eq(conversations.id, conv.id));
+      await ConversationWorkflowService.recordHandoff({ organizationId: data.organizationId, conversationId: conv.id, reason: "AI_ESCALATED", aiConfidence: ragResult.confidenceScore, lastAiAttempt: ragResult.answer.slice(0, 2_000), requestedPriority: sentiment === "frustrated" ? "HIGH" : "NORMAL" });
 
       await db.insert(analyticsEvents).values({
         organizationId: data.organizationId,

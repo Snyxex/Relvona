@@ -3,7 +3,7 @@ import { authenticate, tenantContext, requireRole, AuthRequest } from "../middle
 import { ConversationService } from "../services/conversationService.js";
 import { RAGService } from "../services/ragService.js";
 import { db } from "../db/index.js";
-import { conversations, conversationMessages, customers, conversationActivities, conversationTags, conversationTagLinks, agentPresence, organizationMembers, users } from "../db/schema.js";
+import { conversations, conversationMessages, customers, conversationActivities, conversationHandoffs, conversationTags, conversationTagLinks, agentPresence, organizationMembers, users } from "../db/schema.js";
 import { eq, and, desc, asc, gte, lte, ilike, or, sql, inArray } from "drizzle-orm";
 import { ConversationWorkflowService, CONVERSATION_PRIORITIES, CONVERSATION_STATES } from "../services/conversationWorkflowService.js";
 import { sendInternalError } from "../utils/httpErrors.js";
@@ -64,6 +64,10 @@ router.get("/meta/agents", async (req: AuthRequest, res) => {
 router.put("/meta/presence", async (req: AuthRequest, res) => { const { status } = req.body || {}; if (!["ONLINE", "AWAY", "OFFLINE"].includes(status)) return res.status(400).json({ error: "Invalid presence" }); const [presence] = await db.insert(agentPresence).values({ organizationId: req.organization!.id, userId: req.user!.id, status, updatedAt: new Date() }).onConflictDoUpdate({ target: [agentPresence.organizationId, agentPresence.userId], set: { status, updatedAt: new Date() } }).returning(); return res.json(presence); });
 
 router.get("/:id/timeline", async (req: AuthRequest, res) => res.json(await db.select().from(conversationActivities).where(and(eq(conversationActivities.organizationId, req.organization!.id), eq(conversationActivities.conversationId, req.params.id))).orderBy(asc(conversationActivities.createdAt))));
+router.get("/:id/handoff", async (req: AuthRequest, res) => {
+  const [handoff] = await db.select().from(conversationHandoffs).where(and(eq(conversationHandoffs.organizationId, req.organization!.id), eq(conversationHandoffs.conversationId, req.params.id))).orderBy(desc(conversationHandoffs.createdAt)).limit(1);
+  return handoff ? res.json(handoff) : res.status(404).json({ error: "No handoff recorded" });
+});
 router.post("/:id/transition", async (req: AuthRequest, res) => { try { return res.json(await ConversationWorkflowService.transition({ organizationId: req.organization!.id, conversationId: req.params.id, actorUserId: req.user!.id, target: req.body?.state })); } catch (error) { return res.status((error as Error).message.includes("not found") ? 404 : 409).json({ error: (error as Error).message }); } });
 router.put("/:id/assignment", async (req: AuthRequest, res) => { try { const canManageAssignment = ["owner", "admin"].includes(req.organization!.role); return res.json(await ConversationWorkflowService.assign({ organizationId: req.organization!.id, conversationId: req.params.id, actorUserId: req.user!.id, assigneeId: req.body?.agentId || null, canManageAssignment })); } catch (error) { return res.status((error as Error).message.includes("not found") ? 404 : 409).json({ error: (error as Error).message }); } });
 router.put("/:id/priority", async (req: AuthRequest, res) => { try { return res.json(await ConversationWorkflowService.changePriority({ organizationId: req.organization!.id, conversationId: req.params.id, actorUserId: req.user!.id, priority: req.body?.priority })); } catch (error) { return res.status(400).json({ error: (error as Error).message }); } });

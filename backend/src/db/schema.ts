@@ -243,6 +243,21 @@ export const conversationActivities = pgTable("conversation_activities", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({ timelineIdx: index("conversation_timeline_idx").on(table.organizationId, table.conversationId, table.createdAt) }));
 
+// Immutable escalation context for the human queue. This is intentionally a
+// separate record from analytics so agents can see why a conversation arrived.
+export const conversationHandoffs = pgTable("conversation_handoffs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
+  conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "cascade" }).notNull(),
+  reason: text("reason").notNull(),
+  aiConfidence: real("ai_confidence"),
+  lastAiAttempt: text("last_ai_attempt"),
+  requestedPriority: text("requested_priority").default("NORMAL").notNull(),
+  claimedByUserId: uuid("claimed_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  claimedAt: timestamp("claimed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({ handoffInboxIdx: index("conversation_handoff_inbox_idx").on(table.organizationId, table.conversationId, table.createdAt) }));
+
 export const conversationTags = pgTable("conversation_tags", {
   id: uuid("id").primaryKey().defaultRandom(),
   organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
