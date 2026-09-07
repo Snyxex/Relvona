@@ -17,7 +17,10 @@ async function main() {
   try {
     const role = await app.query("SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user");
     assert.equal(role.rows[0].rolsuper || role.rows[0].rolbypassrls, false, "Tests must use an RLS-constrained app role");
-    await admin.query("INSERT INTO organizations(id, name, slug) VALUES ($1, 'Ingestion Test A', $1), ($2, 'Ingestion Test B', $2)", [tenantA, tenantB]);
+    await admin.query(
+      "INSERT INTO organizations(id, name, slug) VALUES ($1::uuid, 'Ingestion Test A', $2::text), ($3::uuid, 'Ingestion Test B', $4::text)",
+      [tenantA, `ingestion-test-a-${tenantA}`, tenantB, `ingestion-test-b-${tenantB}`],
+    );
     const [baseA] = await withTenantTransaction(tenantA, (tx) => tx.insert(knowledgeBases).values({ organizationId: tenantA, name: "Ingestion fixture" }).returning());
     const input = { type: "document" as const, title: "Test", knowledgeBaseId: baseA.id, content: "Original document" };
     await assert.rejects(IngestionJobService.submit(tenantB, input), /Knowledge base not found/);

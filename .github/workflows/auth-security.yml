@@ -11,7 +11,7 @@ permissions:
 jobs:
   auth-security:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -69,7 +69,7 @@ jobs:
 
       - name: Build and run auth/security regression suite
         working-directory: backend
-        env:
+        env: &backend-test-env
           NODE_ENV: test
           DATABASE_ADMIN_URL: postgres://postgres:postgrespassword@localhost:5432/ai_support_db
           DATABASE_URL: postgres://supportai_app:ci-app-password@localhost:5432/ai_support_db
@@ -83,6 +83,36 @@ jobs:
           ENCRYPTION_SECRET_CURRENT: ci-encryption-secret-not-for-production
           AUTH_REGRESSION_DESTRUCTIVE_TESTS: "true"
         run: npm run test:ci-auth
+
+      - name: Test ingestion unit/regression behavior
+        working-directory: backend
+        env: *backend-test-env
+        run: npm run test:ingestion
+
+      - name: Test ingestion database integration
+        working-directory: backend
+        env: *backend-test-env
+        run: npm run test:ingestion-integration
+
+      - name: Test streaming behavior
+        working-directory: backend
+        env: *backend-test-env
+        run: npm run test:streaming
+
+      - name: Test AI tool registry
+        working-directory: backend
+        env: *backend-test-env
+        run: npm run test:tools
+
+      - name: Test Active Directory service
+        working-directory: backend
+        env: *backend-test-env
+        run: npm run test:active-directory
+
+      - name: Test GitHub issue repository validation
+        working-directory: backend
+        env: *backend-test-env
+        run: npm run test:github
 
       - name: Build frontend
         working-directory: frontend
