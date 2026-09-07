@@ -5,6 +5,7 @@ import { assistants } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { encryptSecret } from "../utils/crypto.js";
 import crypto from "crypto";
+import { IngestionService } from "../services/ingestionService.js";
 
 const newWidgetApiKey = () => `wpk_${crypto.randomBytes(24).toString("base64url")}`;
 
@@ -21,6 +22,18 @@ function normalizeProviderBaseUrl(provider: unknown, value: unknown): string | u
   const url = new URL(trimmed);
   if (!/^https?:$/.test(url.protocol) || url.username || url.password || url.hash) throw new Error("Local provider base URL must be an HTTP(S) URL without credentials");
   return url.toString().replace(/\/$/, "");
+}
+
+function validateEmbeddingConfiguration(provider: unknown, model: unknown, baseUrl: unknown) {
+  if (provider !== undefined && provider !== IngestionService.embeddingProvider) {
+    throw new Error(`Knowledge embeddings currently support only '${IngestionService.embeddingProvider}' so ingestion and retrieval remain in the same vector space`);
+  }
+  if (model !== undefined && model !== null && model !== "" && model !== IngestionService.embeddingModel) {
+    throw new Error(`Knowledge embeddings currently require model '${IngestionService.embeddingModel}'`);
+  }
+  if (baseUrl !== undefined && baseUrl !== null && String(baseUrl).trim()) {
+    throw new Error("Custom embedding base URLs are not supported by the shared knowledge index");
+  }
 }
 
 function normalizeWidgetOrigins(value: unknown): string[] {
@@ -123,10 +136,12 @@ router.put("/:id", requireRole(["owner", "admin"]), async (req: AuthRequest, res
     } = req.body;
 
     const normalizedOrigins = widgetAllowedOrigins === undefined ? undefined : normalizeWidgetOrigins(widgetAllowedOrigins);
-    const [existingAssistant] = await db.select({ modelProfiles: assistants.modelProfiles, modelProvider: assistants.modelProvider, embeddingProvider: assistants.embeddingProvider }).from(assistants).where(and(eq(assistants.id, req.params.id), eq(assistants.organizationId, req.organization!.id))).limit(1);
-    const normalizedProfiles = normalizeModelProfiles(modelProfiles, existingAssistant?.modelProfiles);
-    const normalizedBaseUrl = normalizeProviderBaseUrl(modelProvider ?? existingAssistant?.modelProvider, baseUrl);
-    const normalizedEmbeddingBaseUrl = normalizeProviderBaseUrl(embeddingProvider ?? existingAssistant?.embeddingProvider, embeddingBaseUrl);
+    const [existingAssistant] = await db.select({ modelProfiles: assistants.modelProfiles, modelProvider: assistants.modelProvider, embeddingProvider: assistants.embeddingProvider, embeddingModel: assistants.embeddingModel, embeddingBaseUrl: assistants.embeddingBaseUrl }).from(assistants).where(and(eq(assistants.id, req.params.id), eq(assistants.organizationId, req.organization!.id))).limit(1);
+    if (!existingAssistant) return res.status(404).json({ error: "Assistant not found" });
+    validateEmbeddingConfiguration(embeddingProvider ?? existingAssistant.embeddingProvider, embeddingModel ?? existingAssistant.embeddingModel, embeddingBaseUrl ?? existingAssistant.embeddingBaseUrl);
+    const normalizedProfiles = normalizeModelProfiles(modelProfiles, existingAssistant.modelProfiles);
+    const normalizedBaseUrl = normalizeProviderBaseUrl(modelProvider ?? existingAssistant.modelProvider, baseUrl);
+    const normalizedEmbeddingBaseUrl = embeddingBaseUrl === undefined ? undefined : "";
     if (activeModelProfileId !== undefined && activeModelProfileId !== null && (!normalizedProfiles || !normalizedProfiles.some((profile) => profile.id === activeModelProfileId))) throw new Error("Active model profile does not exist");
 
     const [updated] = await db
@@ -138,8 +153,8 @@ router.put("/:id", requireRole(["owner", "admin"]), async (req: AuthRequest, res
         modelName: modelName !== undefined ? modelName : undefined,
         apiKey: apiKey !== undefined ? encryptSecret(apiKey) : undefined,
         baseUrl: normalizedBaseUrl,
-        embeddingProvider: embeddingProvider !== undefined ? embeddingProvider : undefined,
-        embeddingModel: embeddingModel !== undefined ? embeddingModel : undefined,
+        embeddingProvider: embeddingProvider !== undefined ? IngestionService.embeddingProvider : undefined,
+        embeddingModel: embeddingModel !== undefined ? IngestionService.embeddingModel : undefined,
         embeddingApiKey: embeddingApiKey !== undefined ? encryptSecret(embeddingApiKey) : undefined,
         embeddingBaseUrl: normalizedEmbeddingBaseUrl,
         temperature: temperature !== undefined ? parseFloat(temperature) : undefined,
