@@ -1,11 +1,12 @@
 import { Router } from "express";
-import { authenticate, tenantContext, requireRole, requirePlatformAdmin, AuthRequest } from "../middleware/auth.js";
+import { authenticate, tenantContext, requireRole, AuthRequest } from "../middleware/auth.js";
 import { db } from "../db/index.js";
 import { assistants } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { encryptSecret } from "../utils/crypto.js";
 import crypto from "crypto";
 import { IngestionService } from "../services/ingestionService.js";
+import { OutboundUrlPolicy } from "../services/outboundUrlPolicy.js";
 
 const newWidgetApiKey = () => `wpk_${crypto.randomBytes(24).toString("base64url")}`;
 
@@ -19,9 +20,7 @@ function normalizeProviderBaseUrl(provider: unknown, value: unknown): string | u
   const trimmed = value.trim();
   if (!trimmed) return "";
   if (provider !== "local") throw new Error("Custom base URLs are supported only for the local provider");
-  const url = new URL(trimmed);
-  if (!/^https?:$/.test(url.protocol) || url.username || url.password || url.hash) throw new Error("Local provider base URL must be an HTTP(S) URL without credentials");
-  return url.toString().replace(/\/$/, "");
+  return OutboundUrlPolicy.normalizeLocalAiBaseUrl(trimmed);
 }
 
 function validateEmbeddingConfiguration(provider: unknown, model: unknown, baseUrl: unknown) {
