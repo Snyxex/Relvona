@@ -15,14 +15,13 @@ import { bindDashboardDomain, type AuthRequest } from "./middleware/auth.js";
 import { verifiedDashboardOrigins } from "./services/dashboardDomainService.js";
 import { dashboardDomainFromRequest, organizationForVerifiedDashboardDomain } from "./services/dashboardDomainService.js";
 import { db } from "./db/index.js";
-import { conversations, organizationMembers, organizations, users } from "./db/schema.js";
+import { conversations, organizationMembers, organizations } from "./db/schema.js";
 import { setDatabaseTenant } from "./db/tenantContext.js";
 import { domainEventBus } from "./services/domainEventBus.js";
 import { eq, and } from "drizzle-orm";
 import { getCurrentUser } from "./auth/session.js";
 import { logger, requestLogging, withLogContext } from "./observability/logger.js";
-import { readiness } from "./services/healthService.js";
-import { closeHealthDependencies } from "./services/healthService.js";
+import { readiness, closeHealthDependencies } from "./services/healthService.js";
 import { closeDatabasePool } from "./db/index.js";
 import { closeQueues } from "./services/queueService.js";
 import { shutdownTracing } from "./observability/tracing.js";
@@ -33,8 +32,6 @@ validateRuntimeConfiguration();
 
 const app = express();
 const server = http.createServer(app);
-// Bound slowloris/stalled requests while leaving headroom for a single
-// configured AI request and SSE completion.
 server.requestTimeout = Number(process.env.HTTP_REQUEST_TIMEOUT_MS || 65_000);
 server.headersTimeout = Math.min(server.requestTimeout, 60_000);
 server.keepAliveTimeout = 5_000;
@@ -74,23 +71,22 @@ const dashboardCors = cors({ origin: (origin, callback) => {
   if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
   void verifiedDashboardOrigins().then((origins) => callback(null, origins.includes(origin))).catch(() => callback(new Error("Dashboard domain lookup failed")));
 }, methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], credentials: true, allowedHeaders: ["Content-Type", "X-Organization-Id", "X-Organization-Slug", "X-API-Key", "X-Support-Session-Id"] });
-// Customer websites are not known at process start. Widget routes perform a
-// per-assistant origin check after validating the public integration key.
 const widgetCors = cors({ origin: true, methods: ["GET", "POST", "OPTIONS"], allowedHeaders: ["Content-Type"] });
 app.use((req, res, next) => (req.path.startsWith("/api/v1/widget/") ? widgetCors : dashboardCors)(req, res, next));
 app.use(bindDashboardDomain as (req: AuthRequest, res: express.Response, next: express.NextFunction) => void);
 app.use(requireTrustedOrigin);
 // Better Auth consumes request bodies itself. Mount it before Express parsers.
 app.all("/api/auth/*", toNodeHandler(auth));
-app.use(express.json({ limit: "20mb" }));
-app.use(express.urlencoded({ extended: true, limit: "20mb" }));
+const defaultJsonParser = express.json({ limit: process.env.JSON_BODY_LIMIT || "128kb" });
+// Manual knowledge-text ingestion intentionally uses a larger authenticated
+// route-local parser. Skip the global parser here so unauthenticated callers do
+// not get the larger allowance before auth/tenant/RBAC checks run.
+app.use((req, res, next) => req.path === "/api/v1/knowledge/text" ? next() : defaultJsonParser(req, res, next));
+app.use(express.urlencoded({ extended: true, limit: process.env.URLENCODED_BODY_LIMIT || "64kb" }));
 
-// Serve static widget JS files
 const publicDir = path.join(process.cwd(), "public");
 app.use("/public", express.static(publicDir, {
   maxAge: "1h",
-  // The embeddable widget has no filename hash. Let browsers revalidate it so
-  // widget fixes reach every customer site immediately after deployment.
   setHeaders: (res, filePath) => {
     if (path.basename(filePath) === "widget.js") {
       res.setHeader("Cache-Control", "no-cache, must-revalidate");
@@ -98,7 +94,6 @@ app.use("/public", express.static(publicDir, {
   },
 }));
 
-// API Routes
 app.use("/api", apiRouter);
 
 app.get("/health/live", (_req, res) => {
@@ -114,13 +109,15 @@ app.get("/metrics", (req, res) => {
   res.type("text/plain; version=0.0.4").send(metrics.render());
 });
 
-app.use((error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  logger.error("http.request.failed", { error: error.message });
+app.use((error: Error & { status?: number; type?: string }, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (res.headersSent) return;
-  res.status(500).json({ error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred", requestId: res.getHeader("X-Request-Id") } });
+  if (error.status === 413 || error.type === "entity.too.large") {
+    return res.status(413).json({ error: { code: "PAYLOAD_TOO_LARGE", message: "Request body exceeds the allowed size", requestId: res.getHeader("X-Request-Id") } });
+  }
+  logger.error("http.request.failed", { error: error.message });
+  return res.status(500).json({ error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred", requestId: res.getHeader("X-Request-Id") } });
 });
 
-// Real-Time Socket.IO Server with Server-Side Room Authorization
 domainEventBus.subscribe("message.created", async (event) => {
   const recipients = await io.in(`conv:${event.conversationId}`).fetchSockets();
   await Promise.allSettled(recipients.map(async (recipient) => {
@@ -143,7 +140,6 @@ io.on("connection", (socket) => {
   metrics.increment("supportai_websocket_connections_total");
   logger.info("socket.connected", { socketId: socket.id });
 
-  // Socket.IO accepts only the same HttpOnly Better Auth session as HTTP.
   let sessionUser: Awaited<ReturnType<typeof getCurrentUser>> = null;
   let dashboardOrganizationId: string | null = null;
   const dashboardDomainPromise = organizationForVerifiedDashboardDomain(dashboardDomainFromRequest(socket.handshake.headers.origin));
@@ -156,7 +152,6 @@ io.on("connection", (socket) => {
     if (!user) socket.disconnect(true);
   }).catch(() => socket.disconnect(true));
 
-  // Join Room with Server-Side Authorization Check
   socket.on("join_room", async (data: { organizationId?: string; conversationId?: string } = {}) => withLogContext({}, async () => {
     try {
       const targetConvId = data?.conversationId;
@@ -178,7 +173,6 @@ io.on("connection", (socket) => {
       const [organization] = await db.select({ status: organizations.status }).from(organizations).where(eq(organizations.id, data.organizationId)).limit(1);
       if (!member || member.status !== "active" || organization?.status !== "active" || !["owner", "admin", "agent"].includes(member.role)) throw new Error("Access denied");
       setDatabaseTenant(data.organizationId);
-      // Bind RLS only after membership validation.
       const [conv] = await db
         .select()
         .from(conversations)
@@ -207,7 +201,7 @@ io.on("connection", (socket) => {
       const room = `conv:${targetConvId}`;
       socket.join(room);
       logger.info("socket.room.joined", { socketId: socket.id, room });
-    } catch (err) {
+    } catch {
       logger.warn("socket.room.join_failed", { socketId: socket.id });
       socket.emit("error", { message: "Failed to authorize room join" });
     }
@@ -216,7 +210,6 @@ io.on("connection", (socket) => {
   socket.on("leave_room", (data: { conversationId?: string } = {}) => {
     if (typeof data?.conversationId === "string") socket.leave(`conv:${data.conversationId}`);
   });
-  // Mutations use authenticated HTTP routes; only persisted events are broadcast.
   socket.on("claim_conversation", () => {
     socket.emit("error", { message: "Use the authenticated conversation API to claim a conversation" });
   });
@@ -248,8 +241,6 @@ async function shutdown(signal: string) {
   }, Number(process.env.SHUTDOWN_TIMEOUT_MS || 30_000));
   forceTimer.unref();
   try {
-    // Stop accepting HTTP connections first, then close upgraded Socket.IO
-    // connections so `server.close` cannot wait indefinitely for a websocket.
     const serverClosed = new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     await new Promise<void>((resolve) => io.close(() => resolve()));
     await serverClosed;

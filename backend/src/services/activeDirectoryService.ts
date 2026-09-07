@@ -1,6 +1,9 @@
+import dns from "node:dns/promises";
+import net from "node:net";
 import { Client, escapeFilter } from "ldapts";
 import { logger } from "../observability/logger.js";
 import { decryptSecret } from "../utils/crypto.js";
+import { CrawlerSecurity } from "./crawlerSecurity.js";
 
 export type ActiveDirectorySettings = {
   activeDirectoryEnabled: boolean;
@@ -18,6 +21,24 @@ export function isValidActiveDirectoryUrl(value: unknown): value is string {
   } catch { return false; }
 }
 
+export async function assertActiveDirectoryUrlAllowed(value: string): Promise<void> {
+  if (!isValidActiveDirectoryUrl(value)) throw new Error("Invalid Active Directory URL");
+  if (process.env.ACTIVE_DIRECTORY_ALLOW_PRIVATE_NETWORKS === "true") return;
+
+  const url = new URL(value);
+  const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (hostname === "localhost" || hostname.endsWith(".local") || hostname.endsWith(".internal")) {
+    throw new Error("Private/internal Active Directory endpoints are disabled by deployment policy");
+  }
+
+  const addresses = net.isIP(hostname)
+    ? [{ address: hostname }]
+    : await dns.lookup(hostname, { all: true, verbatim: true });
+  if (!addresses.length || addresses.some(({ address }) => CrawlerSecurity.isPrivateIP(address))) {
+    throw new Error("Private/internal Active Directory endpoints are disabled by deployment policy");
+  }
+}
+
 export function isValidDistinguishedName(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 2 && value.length <= 500 && /(^|,)[A-Za-z][A-Za-z0-9-]*=/.test(value);
 }
@@ -28,6 +49,12 @@ export class ActiveDirectoryService {
     if (!settings.activeDirectoryEnabled || !isValidActiveDirectoryUrl(settings.activeDirectoryUrl) || !isValidDistinguishedName(settings.activeDirectoryBaseDn) || !isValidDistinguishedName(settings.activeDirectoryBindDn)) return false;
     const bindPassword = decryptSecret(settings.activeDirectoryBindPasswordEncrypted);
     if (!bindPassword) return false;
+    try {
+      await assertActiveDirectoryUrlAllowed(settings.activeDirectoryUrl);
+    } catch {
+      logger.warn("active_directory.login_blocked", { organizationId, reason: "outbound_policy" });
+      return false;
+    }
     const client = new Client({ url: settings.activeDirectoryUrl, timeout: 8_000, connectTimeout: 5_000, tlsOptions: { rejectUnauthorized: true } });
     try {
       await client.bind(settings.activeDirectoryBindDn, bindPassword);
@@ -54,6 +81,12 @@ export class ActiveDirectoryService {
     if (!isValidActiveDirectoryUrl(settings.activeDirectoryUrl) || !isValidDistinguishedName(settings.activeDirectoryBindDn)) return false;
     const bindPassword = decryptSecret(settings.activeDirectoryBindPasswordEncrypted);
     if (!bindPassword) return false;
+    try {
+      await assertActiveDirectoryUrlAllowed(settings.activeDirectoryUrl);
+    } catch {
+      logger.warn("active_directory.configuration_blocked", { organizationId, reason: "outbound_policy" });
+      return false;
+    }
     const client = new Client({ url: settings.activeDirectoryUrl, timeout: 8_000, connectTimeout: 5_000, tlsOptions: { rejectUnauthorized: true } });
     try {
       await client.bind(settings.activeDirectoryBindDn, bindPassword);
