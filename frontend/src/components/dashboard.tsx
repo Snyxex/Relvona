@@ -1698,6 +1698,26 @@ export default function Dashboard({
                         <p className="mt-2 text-[10px] text-amber-300">{inboxHandoff.claimedAt ? `Übernommen am ${new Date(inboxHandoff.claimedAt).toLocaleString()}` : `Eskaliert am ${new Date(inboxHandoff.createdAt).toLocaleString()}`}</p>
                       </section>
                     )}
+                    {inboxTimeline.length > 0 && (
+                      <section className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-xs">
+                        <h4 className="font-semibold text-slate-200">Activity Timeline</h4>
+                        <ol className="mt-2 space-y-2 border-l border-slate-700 pl-3">
+                          {inboxTimeline.slice(-8).map((event) => {
+                            const labels: Record<string, string> = {
+                              handoff_requested: "Human handoff requested",
+                              assignment_changed: "Assignment changed",
+                              unassigned: "Conversation unassigned",
+                              priority_changed: "Priority changed",
+                              tags_changed: "Tags updated",
+                              internal_note_added: "Internal note added",
+                              status_changed: "Status changed",
+                              auto_closed: "Automatically closed",
+                            };
+                            return <li key={event.id} className="relative text-slate-400 before:absolute before:-left-[17px] before:top-1.5 before:size-1.5 before:rounded-full before:bg-blue-400"><span className="text-slate-200">{labels[event.eventType] || event.eventType}</span>{event.payload?.to && <span className="ml-1 text-slate-500">→ {event.payload.to}</span>}<time className="ml-2 text-[10px] text-slate-500">{new Date(event.createdAt).toLocaleString()}</time></li>;
+                          })}
+                        </ol>
+                      </section>
+                    )}
                     {convMessages.map((m) => (
                       <div
                         key={m.id}
