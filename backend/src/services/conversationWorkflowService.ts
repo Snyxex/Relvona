@@ -22,11 +22,17 @@ export class ConversationWorkflowService {
     await domainEventBus.emit({ type: "conversation.updated", organizationId, conversationId, payload: { eventType, ...payload } });
   }
 
-  static async transition(input: { organizationId: string; conversationId: string; actorUserId: string; target: string }) {
+  static async transition(input: { organizationId: string; conversationId: string; actorUserId: string; target: string; actorKind?: "agent" | "customer" | "system" }) {
     if (!CONVERSATION_STATES.includes(input.target as any)) throw new Error("Invalid conversation state");
     const [current] = await db.select().from(conversations).where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).limit(1);
     if (!current) throw new Error("Conversation not found");
     if (!transitions[current.state]?.includes(input.target)) throw new Error("Invalid conversation state transition");
+    // A closed conversation is reopened only by an inbound customer event (or a
+    // trusted system process). Staff must not bypass the close/reopen policy via
+    // the generic transition endpoint.
+    if (current.state === "CLOSED" && input.target === "WAITING_FOR_AGENT" && (input.actorKind || "agent") === "agent") {
+      throw new Error("Closed conversations can only be reopened by a customer reply");
+    }
     const [updated] = await db.update(conversations).set({ state: input.target, updatedAt: new Date() }).where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId), eq(conversations.state, current.state))).returning();
     if (!updated) throw new Error("Conversation was updated by another agent");
     await this.event(input.organizationId, input.conversationId, "status_changed", input.actorUserId, { from: current.state, to: input.target });
@@ -34,18 +40,31 @@ export class ConversationWorkflowService {
     return updated;
   }
 
-  static async assign(input: { organizationId: string; conversationId: string; actorUserId: string; assigneeId: string | null }) {
+  static async assign(input: { organizationId: string; conversationId: string; actorUserId: string; assigneeId: string | null; canManageAssignment?: boolean }) {
     if (input.assigneeId) {
       const [member] = await db.select({ id: organizationMembers.id }).from(organizationMembers).where(and(eq(organizationMembers.organizationId, input.organizationId), eq(organizationMembers.userId, input.assigneeId), inArray(organizationMembers.role, ["owner", "admin", "agent"]), eq(organizationMembers.status, "active"))).limit(1);
       if (!member) throw new Error("Assignee is not an active support agent");
     }
     const [before] = await db.select({ assignedAgentId: conversations.assignedAgentId, state: conversations.state }).from(conversations).where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).limit(1);
     if (!before) throw new Error("Conversation not found");
+    if (!input.canManageAssignment && before.assignedAgentId && before.assignedAgentId !== input.actorUserId) {
+      throw new Error("Conversation is already assigned to another agent");
+    }
+    if (!input.canManageAssignment && input.assigneeId && input.assigneeId !== input.actorUserId) {
+      throw new Error("Only administrators can assign another agent");
+    }
     // A claim is conditional: an already-owned conversation cannot be stolen by an agent.
-    const condition = input.assigneeId && before.assignedAgentId === null ? sql`${conversations.assignedAgentId} IS NULL` : before.assignedAgentId === null ? sql`${conversations.assignedAgentId} IS NULL` : eq(conversations.assignedAgentId, before.assignedAgentId);
+    const condition = !input.canManageAssignment && before.assignedAgentId === null
+      ? sql`${conversations.assignedAgentId} IS NULL`
+      : before.assignedAgentId === null
+        ? sql`${conversations.assignedAgentId} IS NULL`
+        : eq(conversations.assignedAgentId, before.assignedAgentId);
     const [updated] = await db.update(conversations).set({ assignedAgentId: input.assigneeId, state: input.assigneeId && before.state === "WAITING_FOR_AGENT" ? "AGENT_ACTIVE" : before.state, updatedAt: new Date() }).where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId), condition)).returning();
     if (!updated) throw new Error("Conversation is already assigned to another agent");
     await this.event(input.organizationId, input.conversationId, input.assigneeId ? "assignment_changed" : "unassigned", input.actorUserId, { from: before.assignedAgentId, to: input.assigneeId });
+    if (updated.state !== before.state) {
+      await this.event(input.organizationId, input.conversationId, "status_changed", input.actorUserId, { from: before.state, to: updated.state, reason: "assignment" });
+    }
     await AuditService.logAction({ organizationId: input.organizationId, actorUserId: input.actorUserId, action: input.assigneeId ? "conversation.assigned" : "conversation.unassigned", resourceType: "conversation", resourceId: input.conversationId, metadata: { assigneeId: input.assigneeId } });
     return updated;
   }
@@ -69,6 +88,8 @@ export class ConversationWorkflowService {
   }
 
   static async setTags(input: { organizationId: string; conversationId: string; actorUserId: string; tagIds: string[] }) {
+    const [conversation] = await db.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).limit(1);
+    if (!conversation) throw new Error("Conversation not found");
     const tags = input.tagIds.length ? await db.select({ id: conversationTags.id }).from(conversationTags).where(and(eq(conversationTags.organizationId, input.organizationId), inArray(conversationTags.id, input.tagIds))) : [];
     if (tags.length !== input.tagIds.length) throw new Error("One or more tags do not belong to this organization");
     await db.transaction(async (tx) => { await tx.delete(conversationTagLinks).where(and(eq(conversationTagLinks.organizationId, input.organizationId), eq(conversationTagLinks.conversationId, input.conversationId))); if (tags.length) await tx.insert(conversationTagLinks).values(tags.map((tag) => ({ organizationId: input.organizationId, conversationId: input.conversationId, tagId: tag.id }))); });

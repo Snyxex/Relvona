@@ -7,6 +7,7 @@ import { organizationSettings } from "../db/schema.js";
 import { PiiRedactionService } from "./piiRedactionService.js";
 import { TicketService } from "./ticketService.js";
 import { domainEventBus } from "./domainEventBus.js";
+import { ConversationWorkflowService } from "./conversationWorkflowService.js";
 
 export class ConversationService {
   private static ticketConfirmation(language: string, ticketNumber: number, created: boolean): string {
@@ -341,16 +342,20 @@ export class ConversationService {
       .limit(1);
     if (!conv) throw new Error("Conversation not found");
 
-    // Transition state to AGENT_ACTIVE if coming from WAITING_FOR_AGENT
-    if (conv.state !== "AGENT_ACTIVE") {
-      await db
-        .update(conversations)
-        .set({
-          state: "WAITING_FOR_CUSTOMER",
-          assignedAgentId: data.agentId,
-          updatedAt: new Date(),
-        })
-        .where(and(eq(conversations.id, conv.id), eq(conversations.organizationId, data.organizationId)));
+    // Sending a reply is a claim operation, not a free-form state mutation. It
+    // must not let a second agent steal a conversation or reply while awaiting a
+    // customer / after resolution. The conditional assignment in the workflow
+    // service makes simultaneous "send" attempts deterministic.
+    if (conv.state === "WAITING_FOR_AGENT") {
+      if (conv.assignedAgentId && conv.assignedAgentId !== data.agentId) throw new Error("Conversation is assigned to another agent");
+      await ConversationWorkflowService.assign({
+        organizationId: data.organizationId,
+        conversationId: conv.id,
+        actorUserId: data.agentId,
+        assigneeId: data.agentId,
+      });
+    } else if (conv.state !== "AGENT_ACTIVE" || conv.assignedAgentId !== data.agentId) {
+      throw new Error("Conversation is not ready for an agent reply");
     }
 
     const [agentMsg] = await db
@@ -364,6 +369,13 @@ export class ConversationService {
         content: data.content,
       })
       .returning();
+
+    await ConversationWorkflowService.transition({
+      organizationId: data.organizationId,
+      conversationId: conv.id,
+      actorUserId: data.agentId,
+      target: "WAITING_FOR_CUSTOMER",
+    });
 
     await domainEventBus.emit({ type: "message.created", organizationId: data.organizationId, conversationId: conv.id, payload: agentMsg });
     // Claim the open ticket that caused this handoff as soon as an agent
