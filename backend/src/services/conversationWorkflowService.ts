@@ -16,6 +16,12 @@ const transitions: Record<string, readonly string[]> = {
   CLOSED: ["WAITING_FOR_AGENT"],
 };
 
+export function canTransition(current: string, target: string, actorKind: "agent" | "customer" | "system" = "agent") {
+  if (!CONVERSATION_STATES.includes(target as (typeof CONVERSATION_STATES)[number])) return false;
+  if (!transitions[current]?.includes(target)) return false;
+  return !(current === "CLOSED" && target === "WAITING_FOR_AGENT" && actorKind === "agent");
+}
+
 export class ConversationWorkflowService {
   static async recordHandoff(input: { organizationId: string; conversationId: string; reason: string; aiConfidence?: number | null; lastAiAttempt?: string | null; requestedPriority?: string }) {
     const [handoff] = await db.insert(conversationHandoffs).values({
@@ -39,12 +45,9 @@ export class ConversationWorkflowService {
     if (!CONVERSATION_STATES.includes(input.target as any)) throw new Error("Invalid conversation state");
     const [current] = await db.select().from(conversations).where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).limit(1);
     if (!current) throw new Error("Conversation not found");
-    if (!transitions[current.state]?.includes(input.target)) throw new Error("Invalid conversation state transition");
-    // A closed conversation is reopened only by an inbound customer event (or a
-    // trusted system process). Staff must not bypass the close/reopen policy via
-    // the generic transition endpoint.
-    if (current.state === "CLOSED" && input.target === "WAITING_FOR_AGENT" && (input.actorKind || "agent") === "agent") {
-      throw new Error("Closed conversations can only be reopened by a customer reply");
+    if (!canTransition(current.state, input.target, input.actorKind || "agent")) {
+      if (current.state === "CLOSED" && input.target === "WAITING_FOR_AGENT") throw new Error("Closed conversations can only be reopened by a customer reply");
+      throw new Error("Invalid conversation state transition");
     }
     const [updated] = await db.update(conversations).set({ state: input.target, updatedAt: new Date() }).where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId), eq(conversations.state, current.state))).returning();
     if (!updated) throw new Error("Conversation was updated by another agent");
