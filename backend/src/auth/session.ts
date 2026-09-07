@@ -3,18 +3,14 @@ import { fromNodeHeaders } from "better-auth/node";
 import { auth } from "./betterAuth.js";
 import { db } from "../db/index.js";
 import { users, organizationMembers, organizations } from "../db/schema.js";
+import { platformRoles, PLATFORM_ADMIN_ROLE } from "../db/platformRoles.js";
 import { and, eq } from "drizzle-orm";
 
-export type AuthenticatedUser = { id: string; email: string; name: string; avatarUrl: string | null; preferredLanguage: string; systemRole: string; status: string };
+export type AuthenticatedUser = { id: string; email: string; name: string; avatarUrl: string | null; preferredLanguage: string; isPlatformAdmin: boolean; systemRole: "superadmin" | "user"; status: string };
 export const ORGANIZATION_ROLES = ["owner", "admin", "agent", "viewer"] as const;
 export type OrganizationRole = typeof ORGANIZATION_ROLES[number];
 export type OrganizationMembership = { id: string; name: string; slug: string; role: OrganizationRole };
 
-/**
- * The only Better Auth session lookup used by business code. Cookie caching is
- * deliberately bypassed: user disables and session revocations take effect on
- * the next request rather than after a cache TTL.
- */
 export async function getSession(request: Pick<Request, "headers">) {
   return auth.api.getSession({
     headers: fromNodeHeaders(request.headers),
@@ -22,12 +18,30 @@ export async function getSession(request: Pick<Request, "headers">) {
   });
 }
 
+export async function isPlatformAdmin(userId: string) {
+  const [role] = await db.select({ id: platformRoles.id }).from(platformRoles)
+    .where(and(eq(platformRoles.userId, userId), eq(platformRoles.role, PLATFORM_ADMIN_ROLE)))
+    .limit(1);
+  return Boolean(role);
+}
+
 export async function getCurrentUser(request: Pick<Request, "headers">): Promise<AuthenticatedUser | null> {
   const session = await getSession(request);
   if (!session?.user?.id) return null;
   const [user] = await db.select().from(users).where(eq(users.id, session.user.id)).limit(1);
   if (!user || user.status !== "active") return null;
-  return { id: user.id, email: user.email, name: user.name, avatarUrl: user.avatarUrl, preferredLanguage: user.preferredLanguage, systemRole: user.systemRole, status: user.status };
+  const platformAdmin = await isPlatformAdmin(user.id);
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    avatarUrl: user.avatarUrl,
+    preferredLanguage: user.preferredLanguage,
+    isPlatformAdmin: platformAdmin,
+    // Temporary response compatibility only. Authorization never reads users.system_role.
+    systemRole: platformAdmin ? "superadmin" : "user",
+    status: user.status,
+  };
 }
 
 export async function getOrganizationMembership(userId: string, organizationId: string): Promise<OrganizationMembership | null> {
