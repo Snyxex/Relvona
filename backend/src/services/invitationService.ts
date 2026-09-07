@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { and, eq, sql } from "drizzle-orm";
-import { db } from "../db/index.js";
+import { db, withTenantTransaction } from "../db/index.js";
 import {
   auditLogs,
   authAccounts,
@@ -34,8 +34,10 @@ export class InvitationService {
   }
 
   static async accept(token: string, identity: { id?: string; email: string }, profile?: { name: string; password: string }) {
+    const preflight = await this.getActive(token);
     const hash = tokenHash(token);
-    return db.transaction(async (tx) => {
+
+    return withTenantTransaction(preflight.organizationId, async (tx) => {
       // Row locking is intentionally the only raw SQL in this flow: invitation
       // acceptance must be single-consumer under concurrent requests.
       await tx.execute(sql`SELECT id FROM organization_invitations WHERE token_hash = ${hash} FOR UPDATE`);
@@ -54,6 +56,7 @@ export class InvitationService {
 
       const invite = record?.invite;
       if (!invite) throw new Error("INVITATION_INVALID");
+      if (invite.organizationId !== preflight.organizationId) throw new Error("INVITATION_TENANT_MISMATCH");
       if (invite.revokedAt) throw new Error("INVITATION_REVOKED");
       if (invite.acceptedAt) throw new Error("INVITATION_ALREADY_ACCEPTED");
       if (invite.expiresAt <= new Date()) throw new Error("INVITATION_EXPIRED");

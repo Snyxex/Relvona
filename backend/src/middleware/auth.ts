@@ -16,6 +16,8 @@ export interface AuthRequest extends Request {
     avatarUrl: string | null;
     preferredLanguage: string;
     isPlatformAdmin: boolean;
+    /** Temporary API compatibility only. Authorization must use isPlatformAdmin. */
+    systemRole: "superadmin" | "user";
   };
   organization?: {
     id: string;
