@@ -105,6 +105,7 @@ export default function Dashboard({
   const [inboxSort, setInboxSort] = useState("newest");
   const [inboxTags, setInboxTags] = useState<any[]>([]);
   const [inboxTimeline, setInboxTimeline] = useState<any[]>([]);
+  const [inboxHandoff, setInboxHandoff] = useState<any | null>(null);
   const [suggestion, setSuggestion] = useState<{
     content: string;
     sources: string[];
@@ -479,10 +480,12 @@ export default function Dashboard({
 
   const handleSelectConversation = async (conv: any) => {
     setSelectedConv(conv);
+    setInboxHandoff(null);
     try {
-      const [messages, timeline] = await Promise.all([api.get(`/conversations/${conv.id}/messages`), api.get(`/conversations/${conv.id}/timeline`)]);
+      const [messages, timeline, handoff] = await Promise.all([api.get(`/conversations/${conv.id}/messages`), api.get(`/conversations/${conv.id}/timeline`), api.get(`/conversations/${conv.id}/handoff`).catch(() => null)]);
       setConvMessages(messages.data);
       setInboxTimeline(timeline.data);
+      setInboxHandoff(handoff?.data || null);
     } catch (err) {}
   };
 
@@ -1686,6 +1689,15 @@ export default function Dashboard({
                   </div>
 
                   <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-950/40">
+                    {inboxHandoff && (
+                      <section className="rounded-lg border border-amber-800/80 bg-amber-950/35 p-3 text-xs text-amber-100">
+                        <div className="flex items-center justify-between gap-2"><strong>Human Handoff</strong><span className="rounded bg-amber-900/70 px-1.5 py-0.5 font-mono text-[10px]">{inboxHandoff.requestedPriority}</span></div>
+                        <p className="mt-1">Grund: {inboxHandoff.reason}</p>
+                        {inboxHandoff.aiConfidence !== null && <p className="mt-1">AI Confidence: {Math.round(Number(inboxHandoff.aiConfidence) * 100)}%</p>}
+                        {inboxHandoff.lastAiAttempt && <p className="mt-2 rounded bg-slate-950/50 p-2 text-slate-300">Letzter AI-Versuch: {inboxHandoff.lastAiAttempt}</p>}
+                        <p className="mt-2 text-[10px] text-amber-300">{inboxHandoff.claimedAt ? `Übernommen am ${new Date(inboxHandoff.claimedAt).toLocaleString()}` : `Eskaliert am ${new Date(inboxHandoff.createdAt).toLocaleString()}`}</p>
+                      </section>
+                    )}
                     {convMessages.map((m) => (
                       <div
                         key={m.id}
