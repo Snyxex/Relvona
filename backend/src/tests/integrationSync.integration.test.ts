@@ -86,11 +86,24 @@ async function main() {
     });
     assert.equal(requests.length, 1, "Zendesk must receive exactly one create request");
 
+    await withDatabaseTenantContext(async () => {
+      setDatabaseTenant(organizationId);
+      const irrelevantAt = new Date("2026-09-08T10:14:00.000Z");
+      await IntegrationSyncService.handleDomainEvent({
+        type: "ticket.updated",
+        organizationId,
+        payload: { id: ticketId, updatedAt: irrelevantAt, changedFields: ["tags", "assignedAgentId"] },
+        occurredAt: irrelevantAt,
+      });
+      const executions = await IntegrationSyncService.listExecutions(organizationId);
+      assert.equal(executions.filter((item) => item.eventKey.startsWith("ticket.updated:")).length, 0, "irrelevant ticket changes must not queue Zendesk updates");
+    });
+
     const updateTimestamp = new Date("2026-09-08T10:15:00.000Z");
     await admin.query("UPDATE tickets SET status = 'resolved', priority = 'urgent', updated_at = $2 WHERE id = $1", [ticketId, updateTimestamp]);
     await withDatabaseTenantContext(async () => {
       setDatabaseTenant(organizationId);
-      const event = { type: "ticket.updated" as const, organizationId, payload: { id: ticketId, updatedAt: updateTimestamp }, occurredAt: updateTimestamp };
+      const event = { type: "ticket.updated" as const, organizationId, payload: { id: ticketId, updatedAt: updateTimestamp, changedFields: ["status", "priority"] }, occurredAt: updateTimestamp };
       await IntegrationSyncService.handleDomainEvent(event);
       await IntegrationSyncService.handleDomainEvent(event);
       const before = await IntegrationSyncService.listExecutions(organizationId);
@@ -106,7 +119,7 @@ async function main() {
 
     await withDatabaseTenantContext(async () => {
       setDatabaseTenant(organizationId);
-      const event = { type: "ticket.updated" as const, organizationId, payload: { id: unlinkedTicketId, updatedAt: new Date("2026-09-08T10:16:00.000Z") }, occurredAt: new Date("2026-09-08T10:16:00.000Z") };
+      const event = { type: "ticket.updated" as const, organizationId, payload: { id: unlinkedTicketId, updatedAt: new Date("2026-09-08T10:16:00.000Z"), changedFields: ["status"] }, occurredAt: new Date("2026-09-08T10:16:00.000Z") };
       await IntegrationSyncService.handleDomainEvent(event);
       const result = await IntegrationSyncService.processPending(organizationId);
       assert.equal(result.failed, 1, "update sync without a prior create link must fail safely");
@@ -117,7 +130,7 @@ async function main() {
     });
     assert.equal(requests.length, 2, "unlinked update must not issue any external request");
 
-    console.log("Integration sync create/update idempotency and linked Zendesk delivery tests passed.");
+    console.log("Integration sync create/update idempotency, filtering, and linked Zendesk delivery tests passed.");
   } finally {
     globalThis.fetch = originalFetch;
     await admin.query("DELETE FROM organizations WHERE id = $1", [organizationId]).catch(() => undefined);
