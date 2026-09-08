@@ -1,7 +1,7 @@
 import { and, desc, eq, isNotNull, lt, or } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { setDatabaseTenant, withDatabaseTenantContext } from "../db/tenantContext.js";
-import { customers, organizations, tickets } from "../db/schema.js";
+import { customers, organizations, ticketComments, tickets } from "../db/schema.js";
 import { integrationConnections } from "../db/integrationConnectionSchema.js";
 import { integrationSyncExecutions, integrationSyncRules } from "../db/integrationSyncSchema.js";
 import type { DomainEvent } from "./domainEventBus.js";
@@ -11,6 +11,7 @@ import { ZendeskExtendedAdapter } from "./providerActionService.js";
 const allowedRules = [
   { eventType: "ticket.created", action: "zendesk.create_ticket" },
   { eventType: "ticket.updated", action: "zendesk.update_ticket" },
+  { eventType: "ticket.comment.created", action: "zendesk.add_comment" },
 ] as const;
 const PROCESSING_STALE_MS = Number(process.env.INTEGRATION_SYNC_STALE_MS || 10 * 60_000);
 
@@ -106,18 +107,26 @@ export class IntegrationSyncService {
   }
 
   static async handleDomainEvent(event: DomainEvent) {
-    if (event.type !== "ticket.created" && event.type !== "ticket.updated") return;
+    if (!["ticket.created", "ticket.updated", "ticket.comment.created"].includes(event.type)) return;
     if (!isRelevantTicketUpdate(event)) return;
     const entityId = typeof event.payload.id === "string" ? event.payload.id : undefined;
     if (!entityId) return;
-    const action = event.type === "ticket.created" ? "zendesk.create_ticket" : "zendesk.update_ticket";
+    const action = event.type === "ticket.created"
+      ? "zendesk.create_ticket"
+      : event.type === "ticket.updated"
+        ? "zendesk.update_ticket"
+        : "zendesk.add_comment";
     const rules = await db.select().from(integrationSyncRules).where(and(
       eq(integrationSyncRules.organizationId, event.organizationId),
       eq(integrationSyncRules.eventType, event.type),
       eq(integrationSyncRules.action, action),
       eq(integrationSyncRules.enabled, true),
     ));
-    const eventKey = event.type === "ticket.created" ? `ticket.created:${entityId}` : updateEventKey(event, entityId);
+    const eventKey = event.type === "ticket.created"
+      ? `ticket.created:${entityId}`
+      : event.type === "ticket.updated"
+        ? updateEventKey(event, entityId)
+        : `ticket.comment.created:${entityId}`;
     for (const rule of rules) {
       await db.insert(integrationSyncExecutions).values({
         organizationId: event.organizationId,
@@ -174,32 +183,45 @@ export class IntegrationSyncService {
         if (!rule) throw new Error("Integration sync rule is disabled or missing");
         if (!isAllowedRule(rule.eventType, rule.action)) throw new Error("Unsupported integration sync execution");
 
-        const [row] = await db.select({ ticket: tickets, customer: customers }).from(tickets)
-          .innerJoin(customers, eq(tickets.customerId, customers.id))
-          .where(and(eq(tickets.organizationId, organizationId), eq(tickets.id, claimed.entityId))).limit(1);
-        if (!row) throw new Error("Local ticket not found");
-
         let externalId: string | null = null;
-        if (rule.eventType === "ticket.created" && rule.action === "zendesk.create_ticket") {
-          const result = await ZendeskAdapter.createTicket(organizationId, {
-            subject: row.ticket.subject,
-            body: row.ticket.description || `Support ticket #${row.ticket.ticketNumber}`,
-            priority: row.ticket.priority,
-            requesterEmail: row.customer.email || undefined,
-            requesterName: row.customer.name || undefined,
-          }, rule.connectionId);
-          const rawExternalId = (result as any)?.ticket?.id;
-          externalId = typeof rawExternalId === "number" || typeof rawExternalId === "string" ? String(rawExternalId) : null;
-          if (!externalId) throw new Error("Zendesk create response did not contain a ticket id");
-        } else {
-          const linkedId = await this.linkedZendeskTicketId(organizationId, rule.connectionId, claimed.entityId);
+        if (rule.eventType === "ticket.comment.created" && rule.action === "zendesk.add_comment") {
+          const [comment] = await db.select().from(ticketComments).where(and(
+            eq(ticketComments.organizationId, organizationId),
+            eq(ticketComments.id, claimed.entityId),
+            eq(ticketComments.isInternal, false),
+          )).limit(1);
+          if (!comment) throw new Error("Public local ticket comment not found");
+          const linkedId = await this.linkedZendeskTicketId(organizationId, rule.connectionId, comment.ticketId);
           if (!linkedId) throw new Error("Zendesk ticket link not found; create sync must succeed first");
-          await ZendeskExtendedAdapter.updateTicket(organizationId, {
-            ticketId: linkedId,
-            status: zendeskStatus(row.ticket.status),
-            priority: row.ticket.priority,
-          }, rule.connectionId);
+          await ZendeskExtendedAdapter.addComment(organizationId, { ticketId: linkedId, body: comment.content, public: true }, rule.connectionId);
           externalId = linkedId;
+        } else {
+          const [row] = await db.select({ ticket: tickets, customer: customers }).from(tickets)
+            .innerJoin(customers, eq(tickets.customerId, customers.id))
+            .where(and(eq(tickets.organizationId, organizationId), eq(tickets.id, claimed.entityId))).limit(1);
+          if (!row) throw new Error("Local ticket not found");
+
+          if (rule.eventType === "ticket.created" && rule.action === "zendesk.create_ticket") {
+            const result = await ZendeskAdapter.createTicket(organizationId, {
+              subject: row.ticket.subject,
+              body: row.ticket.description || `Support ticket #${row.ticket.ticketNumber}`,
+              priority: row.ticket.priority,
+              requesterEmail: row.customer.email || undefined,
+              requesterName: row.customer.name || undefined,
+            }, rule.connectionId);
+            const rawExternalId = (result as any)?.ticket?.id;
+            externalId = typeof rawExternalId === "number" || typeof rawExternalId === "string" ? String(rawExternalId) : null;
+            if (!externalId) throw new Error("Zendesk create response did not contain a ticket id");
+          } else {
+            const linkedId = await this.linkedZendeskTicketId(organizationId, rule.connectionId, claimed.entityId);
+            if (!linkedId) throw new Error("Zendesk ticket link not found; create sync must succeed first");
+            await ZendeskExtendedAdapter.updateTicket(organizationId, {
+              ticketId: linkedId,
+              status: zendeskStatus(row.ticket.status),
+              priority: row.ticket.priority,
+            }, rule.connectionId);
+            externalId = linkedId;
+          }
         }
 
         await db.update(integrationSyncExecutions).set({ status: "succeeded", externalId, error: null, updatedAt: new Date() })
