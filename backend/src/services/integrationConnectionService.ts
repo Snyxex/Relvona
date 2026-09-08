@@ -89,7 +89,7 @@ export class IntegrationConnectionService {
     if (!current) throw new Error("Integration connection not found");
     const config = data.config === undefined ? undefined : normalizeConfig(current.provider, data.config);
     const credentials = data.credentials === undefined ? undefined : normalizeCredentials(current.provider, data.credentials);
-    const encryptedCredentials = credentials ? encryptSecret(JSON.stringify(credentials)) : undefined;
+    const encryptedCredentials = credentials ? (encryptSecret(JSON.stringify(credentials)) || undefined) : undefined;
     const [updated] = await db.update(integrationConnections).set({
       name: data.name === undefined ? undefined : normalizeName(data.name),
       enabled: data.enabled,
