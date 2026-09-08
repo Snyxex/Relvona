@@ -2,6 +2,7 @@ import { Router } from "express";
 import { and, eq } from "drizzle-orm";
 import { authenticate, tenantContext, requireRole, type AuthRequest } from "../middleware/auth.js";
 import { SchedulingService } from "../services/schedulingService.js";
+import { SchedulingAuthorizationService } from "../services/schedulingAuthorizationService.js";
 import { sendInternalError } from "../utils/httpErrors.js";
 import { db } from "../db/index.js";
 import { calendarConnections } from "../db/extendedCustomerExperienceSchema.js";
@@ -10,6 +11,8 @@ const router = Router();
 router.use(authenticate);
 router.use(tenantContext);
 router.use(requireRole(["owner", "admin", "agent"]));
+
+const schedulableMemberError = "Assigned user is not a schedulable organization member";
 
 router.get("/connections", async (req: AuthRequest, res) => {
   try {
@@ -49,10 +52,13 @@ router.get("/availability", async (req: AuthRequest, res) => {
 });
 
 router.post("/availability", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
-  try { return res.status(201).json(await SchedulingService.addAvailabilityRule({ organizationId: req.organization!.id, ...req.body })); }
-  catch (error) {
+  try {
+    const userId = typeof req.body?.userId === "string" ? req.body.userId : undefined;
+    await SchedulingAuthorizationService.assertSchedulableMember(req.organization!.id, userId);
+    return res.status(201).json(await SchedulingService.addAvailabilityRule({ organizationId: req.organization!.id, ...req.body, userId }));
+  } catch (error) {
     const message = (error as Error).message;
-    if (["Invalid availability rule", "User not found", "Meeting type not found"].includes(message)) return res.status(400).json({ error: message });
+    if (["Invalid availability rule", "User not found", "Meeting type not found", schedulableMemberError].includes(message)) return res.status(400).json({ error: message });
     return sendInternalError(req, res, error, { code: "AVAILABILITY_CREATE_FAILED", message: "Unable to create availability" });
   }
 });
@@ -61,13 +67,14 @@ router.get("/slots", async (req: AuthRequest, res) => {
   try {
     const meetingTypeId = String(req.query.meetingTypeId || "");
     const assignedUserId = typeof req.query.assignedUserId === "string" ? req.query.assignedUserId : undefined;
+    await SchedulingAuthorizationService.assertSchedulableMember(req.organization!.id, assignedUserId);
     const from = new Date(String(req.query.from || ""));
     const to = new Date(String(req.query.to || ""));
     const slots = await SchedulingService.findAvailableSlots({ organizationId: req.organization!.id, meetingTypeId, assignedUserId, from, to, limit: req.query.limit ? Number(req.query.limit) : undefined });
     return res.json(slots);
   } catch (error) {
     const message = (error as Error).message;
-    if (["Invalid slot range", "Meeting type not found"].includes(message)) return res.status(400).json({ error: message });
+    if (["Invalid slot range", "Meeting type not found", schedulableMemberError].includes(message)) return res.status(400).json({ error: message });
     return sendInternalError(req, res, error, { code: "SLOTS_LOAD_FAILED", message: "Unable to calculate available slots" });
   }
 });
@@ -79,11 +86,13 @@ router.get("/bookings", async (req: AuthRequest, res) => {
 
 router.post("/bookings", async (req: AuthRequest, res) => {
   try {
-    const booking = await SchedulingService.createBooking({ organizationId: req.organization!.id, ...req.body, startsAt: new Date(req.body?.startsAt), createdBy: "agent" });
+    const assignedUserId = typeof req.body?.assignedUserId === "string" ? req.body.assignedUserId : undefined;
+    await SchedulingAuthorizationService.assertSchedulableMember(req.organization!.id, assignedUserId);
+    const booking = await SchedulingService.createBooking({ organizationId: req.organization!.id, ...req.body, assignedUserId, startsAt: new Date(req.body?.startsAt), createdBy: "agent" });
     return res.status(201).json(booking);
   } catch (error) {
     const message = (error as Error).message;
-    if (["Invalid booking time", "Meeting type not found", "Booking violates minimum notice", "Booking exceeds allowed future range", "Booking conflict", "External calendar conflict", "Customer not found"].includes(message)) return res.status(400).json({ error: message });
+    if (["Invalid booking time", "Meeting type not found", "Booking violates minimum notice", "Booking exceeds allowed future range", "Booking conflict", "External calendar conflict", "Customer not found", schedulableMemberError].includes(message)) return res.status(400).json({ error: message });
     return sendInternalError(req, res, error, { code: "BOOKING_CREATE_FAILED", message: "Unable to create booking" });
   }
 });
