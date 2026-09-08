@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
+import { closeDatabasePool } from "../db/index.js";
 import { setDatabaseTenant, withDatabaseTenantContext } from "../db/tenantContext.js";
 import { toolRegistry } from "../services/toolRegistry.js";
 
@@ -93,6 +94,7 @@ async function main() {
   } finally {
     await admin.query("DELETE FROM organizations WHERE id = $1", [organizationId]).catch(() => undefined);
     await admin.end();
+    await closeDatabasePool().catch(() => undefined);
   }
 }
 
