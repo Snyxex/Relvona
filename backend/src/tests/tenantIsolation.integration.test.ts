@@ -14,6 +14,10 @@ const meetingTypeA = randomUUID();
 const meetingTypeB = randomUUID();
 const actionA = randomUUID();
 const actionB = randomUUID();
+const integrationA = randomUUID();
+const integrationB = randomUUID();
+const inboundA = randomUUID();
+const inboundB = randomUUID();
 const admin = new pg.Client({ connectionString: adminUrl });
 const app = new pg.Client({ connectionString: appUrl });
 
@@ -39,6 +43,8 @@ async function main() {
       await app.query("INSERT INTO customers (id, organization_id, email, name) VALUES ($1, $2, 'a@example.test', 'A')", [customerA, organizationA]);
       await app.query("INSERT INTO meeting_types (id, organization_id, name, slug, duration_minutes) VALUES ($1, $2, 'Tenant A Meeting', $3, 30)", [meetingTypeA, organizationA, `tenant-a-${meetingTypeA}`]);
       await app.query("INSERT INTO action_executions (id, organization_id, tool_id, risk_level) VALUES ($1, $2, 'scheduling.create_booking', 'write')", [actionA, organizationA]);
+      await app.query("INSERT INTO integration_connections (id, organization_id, provider, name, encrypted_credentials) VALUES ($1, $2, 'zendesk', 'Tenant A Zendesk', 'rls-test-encrypted-a')", [integrationA, organizationA]);
+      await app.query("INSERT INTO integration_inbound_events (id, organization_id, connection_id, provider, invocation_id, event_type, payload) VALUES ($1, $2, $3, 'zendesk', 'inv-tenant-a', 'ticket.updated', '{}'::jsonb)", [inboundA, organizationA, integrationA]);
 
       const ownCustomer = await app.query("SELECT id FROM customers WHERE id = $1", [customerA]);
       assert.equal(ownCustomer.rowCount, 1, "Tenant A must read its own customer");
@@ -46,12 +52,16 @@ async function main() {
       assert.equal(ownMeeting.rowCount, 1, "Tenant A must read its own meeting type");
       const ownAction = await app.query("SELECT id FROM action_executions WHERE id = $1", [actionA]);
       assert.equal(ownAction.rowCount, 1, "Tenant A must read its own action execution");
+      const ownInbound = await app.query("SELECT id FROM integration_inbound_events WHERE id = $1", [inboundA]);
+      assert.equal(ownInbound.rowCount, 1, "Tenant A must read its own inbound integration event");
     });
 
     await asTenant(organizationB, async () => {
       await app.query("INSERT INTO customers (id, organization_id, email, name) VALUES ($1, $2, 'b@example.test', 'B')", [customerB, organizationB]);
       await app.query("INSERT INTO meeting_types (id, organization_id, name, slug, duration_minutes) VALUES ($1, $2, 'Tenant B Meeting', $3, 45)", [meetingTypeB, organizationB, `tenant-b-${meetingTypeB}`]);
       await app.query("INSERT INTO action_executions (id, organization_id, tool_id, risk_level) VALUES ($1, $2, 'scheduling.cancel_booking', 'write')", [actionB, organizationB]);
+      await app.query("INSERT INTO integration_connections (id, organization_id, provider, name, encrypted_credentials) VALUES ($1, $2, 'zendesk', 'Tenant B Zendesk', 'rls-test-encrypted-b')", [integrationB, organizationB]);
+      await app.query("INSERT INTO integration_inbound_events (id, organization_id, connection_id, provider, invocation_id, event_type, payload) VALUES ($1, $2, $3, 'zendesk', 'inv-tenant-b', 'ticket.updated', '{}'::jsonb)", [inboundB, organizationB, integrationB]);
     });
 
     await asTenant(organizationA, async () => {
@@ -61,6 +71,8 @@ async function main() {
       assert.equal(crossMeeting.rowCount, 0, "Tenant A must not read Tenant B meeting types");
       const crossAction = await app.query("SELECT id FROM action_executions WHERE id = $1", [actionB]);
       assert.equal(crossAction.rowCount, 0, "Tenant A must not read Tenant B action executions");
+      const crossInbound = await app.query("SELECT id FROM integration_inbound_events WHERE id = $1", [inboundB]);
+      assert.equal(crossInbound.rowCount, 0, "Tenant A must not read Tenant B inbound integration events");
     });
 
     console.log("Tenant RLS isolation integration test passed.");
