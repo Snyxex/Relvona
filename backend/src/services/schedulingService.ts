@@ -4,6 +4,7 @@ import { customers, users } from "../db/schema.js";
 import { availabilityRules, bookingEvents, bookings, meetingTypes } from "../db/extendedCustomerExperienceSchema.js";
 import { CalendarProviderFactory } from "./calendarProviderFactory.js";
 import { SchedulingMutationLockService } from "./schedulingMutationLockService.js";
+import { BookingCalendarSyncService, type BookingCalendarSyncAction } from "./bookingCalendarSyncService.js";
 import { domainEventBus } from "./domainEventBus.js";
 
 function normalizeSlug(value: string) {
@@ -49,6 +50,33 @@ async function emitBookingEvent(type: "booking.created" | "booking.rescheduled" 
       timezone: booking.timezone,
     },
   });
+}
+
+async function attemptCalendarSync(data: {
+  organizationId: string;
+  bookingId: string;
+  action: BookingCalendarSyncAction;
+}) {
+  await BookingCalendarSyncService.enqueue(data.organizationId, data.bookingId, data.action);
+  const result = await BookingCalendarSyncService.processOne(data.organizationId, data.bookingId);
+  if (result.processed && result.status !== "synced") {
+    await db.insert(bookingEvents).values({
+      organizationId: data.organizationId,
+      bookingId: data.bookingId,
+      type: "calendar.sync_failed",
+      actorType: "system",
+      metadata: { action: data.action, error: result.error || "Calendar sync pending retry" },
+    });
+  } else if (result.processed && result.status === "synced") {
+    await db.insert(bookingEvents).values({
+      organizationId: data.organizationId,
+      bookingId: data.bookingId,
+      type: "calendar.synced",
+      actorType: "system",
+      metadata: { action: data.action },
+    });
+  }
+  return result;
 }
 
 export class SchedulingService {
@@ -169,33 +197,31 @@ export class SchedulingService {
     const conflictEnd = new Date(endsAt.getTime() + type.bufferAfterMinutes * 60_000);
     const [conflict] = await db.select({ id: bookings.id }).from(bookings).where(and(eq(bookings.organizationId, data.organizationId), data.assignedUserId ? eq(bookings.assignedUserId, data.assignedUserId) : undefined, ne(bookings.status, "cancelled"), lt(bookings.startsAt, conflictEnd), gt(bookings.endsAt, conflictStart))).limit(1);
     if (conflict) throw new Error("Booking conflict");
-    let provider = undefined;
+    let providerAvailable = false;
     if (data.assignedUserId) {
-      provider = await CalendarProviderFactory.forUser(data.organizationId, data.assignedUserId);
+      const provider = await CalendarProviderFactory.forUser(data.organizationId, data.assignedUserId);
+      providerAvailable = Boolean(provider);
       if (provider) {
         const busy = await provider.listBusyIntervals({ from: conflictStart, to: conflictEnd });
         if (busy.some((interval) => overlaps(conflictStart, conflictEnd, interval.start, interval.end))) throw new Error("External calendar conflict");
       }
     }
     const [booking] = await db.insert(bookings).values({ organizationId: data.organizationId, meetingTypeId: data.meetingTypeId, assignedUserId: data.assignedUserId, customerId: data.customerId, conversationId: data.conversationId, guestEmail: data.guestEmail?.trim().toLowerCase().slice(0, 254), guestName: data.guestName?.trim().slice(0, 120), startsAt: data.startsAt, endsAt, timezone: data.timezone, idempotencyKey: data.idempotencyKey?.slice(0, 120), createdBy: data.createdBy?.slice(0, 40) || "system" }).returning();
-    try {
-      if (provider) {
-        const event = await provider.createEvent({ title: type.name, description: type.description || undefined, start: booking.startsAt, end: booking.endsAt, timezone: booking.timezone, attendeeEmail: booking.guestEmail || undefined, attendeeName: booking.guestName || undefined });
-        const [synced] = await db.update(bookings).set({ providerEventId: event.externalEventId, meetingUrl: event.meetingUrl, updatedAt: new Date() }).where(and(eq(bookings.organizationId, data.organizationId), eq(bookings.id, booking.id))).returning();
-        await db.insert(bookingEvents).values({ organizationId: data.organizationId, bookingId: booking.id, type: "calendar.event_created", actorType: "system", metadata: { providerEventId: event.externalEventId } });
-        await db.insert(bookingEvents).values({ organizationId: data.organizationId, bookingId: booking.id, type: "booking.created", actorType: data.createdBy || "system" });
-        const result = synced || booking;
-        await emitBookingEvent("booking.created", result);
-        return result;
+    await db.insert(bookingEvents).values({ organizationId: data.organizationId, bookingId: booking.id, type: "booking.created", actorType: data.createdBy || "system" });
+
+    let result = booking;
+    if (providerAvailable) {
+      try {
+        await attemptCalendarSync({ organizationId: data.organizationId, bookingId: booking.id, action: "create" });
+        const [refreshed] = await db.select().from(bookings).where(and(eq(bookings.organizationId, data.organizationId), eq(bookings.id, booking.id))).limit(1);
+        if (refreshed) result = refreshed;
+      } catch (error) {
+        await db.insert(bookingEvents).values({ organizationId: data.organizationId, bookingId: booking.id, type: "calendar.sync_failed", actorType: "system", metadata: { action: "create", error: (error as Error).message.slice(0, 500) } });
       }
-      await db.insert(bookingEvents).values({ organizationId: data.organizationId, bookingId: booking.id, type: "booking.created", actorType: data.createdBy || "system" });
-      await emitBookingEvent("booking.created", booking);
-      return booking;
-    } catch (error) {
-      await db.update(bookings).set({ status: "cancelled", updatedAt: new Date() }).where(and(eq(bookings.organizationId, data.organizationId), eq(bookings.id, booking.id)));
-      await db.insert(bookingEvents).values({ organizationId: data.organizationId, bookingId: booking.id, type: "calendar.sync_failed", actorType: "system", metadata: { error: (error as Error).message.slice(0, 500) } });
-      throw error;
     }
+
+    await emitBookingEvent("booking.created", result);
+    return result;
   }
 
   static async rescheduleBooking(data: { organizationId: string; bookingId: string; startsAt: Date; timezone: string; actorType: string; actorUserId?: string; expectedCustomerId?: string; _lockHeld?: boolean }): Promise<BookingRow> {
@@ -218,17 +244,29 @@ export class SchedulingService {
     const conflictEnd = new Date(endsAt.getTime() + type.bufferAfterMinutes * 60_000);
     const [conflict] = await db.select({ id: bookings.id }).from(bookings).where(and(eq(bookings.organizationId, data.organizationId), existing.assignedUserId ? eq(bookings.assignedUserId, existing.assignedUserId) : undefined, ne(bookings.id, existing.id), ne(bookings.status, "cancelled"), lt(bookings.startsAt, conflictEnd), gt(bookings.endsAt, conflictStart))).limit(1);
     if (conflict) throw new Error("Booking conflict");
-    const provider = existing.assignedUserId ? await CalendarProviderFactory.forUser(data.organizationId, existing.assignedUserId) : undefined;
-    if (provider) {
-      const busy = await provider.listBusyIntervals({ from: conflictStart, to: conflictEnd });
-      const relevant = busy.filter((item) => !sameInterval(item.start, item.end, existing.startsAt, existing.endsAt));
-      if (relevant.some((item) => overlaps(conflictStart, conflictEnd, item.start, item.end))) throw new Error("External calendar conflict");
-      if (existing.providerEventId) {
-        await provider.updateEvent(existing.providerEventId, { title: type.name, description: type.description || undefined, start: data.startsAt, end: endsAt, timezone: data.timezone, attendeeEmail: existing.guestEmail || undefined, attendeeName: existing.guestName || undefined });
+
+    let providerAvailable = false;
+    if (existing.assignedUserId) {
+      const provider = await CalendarProviderFactory.forUser(data.organizationId, existing.assignedUserId);
+      providerAvailable = Boolean(provider);
+      if (provider) {
+        const busy = await provider.listBusyIntervals({ from: conflictStart, to: conflictEnd });
+        const relevant = busy.filter((item) => !sameInterval(item.start, item.end, existing.startsAt, existing.endsAt));
+        if (relevant.some((item) => overlaps(conflictStart, conflictEnd, item.start, item.end))) throw new Error("External calendar conflict");
       }
     }
+
     const [updated] = await db.update(bookings).set({ startsAt: data.startsAt, endsAt, timezone: data.timezone, updatedAt: new Date() }).where(and(eq(bookings.organizationId, data.organizationId), eq(bookings.id, existing.id))).returning();
     await db.insert(bookingEvents).values({ organizationId: data.organizationId, bookingId: existing.id, type: "booking.rescheduled", actorType: data.actorType, actorUserId: data.actorUserId, metadata: { from: existing.startsAt.toISOString(), to: data.startsAt.toISOString() } });
+
+    if (providerAvailable || existing.providerEventId) {
+      try {
+        await attemptCalendarSync({ organizationId: data.organizationId, bookingId: existing.id, action: "update" });
+      } catch (error) {
+        await db.insert(bookingEvents).values({ organizationId: data.organizationId, bookingId: existing.id, type: "calendar.sync_failed", actorType: "system", metadata: { action: "update", error: (error as Error).message.slice(0, 500) } });
+      }
+    }
+
     await emitBookingEvent("booking.rescheduled", updated);
     return updated;
   }
@@ -241,13 +279,19 @@ export class SchedulingService {
       data.expectedCustomerId ? eq(bookings.customerId, data.expectedCustomerId) : undefined,
     )).limit(1);
     if (!existing || existing.status === "cancelled") throw new Error("Booking not found");
-    if (existing.providerEventId && existing.assignedUserId) {
-      const provider = await CalendarProviderFactory.forUser(data.organizationId, existing.assignedUserId);
-      if (provider) await provider.deleteEvent(existing.providerEventId);
-    }
+
     const [booking] = await db.update(bookings).set({ status: "cancelled", updatedAt: new Date() }).where(and(eq(bookings.organizationId, data.organizationId), eq(bookings.id, data.bookingId), ne(bookings.status, "cancelled"))).returning();
     if (!booking) throw new Error("Booking not found");
     await db.insert(bookingEvents).values({ organizationId: data.organizationId, bookingId: booking.id, type: "booking.cancelled", actorType: data.actorType, actorUserId: data.actorUserId });
+
+    if (existing.providerEventId && existing.assignedUserId) {
+      try {
+        await attemptCalendarSync({ organizationId: data.organizationId, bookingId: booking.id, action: "delete" });
+      } catch (error) {
+        await db.insert(bookingEvents).values({ organizationId: data.organizationId, bookingId: booking.id, type: "calendar.sync_failed", actorType: "system", metadata: { action: "delete", error: (error as Error).message.slice(0, 500) } });
+      }
+    }
+
     await emitBookingEvent("booking.cancelled", booking);
     return booking;
   }
