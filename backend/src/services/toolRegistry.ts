@@ -2,6 +2,7 @@ import { SchedulingService } from "./schedulingService.js";
 import { SchedulingAuthorizationService } from "./schedulingAuthorizationService.js";
 import { TicketCaseService } from "./ticketCaseService.js";
 import { HubSpotAdapter, ZendeskAdapter } from "./integrationConnectionService.js";
+import { providerExtendedTools } from "./providerToolDefinitions.js";
 
 export type ToolRiskLevel = "read" | "write" | "sensitive";
 
@@ -184,5 +185,7 @@ registry.register({
     } catch (error) { return { success: false, error: (error as Error).message }; }
   },
 });
+
+for (const tool of providerExtendedTools) registry.register(tool);
 
 export { registry as toolRegistry };
