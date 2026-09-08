@@ -3,7 +3,9 @@ import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { setDatabaseTenant, withDatabaseTenantContext } from "../db/tenantContext.js";
 import { IntegrationConnectionService } from "../services/integrationConnectionService.js";
+import { registerIntegrationSyncBridge } from "../services/integrationSyncBridge.js";
 import { IntegrationSyncService } from "../services/integrationSyncService.js";
+import { TicketService } from "../services/ticketService.js";
 
 const adminUrl = process.env.DATABASE_ADMIN_URL;
 if (!adminUrl) throw new Error("DATABASE_ADMIN_URL is required for integration sync tests");
@@ -12,6 +14,7 @@ const organizationId = randomUUID();
 const customerId = randomUUID();
 const ticketId = randomUUID();
 const unlinkedTicketId = randomUUID();
+const userId = randomUUID();
 const admin = new pg.Client({ connectionString: adminUrl });
 const originalFetch = globalThis.fetch;
 
@@ -19,6 +22,8 @@ async function main() {
   await admin.connect();
   try {
     await admin.query("INSERT INTO organizations (id, name, slug) VALUES ($1, 'Sync Tenant', $2)", [organizationId, `sync-${organizationId}`]);
+    await admin.query("INSERT INTO users (id, email, password_hash, name) VALUES ($1, $2, 'integration-test-password-hash', 'Sync Agent')", [userId, `sync-agent-${userId}@example.test`]);
+    await admin.query("INSERT INTO organization_members (organization_id, user_id, role, status) VALUES ($1, $2, 'agent', 'active')", [organizationId, userId]);
     await admin.query("INSERT INTO customers (id, organization_id, name, email) VALUES ($1, $2, 'Sync Customer', 'sync@example.test')", [customerId, organizationId]);
     await admin.query("INSERT INTO tickets (id, organization_id, customer_id, ticket_number, subject, description, priority, status, tags) VALUES ($1, $2, $3, 7001, 'Sync issue', 'Created by sync regression test', 'high', 'open', '[]'::jsonb)", [ticketId, organizationId, customerId]);
     await admin.query("INSERT INTO tickets (id, organization_id, customer_id, ticket_number, subject, description, priority, status, tags) VALUES ($1, $2, $3, 7002, 'Unlinked issue', 'Must never create during update sync', 'normal', 'pending', '[]'::jsonb)", [unlinkedTicketId, organizationId, customerId]);
@@ -34,19 +39,22 @@ async function main() {
       });
     });
 
-    const { createRule, updateRule } = await withDatabaseTenantContext(async () => {
+    const { createRule, updateRule, commentRule } = await withDatabaseTenantContext(async () => {
       setDatabaseTenant(organizationId);
       const created = await IntegrationSyncService.createRule({ organizationId, connectionId: connection.id, eventType: "ticket.created", action: "zendesk.create_ticket" });
       const updated = await IntegrationSyncService.createRule({ organizationId, connectionId: connection.id, eventType: "ticket.updated", action: "zendesk.update_ticket" });
-      return { createRule: created, updateRule: updated };
+      const comment = await IntegrationSyncService.createRule({ organizationId, connectionId: connection.id, eventType: "ticket.comment.created", action: "zendesk.add_comment" });
+      return { createRule: created, updateRule: updated, commentRule: comment };
     });
     assert.equal(createRule.enabled, false, "new automatic create sync rules must be disabled by default");
     assert.equal(updateRule.enabled, false, "new automatic update sync rules must be disabled by default");
+    assert.equal(commentRule.enabled, false, "new automatic comment sync rules must be disabled by default");
 
     await withDatabaseTenantContext(async () => {
       setDatabaseTenant(organizationId);
       await IntegrationSyncService.setEnabled(organizationId, createRule.id, true);
       await IntegrationSyncService.setEnabled(organizationId, updateRule.id, true);
+      await IntegrationSyncService.setEnabled(organizationId, commentRule.id, true);
       const event = { type: "ticket.created" as const, organizationId, payload: { id: ticketId }, occurredAt: new Date() };
       await IntegrationSyncService.handleDomainEvent(event);
       await IntegrationSyncService.handleDomainEvent(event);
@@ -69,6 +77,11 @@ async function main() {
       }
       assert.equal(url, "https://supportai-test.zendesk.com/api/v2/tickets/12345.json");
       assert.equal(init?.method, "PUT");
+      if (body.ticket.comment) {
+        assert.equal(body.ticket.comment.body, "Public answer for the customer");
+        assert.equal(body.ticket.comment.public, true);
+        return new Response(JSON.stringify({ ticket: { id: 12345 } }), { status: 200, headers: { "content-type": "application/json" } });
+      }
       assert.equal(body.ticket.status, "solved");
       assert.equal(body.ticket.priority, "urgent");
       return new Response(JSON.stringify({ ticket: { id: 12345, status: "solved", priority: "urgent" } }), { status: 200, headers: { "content-type": "application/json" } });
@@ -130,10 +143,28 @@ async function main() {
     });
     assert.equal(requests.length, 2, "unlinked update must not issue any external request");
 
-    console.log("Integration sync create/update idempotency, filtering, and linked Zendesk delivery tests passed.");
+    registerIntegrationSyncBridge();
+    await withDatabaseTenantContext(async () => {
+      setDatabaseTenant(organizationId);
+      const publicComment = await TicketService.addComment({ organizationId, ticketId, userId, content: "Public answer for the customer", isInternal: false });
+      await TicketService.addComment({ organizationId, ticketId, userId, content: "Internal note that must stay private", isInternal: true });
+      const queued = await IntegrationSyncService.listExecutions(organizationId);
+      assert.equal(queued.filter((item) => item.eventKey.startsWith("ticket.comment.created:")).length, 1, "only the public comment may enter the sync outbox");
+      assert.equal(queued.some((item) => item.entityId === publicComment.id), true);
+      const result = await IntegrationSyncService.processPending(organizationId);
+      assert.equal(result.succeeded, 1, "public comment sync must succeed");
+      const after = await IntegrationSyncService.listExecutions(organizationId);
+      const commentExecution = after.find((item) => item.entityId === publicComment.id);
+      assert.equal(commentExecution?.status, "succeeded");
+      assert.equal(commentExecution?.externalId, "12345");
+    });
+    assert.equal(requests.length, 3, "Zendesk must receive exactly one public comment request and no internal note");
+
+    console.log("Integration sync create/update/comment idempotency and privacy isolation tests passed.");
   } finally {
     globalThis.fetch = originalFetch;
     await admin.query("DELETE FROM organizations WHERE id = $1", [organizationId]).catch(() => undefined);
+    await admin.query("DELETE FROM users WHERE id = $1", [userId]).catch(() => undefined);
     await admin.end();
   }
 }
