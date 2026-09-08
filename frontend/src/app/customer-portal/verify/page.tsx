@@ -4,8 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { API_BASE_URL } from "@/lib/api";
 
-const SESSION_KEY = "supportai_customer_portal_session";
-
 export default function CustomerPortalVerifyPage() {
   const router = useRouter();
   const [message, setMessage] = useState("Anmeldelink wird geprüft …");
@@ -15,13 +13,11 @@ export default function CustomerPortalVerifyPage() {
     if (!token) { setMessage("Der Anmeldelink ist ungültig."); return; }
     void fetch(`${API_BASE_URL}/customer-portal/verify`, {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token }),
     }).then(async (response) => {
       if (!response.ok) throw new Error();
-      const data = await response.json() as { sessionToken?: string };
-      if (!data.sessionToken) throw new Error();
-      sessionStorage.setItem(SESSION_KEY, data.sessionToken);
       router.replace("/customer-portal");
     }).catch(() => setMessage("Der Anmeldelink ist ungültig oder abgelaufen."));
   }, [router]);
