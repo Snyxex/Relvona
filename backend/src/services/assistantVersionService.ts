@@ -186,7 +186,7 @@ export class AssistantVersionService {
     });
   }
 
-  static async markLiveConfigurationDirty(organizationId: string, assistantId: string) {
+  static async markLiveDraft(organizationId: string, assistantId: string) {
     await db.update(assistantVersions).set({ status: "archived" }).where(and(
       eq(assistantVersions.organizationId, organizationId),
       eq(assistantVersions.assistantId, assistantId),
