@@ -17,6 +17,16 @@ router.get("/executions", requireRole(["owner", "admin", "agent"]), async (req: 
   catch (error) { return sendInternalError(req, res, error, { code: "INTEGRATION_SYNC_EXECUTIONS_LOAD_FAILED", message: "Unable to load integration sync executions" }); }
 });
 
+router.post("/executions/:id/retry", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
+  try { return res.json(await IntegrationSyncService.retryExecution(req.organization!.id, req.params.id)); }
+  catch (error) {
+    const message = (error as Error).message;
+    if (["Integration sync execution not found", "Integration sync rule not found"].includes(message)) return res.status(404).json({ error: message });
+    if (/Only failed|disabled|no longer retryable/i.test(message)) return res.status(409).json({ error: message });
+    return sendInternalError(req, res, error, { code: "INTEGRATION_SYNC_RETRY_FAILED", message: "Unable to retry integration sync execution" });
+  }
+});
+
 router.post("/rules", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
   try {
     const { connectionId, eventType, action } = req.body || {};
