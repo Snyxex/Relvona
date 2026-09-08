@@ -1,6 +1,7 @@
 import { SchedulingService } from "./schedulingService.js";
 import { SchedulingAuthorizationService } from "./schedulingAuthorizationService.js";
 import { TicketCaseService } from "./ticketCaseService.js";
+import { HubSpotAdapter, ZendeskAdapter } from "./integrationConnectionService.js";
 
 export type ToolRiskLevel = "read" | "write" | "sensitive";
 
@@ -125,6 +126,62 @@ registry.register({
     if (typeof input.bookingId !== "string") return { success: false, error: "bookingId is required" };
     try { return { success: true, data: { booking: await SchedulingService.cancelBooking({ organizationId: context.organizationId, bookingId: input.bookingId, actorType: "ai", actorUserId: context.actorUserId, expectedCustomerId: context.customerId }) } as unknown as Record<string, unknown> }; }
     catch (error) { return { success: false, error: (error as Error).message }; }
+  },
+});
+
+registry.register({
+  id: "hubspot.get_contact",
+  name: "Get HubSpot contact",
+  description: "Read a HubSpot CRM contact by email from the current organization's configured HubSpot connection.",
+  inputSchema: { type: "object", properties: { email: { type: "string", format: "email" }, connectionId: { type: "string", format: "uuid" } }, required: ["email"] },
+  riskLevel: "read", requiresApproval: false,
+  async execute(context, input) {
+    if (typeof input.email !== "string") return { success: false, error: "email is required" };
+    try { return { success: true, data: { contact: await HubSpotAdapter.getContactByEmail(context.organizationId, input.email, typeof input.connectionId === "string" ? input.connectionId : undefined) } as Record<string, unknown> }; }
+    catch (error) { return { success: false, error: (error as Error).message }; }
+  },
+});
+
+registry.register({
+  id: "hubspot.create_contact",
+  name: "Create HubSpot contact",
+  description: "Create a contact in HubSpot CRM. This external write requires approval.",
+  inputSchema: { type: "object", properties: { email: { type: "string", format: "email" }, firstName: { type: "string" }, lastName: { type: "string" }, phone: { type: "string" }, company: { type: "string" }, connectionId: { type: "string", format: "uuid" } }, required: ["email"] },
+  riskLevel: "write", requiresApproval: true,
+  async execute(context, input) {
+    if (typeof input.email !== "string") return { success: false, error: "email is required" };
+    try {
+      const contact = await HubSpotAdapter.createContact(context.organizationId, { email: input.email, firstName: typeof input.firstName === "string" ? input.firstName : undefined, lastName: typeof input.lastName === "string" ? input.lastName : undefined, phone: typeof input.phone === "string" ? input.phone : undefined, company: typeof input.company === "string" ? input.company : undefined }, typeof input.connectionId === "string" ? input.connectionId : undefined);
+      return { success: true, data: { contact } as Record<string, unknown> };
+    } catch (error) { return { success: false, error: (error as Error).message }; }
+  },
+});
+
+registry.register({
+  id: "zendesk.get_ticket",
+  name: "Get Zendesk ticket",
+  description: "Read a Zendesk Support ticket from the current organization's configured Zendesk connection.",
+  inputSchema: { type: "object", properties: { ticketId: { type: "string" }, connectionId: { type: "string", format: "uuid" } }, required: ["ticketId"] },
+  riskLevel: "read", requiresApproval: false,
+  async execute(context, input) {
+    if (typeof input.ticketId !== "string") return { success: false, error: "ticketId is required" };
+    try { return { success: true, data: { ticket: await ZendeskAdapter.getTicket(context.organizationId, input.ticketId, typeof input.connectionId === "string" ? input.connectionId : undefined) } as Record<string, unknown> }; }
+    catch (error) { return { success: false, error: (error as Error).message }; }
+  },
+});
+
+registry.register({
+  id: "zendesk.create_ticket",
+  name: "Create Zendesk ticket",
+  description: "Create a ticket in Zendesk Support. This external write requires approval.",
+  inputSchema: { type: "object", properties: { subject: { type: "string" }, body: { type: "string" }, priority: { type: "string", enum: ["low", "normal", "high", "urgent"] }, requesterEmail: { type: "string", format: "email" }, requesterName: { type: "string" }, connectionId: { type: "string", format: "uuid" } }, required: ["body"] },
+  riskLevel: "write", requiresApproval: true,
+  async execute(context, input) {
+    if (typeof input.body !== "string") return { success: false, error: "body is required" };
+    try {
+      const ticket = await ZendeskAdapter.createTicket(context.organizationId, { subject: typeof input.subject === "string" ? input.subject : undefined, body: input.body, priority: typeof input.priority === "string" ? input.priority : undefined, requesterEmail: typeof input.requesterEmail === "string" ? input.requesterEmail : undefined, requesterName: typeof input.requesterName === "string" ? input.requesterName : undefined }, typeof input.connectionId === "string" ? input.connectionId : undefined);
+      return { success: true, data: { ticket } as Record<string, unknown> };
+    } catch (error) { return { success: false, error: (error as Error).message }; }
   },
 });
 
