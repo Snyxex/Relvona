@@ -3,6 +3,7 @@ import { db } from "../db/index.js";
 import { customers, users } from "../db/schema.js";
 import { availabilityRules, bookingEvents, bookings, meetingTypes } from "../db/extendedCustomerExperienceSchema.js";
 import { CalendarProviderFactory } from "./calendarProviderFactory.js";
+import { SchedulingMutationLockService } from "./schedulingMutationLockService.js";
 
 function normalizeSlug(value: string) {
   return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
@@ -126,8 +127,9 @@ export class SchedulingService {
 
   static async createBooking(data: {
     organizationId: string; meetingTypeId: string; assignedUserId?: string; customerId?: string; conversationId?: string;
-    guestEmail?: string; guestName?: string; startsAt: Date; timezone: string; idempotencyKey?: string; createdBy?: string;
+    guestEmail?: string; guestName?: string; startsAt: Date; timezone: string; idempotencyKey?: string; createdBy?: string; _lockHeld?: boolean;
   }) {
+    if (!data._lockHeld) return SchedulingMutationLockService.run(data.organizationId, () => this.createBooking({ ...data, _lockHeld: true }));
     if (!validTimezone(data.timezone) || Number.isNaN(data.startsAt.getTime())) throw new Error("Invalid booking time");
     const [type] = await db.select().from(meetingTypes).where(and(eq(meetingTypes.organizationId, data.organizationId), eq(meetingTypes.id, data.meetingTypeId), eq(meetingTypes.enabled, true))).limit(1);
     if (!type) throw new Error("Meeting type not found");
@@ -173,7 +175,8 @@ export class SchedulingService {
     }
   }
 
-  static async rescheduleBooking(data: { organizationId: string; bookingId: string; startsAt: Date; timezone: string; actorType: string; actorUserId?: string; expectedCustomerId?: string }) {
+  static async rescheduleBooking(data: { organizationId: string; bookingId: string; startsAt: Date; timezone: string; actorType: string; actorUserId?: string; expectedCustomerId?: string; _lockHeld?: boolean }) {
+    if (!data._lockHeld) return SchedulingMutationLockService.run(data.organizationId, () => this.rescheduleBooking({ ...data, _lockHeld: true }));
     if (!validTimezone(data.timezone) || Number.isNaN(data.startsAt.getTime())) throw new Error("Invalid booking time");
     const [existing] = await db.select().from(bookings).where(and(
       eq(bookings.organizationId, data.organizationId),
@@ -206,7 +209,8 @@ export class SchedulingService {
     return updated;
   }
 
-  static async cancelBooking(data: { organizationId: string; bookingId: string; actorType: string; actorUserId?: string; expectedCustomerId?: string }) {
+  static async cancelBooking(data: { organizationId: string; bookingId: string; actorType: string; actorUserId?: string; expectedCustomerId?: string; _lockHeld?: boolean }) {
+    if (!data._lockHeld) return SchedulingMutationLockService.run(data.organizationId, () => this.cancelBooking({ ...data, _lockHeld: true }));
     const [existing] = await db.select().from(bookings).where(and(
       eq(bookings.organizationId, data.organizationId),
       eq(bookings.id, data.bookingId),
