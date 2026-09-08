@@ -267,4 +267,4 @@ async function shutdown(signal: string) {
   }
 }
 process.once("SIGTERM", () => { void shutdown("SIGTERM"); });
-process.once("SIGINT", () => { void shutdown("SIGINT"));
+process.once("SIGINT", () => { void shutdown("SIGINT"); });
