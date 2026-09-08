@@ -3,6 +3,7 @@ import { authenticate, tenantContext, requireRole, AuthRequest } from "../middle
 import { TicketService } from "../services/ticketService.js";
 import { TicketCaseService } from "../services/ticketCaseService.js";
 import { db } from "../db/index.js";
+import { externalActors, externalTicketMessages } from "../db/externalTicketMessageSchema.js";
 import { ticketComments, users, organizationMembers, tickets } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { sendInternalError } from "../utils/httpErrors.js";
@@ -99,8 +100,46 @@ router.put("/:id", async (req: AuthRequest, res) => {
 
 router.get("/:id/comments", async (req: AuthRequest, res) => {
   try {
-    const comments = await db.select({ comment: ticketComments, user: { id: users.id, name: users.name, email: users.email } }).from(ticketComments).innerJoin(users, eq(ticketComments.userId, users.id)).where(and(eq(ticketComments.ticketId, req.params.id), eq(ticketComments.organizationId, req.organization!.id)));
-    return res.json(comments.map((c) => ({ ...c.comment, author: c.user })));
+    const organizationId = req.organization!.id;
+    const [localComments, externalComments] = await Promise.all([
+      db.select({ comment: ticketComments, user: { id: users.id, name: users.name, email: users.email } })
+        .from(ticketComments)
+        .innerJoin(users, eq(ticketComments.userId, users.id))
+        .where(and(eq(ticketComments.ticketId, req.params.id), eq(ticketComments.organizationId, organizationId))),
+      db.select({ message: externalTicketMessages, actor: externalActors })
+        .from(externalTicketMessages)
+        .leftJoin(externalActors, eq(externalTicketMessages.actorId, externalActors.id))
+        .where(and(eq(externalTicketMessages.ticketId, req.params.id), eq(externalTicketMessages.organizationId, organizationId))),
+    ]);
+
+    const timeline = [
+      ...localComments.map((item) => ({
+        ...item.comment,
+        source: "local" as const,
+        authorType: "internal_user" as const,
+        author: item.user,
+      })),
+      ...externalComments.map((item) => ({
+        id: item.message.id,
+        ticketId: item.message.ticketId,
+        organizationId: item.message.organizationId,
+        content: item.message.content,
+        isInternal: item.message.visibility !== "public",
+        createdAt: item.message.providerCreatedAt || item.message.createdAt,
+        source: item.message.provider,
+        authorType: "external" as const,
+        externalMessageId: item.message.externalMessageId,
+        author: item.actor ? {
+          id: item.actor.externalId,
+          name: item.actor.displayName,
+          email: item.actor.email,
+          role: item.actor.role,
+          provider: item.actor.provider,
+        } : null,
+      })),
+    ].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    return res.json(timeline);
   } catch (error) {
     return sendInternalError(req, res, error, { code: "TICKET_COMMENTS_LOAD_FAILED", message: "Unable to load ticket comments" });
   }
