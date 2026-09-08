@@ -1,4 +1,4 @@
-import { and, desc, eq, lt, or } from "drizzle-orm";
+import { and, desc, eq, isNotNull, lt, or } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { setDatabaseTenant, withDatabaseTenantContext } from "../db/tenantContext.js";
 import { customers, organizations, tickets } from "../db/schema.js";
@@ -6,9 +6,35 @@ import { integrationConnections } from "../db/integrationConnectionSchema.js";
 import { integrationSyncExecutions, integrationSyncRules } from "../db/integrationSyncSchema.js";
 import type { DomainEvent } from "./domainEventBus.js";
 import { ZendeskAdapter } from "./integrationConnectionService.js";
+import { ZendeskExtendedAdapter } from "./providerActionService.js";
 
-const allowedRule = { eventType: "ticket.created", action: "zendesk.create_ticket" } as const;
+const allowedRules = [
+  { eventType: "ticket.created", action: "zendesk.create_ticket" },
+  { eventType: "ticket.updated", action: "zendesk.update_ticket" },
+] as const;
 const PROCESSING_STALE_MS = Number(process.env.INTEGRATION_SYNC_STALE_MS || 10 * 60_000);
+
+type AllowedRule = (typeof allowedRules)[number];
+
+function isAllowedRule(eventType: string, action: string): eventType is AllowedRule["eventType"] {
+  return allowedRules.some((rule) => rule.eventType === eventType && rule.action === action);
+}
+
+function zendeskStatus(status: string) {
+  if (status === "pending") return "pending";
+  if (status === "resolved" || status === "closed") return "solved";
+  return "open";
+}
+
+function updateEventKey(event: DomainEvent, entityId: string) {
+  const rawUpdatedAt = event.payload.updatedAt;
+  const updatedAt = rawUpdatedAt instanceof Date
+    ? rawUpdatedAt.toISOString()
+    : typeof rawUpdatedAt === "string"
+      ? rawUpdatedAt
+      : event.occurredAt.toISOString();
+  return `ticket.updated:${entityId}:${updatedAt}`;
+}
 
 export class IntegrationSyncService {
   static async listRules(organizationId: string) {
@@ -20,7 +46,7 @@ export class IntegrationSyncService {
   }
 
   static async createRule(data: { organizationId: string; connectionId: string; eventType: string; action: string; enabled?: boolean }) {
-    if (data.eventType !== allowedRule.eventType || data.action !== allowedRule.action) throw new Error("Unsupported integration sync rule");
+    if (!isAllowedRule(data.eventType, data.action)) throw new Error("Unsupported integration sync rule");
     const [connection] = await db.select({ id: integrationConnections.id, provider: integrationConnections.provider }).from(integrationConnections)
       .where(and(eq(integrationConnections.organizationId, data.organizationId), eq(integrationConnections.id, data.connectionId))).limit(1);
     if (!connection) throw new Error("Integration connection not found");
@@ -71,24 +97,45 @@ export class IntegrationSyncService {
   }
 
   static async handleDomainEvent(event: DomainEvent) {
-    if (event.type !== allowedRule.eventType) return;
+    if (event.type !== "ticket.created" && event.type !== "ticket.updated") return;
     const entityId = typeof event.payload.id === "string" ? event.payload.id : undefined;
     if (!entityId) return;
+    const action = event.type === "ticket.created" ? "zendesk.create_ticket" : "zendesk.update_ticket";
     const rules = await db.select().from(integrationSyncRules).where(and(
       eq(integrationSyncRules.organizationId, event.organizationId),
       eq(integrationSyncRules.eventType, event.type),
-      eq(integrationSyncRules.action, allowedRule.action),
+      eq(integrationSyncRules.action, action),
       eq(integrationSyncRules.enabled, true),
     ));
+    const eventKey = event.type === "ticket.created" ? `ticket.created:${entityId}` : updateEventKey(event, entityId);
     for (const rule of rules) {
       await db.insert(integrationSyncExecutions).values({
         organizationId: event.organizationId,
         ruleId: rule.id,
-        eventKey: `ticket.created:${entityId}`,
+        eventKey,
         entityId,
         status: "pending",
       }).onConflictDoNothing({ target: [integrationSyncExecutions.ruleId, integrationSyncExecutions.eventKey] });
     }
+  }
+
+  private static async linkedZendeskTicketId(organizationId: string, connectionId: string, ticketId: string) {
+    const [link] = await db.select({ externalId: integrationSyncExecutions.externalId })
+      .from(integrationSyncExecutions)
+      .innerJoin(integrationSyncRules, eq(integrationSyncExecutions.ruleId, integrationSyncRules.id))
+      .where(and(
+        eq(integrationSyncExecutions.organizationId, organizationId),
+        eq(integrationSyncExecutions.entityId, ticketId),
+        eq(integrationSyncExecutions.status, "succeeded"),
+        isNotNull(integrationSyncExecutions.externalId),
+        eq(integrationSyncRules.organizationId, organizationId),
+        eq(integrationSyncRules.connectionId, connectionId),
+        eq(integrationSyncRules.eventType, "ticket.created"),
+        eq(integrationSyncRules.action, "zendesk.create_ticket"),
+      ))
+      .orderBy(desc(integrationSyncExecutions.updatedAt))
+      .limit(1);
+    return link?.externalId || undefined;
   }
 
   static async processPending(organizationId: string, limit = 25) {
@@ -115,22 +162,36 @@ export class IntegrationSyncService {
           eq(integrationSyncRules.enabled, true),
         )).limit(1);
         if (!rule) throw new Error("Integration sync rule is disabled or missing");
-        if (rule.eventType !== allowedRule.eventType || rule.action !== allowedRule.action) throw new Error("Unsupported integration sync execution");
+        if (!isAllowedRule(rule.eventType, rule.action)) throw new Error("Unsupported integration sync execution");
 
         const [row] = await db.select({ ticket: tickets, customer: customers }).from(tickets)
           .innerJoin(customers, eq(tickets.customerId, customers.id))
           .where(and(eq(tickets.organizationId, organizationId), eq(tickets.id, claimed.entityId))).limit(1);
         if (!row) throw new Error("Local ticket not found");
 
-        const result = await ZendeskAdapter.createTicket(organizationId, {
-          subject: row.ticket.subject,
-          body: row.ticket.description || `Support ticket #${row.ticket.ticketNumber}`,
-          priority: row.ticket.priority,
-          requesterEmail: row.customer.email || undefined,
-          requesterName: row.customer.name || undefined,
-        }, rule.connectionId);
-        const rawExternalId = (result as any)?.ticket?.id;
-        const externalId = typeof rawExternalId === "number" || typeof rawExternalId === "string" ? String(rawExternalId) : null;
+        let externalId: string | null = null;
+        if (rule.eventType === "ticket.created" && rule.action === "zendesk.create_ticket") {
+          const result = await ZendeskAdapter.createTicket(organizationId, {
+            subject: row.ticket.subject,
+            body: row.ticket.description || `Support ticket #${row.ticket.ticketNumber}`,
+            priority: row.ticket.priority,
+            requesterEmail: row.customer.email || undefined,
+            requesterName: row.customer.name || undefined,
+          }, rule.connectionId);
+          const rawExternalId = (result as any)?.ticket?.id;
+          externalId = typeof rawExternalId === "number" || typeof rawExternalId === "string" ? String(rawExternalId) : null;
+          if (!externalId) throw new Error("Zendesk create response did not contain a ticket id");
+        } else {
+          const linkedId = await this.linkedZendeskTicketId(organizationId, rule.connectionId, claimed.entityId);
+          if (!linkedId) throw new Error("Zendesk ticket link not found; create sync must succeed first");
+          await ZendeskExtendedAdapter.updateTicket(organizationId, {
+            ticketId: linkedId,
+            status: zendeskStatus(row.ticket.status),
+            priority: row.ticket.priority,
+          }, rule.connectionId);
+          externalId = linkedId;
+        }
+
         await db.update(integrationSyncExecutions).set({ status: "succeeded", externalId, error: null, updatedAt: new Date() })
           .where(and(eq(integrationSyncExecutions.organizationId, organizationId), eq(integrationSyncExecutions.id, claimed.id)));
         succeeded += 1;
