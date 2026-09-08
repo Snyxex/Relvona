@@ -8,7 +8,10 @@ export type DomainEventType =
   | "tool.failed"
   | "customer.frustrated"
   | "ai.low_confidence"
-  | "human_handoff.requested";
+  | "human_handoff.requested"
+  | "booking.created"
+  | "booking.rescheduled"
+  | "booking.cancelled";
 
 export interface DomainEvent<TPayload extends Record<string, unknown> = Record<string, unknown>> {
   type: DomainEventType;
