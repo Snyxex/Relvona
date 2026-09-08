@@ -14,6 +14,10 @@ const catalogToolIds = [
   "scheduling.create_booking",
   "scheduling.reschedule_booking",
   "scheduling.cancel_booking",
+  "hubspot.get_contact",
+  "hubspot.create_contact",
+  "zendesk.get_ticket",
+  "zendesk.create_ticket",
 ];
 
 router.get("/", (req: AuthRequest, res) => {
