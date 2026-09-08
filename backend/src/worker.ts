@@ -11,6 +11,7 @@ import { ConversationAutoCloseService } from "./services/conversationAutoCloseSe
 import { WebhookDeliverySweepService } from "./services/webhookDeliverySweepService.js";
 import { IntegrationSyncService } from "./services/integrationSyncService.js";
 import { IntegrationInboundService } from "./services/integrationInboundService.js";
+import { BookingCalendarSyncService } from "./services/bookingCalendarSyncService.js";
 import { closeQueues, publishIngestion } from "./services/queueService.js";
 import type { IngestionInput, IngestionReference } from "./services/ingestionTypes.js";
 import { logger, withLogContext, setLogContext } from "./observability/logger.js";
@@ -53,6 +54,7 @@ let autoClosing: Promise<void> | undefined;
 let webhookSweeping: Promise<void> | undefined;
 let integrationSyncSweeping: Promise<void> | undefined;
 let integrationInboundSweeping: Promise<void> | undefined;
+let calendarSyncSweeping: Promise<void> | undefined;
 
 async function dispatch() {
   let cursor: string | undefined;
@@ -99,17 +101,26 @@ function scheduleIntegrationInboundSweep() {
     .catch(() => logger.warn("integration.inbound_sweep_failed"))
     .finally(() => { integrationInboundSweeping = undefined; });
 }
+function scheduleCalendarSyncSweep() {
+  if (calendarSyncSweeping || shuttingDown) return;
+  calendarSyncSweeping = BookingCalendarSyncService.sweepAll(() => shuttingDown)
+    .then((result) => { if (result.processed) logger.info("calendar.sync_sweep", result); })
+    .catch(() => logger.warn("calendar.sync_sweep_failed"))
+    .finally(() => { calendarSyncSweeping = undefined; });
+}
 
 const dispatchTimer = setInterval(scheduleDispatch, 10_000);
 const autoCloseTimer = setInterval(scheduleAutoClose, Number(process.env.CONVERSATION_AUTO_CLOSE_SWEEP_MS || 60_000));
 const webhookTimer = setInterval(scheduleWebhookSweep, Number(process.env.WEBHOOK_DELIVERY_SWEEP_MS || 5_000));
 const integrationSyncTimer = setInterval(scheduleIntegrationSyncSweep, Number(process.env.INTEGRATION_SYNC_SWEEP_MS || 5_000));
 const integrationInboundTimer = setInterval(scheduleIntegrationInboundSweep, Number(process.env.INTEGRATION_INBOUND_SWEEP_MS || 5_000));
+const calendarSyncTimer = setInterval(scheduleCalendarSyncSweep, Number(process.env.CALENDAR_SYNC_SWEEP_MS || 5_000));
 scheduleDispatch();
 scheduleAutoClose();
 scheduleWebhookSweep();
 scheduleIntegrationSyncSweep();
 scheduleIntegrationInboundSweep();
+scheduleCalendarSyncSweep();
 
 async function shutdown(signal: string) {
   if (shuttingDown) return;
@@ -119,6 +130,7 @@ async function shutdown(signal: string) {
   clearInterval(webhookTimer);
   clearInterval(integrationSyncTimer);
   clearInterval(integrationInboundTimer);
+  clearInterval(calendarSyncTimer);
   logger.info("worker.shutdown_started", { signal });
   const timer = setTimeout(() => { logger.error("worker.shutdown_timeout"); process.exit(1); }, Number(process.env.SHUTDOWN_TIMEOUT_MS || 30_000));
   timer.unref();
@@ -129,6 +141,7 @@ async function shutdown(signal: string) {
     await webhookSweeping;
     await integrationSyncSweeping;
     await integrationInboundSweeping;
+    await calendarSyncSweeping;
     await closeQueues();
     connection.disconnect();
     await closeDatabasePool();
