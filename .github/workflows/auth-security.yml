@@ -3,7 +3,7 @@ name: Auth Security
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, feat/extended-customer-experience]
 
 permissions:
   contents: read
@@ -81,6 +81,8 @@ jobs:
           APP_PUBLIC_URL: http://localhost:3000
           CORS_ORIGIN: http://localhost:3000
           ENCRYPTION_SECRET_CURRENT: ci-encryption-secret-not-for-production
+          VISITOR_IDENTITY_SECRET: ci-visitor-identity-secret-not-for-production
+          PORTAL_TOKEN_SECRET: ci-portal-token-secret-not-for-production
           AUTH_REGRESSION_DESTRUCTIVE_TESTS: "true"
         run: npm run test:ci-auth
 
