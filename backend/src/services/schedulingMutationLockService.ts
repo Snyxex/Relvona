@@ -1,14 +1,24 @@
-import { pool } from "../db/index.js";
+import pg from "pg";
+
+const lockDatabaseUrl = process.env.DATABASE_URL;
+if (process.env.NODE_ENV === "production" && !lockDatabaseUrl) throw new Error("DATABASE_URL is required for scheduling locks");
+
+const lockPool = new pg.Pool({
+  connectionString: lockDatabaseUrl || "postgres://postgres:postgrespassword@localhost:5432/ai_support_db",
+  max: Math.max(1, Math.min(Number(process.env.DATABASE_SCHEDULING_LOCK_POOL_MAX || 2), 8)),
+  idleTimeoutMillis: 10_000,
+  connectionTimeoutMillis: Number(process.env.DATABASE_CONNECTION_TIMEOUT_MS || 5_000),
+  allowExitOnIdle: true,
+});
 
 /**
  * Serializes booking mutations per organization across all application instances.
- * The dedicated PostgreSQL session keeps the advisory lock alive while the
- * callback performs its normal tenant-scoped database/provider work.
+ * A dedicated pool prevents lock waiters from consuming normal API query slots.
  */
 export class SchedulingMutationLockService {
   static async run<T>(organizationId: string, work: () => Promise<T>): Promise<T> {
     if (!/^[0-9a-f-]{36}$/i.test(organizationId)) throw new Error("Invalid organization id");
-    const client = await pool.connect();
+    const client = await lockPool.connect();
     const key = `supportai:scheduling:${organizationId}`;
     try {
       await client.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [key]);
