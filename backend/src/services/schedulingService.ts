@@ -173,9 +173,14 @@ export class SchedulingService {
     }
   }
 
-  static async rescheduleBooking(data: { organizationId: string; bookingId: string; startsAt: Date; timezone: string; actorType: string; actorUserId?: string }) {
+  static async rescheduleBooking(data: { organizationId: string; bookingId: string; startsAt: Date; timezone: string; actorType: string; actorUserId?: string; expectedCustomerId?: string }) {
     if (!validTimezone(data.timezone) || Number.isNaN(data.startsAt.getTime())) throw new Error("Invalid booking time");
-    const [existing] = await db.select().from(bookings).where(and(eq(bookings.organizationId, data.organizationId), eq(bookings.id, data.bookingId), ne(bookings.status, "cancelled"))).limit(1);
+    const [existing] = await db.select().from(bookings).where(and(
+      eq(bookings.organizationId, data.organizationId),
+      eq(bookings.id, data.bookingId),
+      data.expectedCustomerId ? eq(bookings.customerId, data.expectedCustomerId) : undefined,
+      ne(bookings.status, "cancelled"),
+    )).limit(1);
     if (!existing) throw new Error("Booking not found");
     const [type] = await db.select().from(meetingTypes).where(and(eq(meetingTypes.organizationId, data.organizationId), eq(meetingTypes.id, existing.meetingTypeId))).limit(1);
     if (!type) throw new Error("Meeting type not found");
@@ -201,8 +206,12 @@ export class SchedulingService {
     return updated;
   }
 
-  static async cancelBooking(data: { organizationId: string; bookingId: string; actorType: string; actorUserId?: string }) {
-    const [existing] = await db.select().from(bookings).where(and(eq(bookings.organizationId, data.organizationId), eq(bookings.id, data.bookingId))).limit(1);
+  static async cancelBooking(data: { organizationId: string; bookingId: string; actorType: string; actorUserId?: string; expectedCustomerId?: string }) {
+    const [existing] = await db.select().from(bookings).where(and(
+      eq(bookings.organizationId, data.organizationId),
+      eq(bookings.id, data.bookingId),
+      data.expectedCustomerId ? eq(bookings.customerId, data.expectedCustomerId) : undefined,
+    )).limit(1);
     if (!existing || existing.status === "cancelled") throw new Error("Booking not found");
     if (existing.providerEventId && existing.assignedUserId) {
       const provider = await CalendarProviderFactory.forUser(data.organizationId, existing.assignedUserId);
@@ -214,7 +223,10 @@ export class SchedulingService {
     return booking;
   }
 
-  static async listBookings(organizationId: string) {
-    return db.select().from(bookings).where(eq(bookings.organizationId, organizationId)).orderBy(asc(bookings.startsAt));
+  static async listBookings(organizationId: string, customerId?: string) {
+    return db.select().from(bookings).where(and(
+      eq(bookings.organizationId, organizationId),
+      customerId ? eq(bookings.customerId, customerId) : undefined,
+    )).orderBy(asc(bookings.startsAt));
   }
 }
