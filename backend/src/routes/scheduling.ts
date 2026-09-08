@@ -1,12 +1,42 @@
 import { Router } from "express";
+import { and, eq } from "drizzle-orm";
 import { authenticate, tenantContext, requireRole, type AuthRequest } from "../middleware/auth.js";
 import { SchedulingService } from "../services/schedulingService.js";
 import { sendInternalError } from "../utils/httpErrors.js";
+import { db } from "../db/index.js";
+import { calendarConnections } from "../db/extendedCustomerExperienceSchema.js";
 
 const router = Router();
 router.use(authenticate);
 router.use(tenantContext);
 router.use(requireRole(["owner", "admin", "agent"]));
+
+router.get("/connections", async (req: AuthRequest, res) => {
+  try {
+    const conditions = [eq(calendarConnections.organizationId, req.organization!.id)];
+    if (req.organization!.role === "agent") conditions.push(eq(calendarConnections.userId, req.user!.id));
+    const rows = await db.select({
+      id: calendarConnections.id,
+      userId: calendarConnections.userId,
+      provider: calendarConnections.provider,
+      externalAccountId: calendarConnections.externalAccountId,
+      status: calendarConnections.status,
+      createdAt: calendarConnections.createdAt,
+      updatedAt: calendarConnections.updatedAt,
+    }).from(calendarConnections).where(and(...conditions));
+    return res.json(rows);
+  } catch (error) { return sendInternalError(req, res, error, { code: "CALENDAR_CONNECTIONS_LOAD_FAILED", message: "Unable to load calendar connections" }); }
+});
+
+router.delete("/connections/:id", async (req: AuthRequest, res) => {
+  try {
+    const conditions = [eq(calendarConnections.organizationId, req.organization!.id), eq(calendarConnections.id, req.params.id)];
+    if (req.organization!.role === "agent") conditions.push(eq(calendarConnections.userId, req.user!.id));
+    const [connection] = await db.update(calendarConnections).set({ status: "revoked", encryptedCredentials: null, updatedAt: new Date() }).where(and(...conditions)).returning({ id: calendarConnections.id });
+    if (!connection) return res.status(404).json({ error: "Calendar connection not found" });
+    return res.status(204).end();
+  } catch (error) { return sendInternalError(req, res, error, { code: "CALENDAR_CONNECTION_DELETE_FAILED", message: "Unable to disconnect calendar" }); }
+});
 
 router.get("/meeting-types", async (req: AuthRequest, res) => {
   try { return res.json(await SchedulingService.listMeetingTypes(req.organization!.id)); }
@@ -51,7 +81,7 @@ router.post("/bookings", async (req: AuthRequest, res) => {
     return res.status(201).json(booking);
   } catch (error) {
     const message = (error as Error).message;
-    if (["Invalid booking time", "Meeting type not found", "Booking violates minimum notice", "Booking exceeds allowed future range", "Booking conflict", "Customer not found"].includes(message)) return res.status(400).json({ error: message });
+    if (["Invalid booking time", "Meeting type not found", "Booking violates minimum notice", "Booking exceeds allowed future range", "Booking conflict", "External calendar conflict", "Customer not found"].includes(message)) return res.status(400).json({ error: message });
     return sendInternalError(req, res, error, { code: "BOOKING_CREATE_FAILED", message: "Unable to create booking" });
   }
 });
