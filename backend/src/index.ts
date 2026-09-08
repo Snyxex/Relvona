@@ -77,7 +77,14 @@ app.use((req, res, next) => (req.path.startsWith("/api/v1/widget/") ? widgetCors
 app.use(bindDashboardDomain as (req: AuthRequest, res: express.Response, next: express.NextFunction) => void);
 app.use(requireTrustedOrigin);
 app.all("/api/auth/*", toNodeHandler(auth));
-const defaultJsonParser = express.json({ limit: process.env.JSON_BODY_LIMIT || "128kb" });
+const defaultJsonParser = express.json({
+  limit: process.env.JSON_BODY_LIMIT || "128kb",
+  verify: (req, _res, buffer) => {
+    if (req.originalUrl.startsWith("/api/v1/integrations/zendesk/inbound/")) {
+      (req as express.Request & { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
+    }
+  },
+});
 app.use((req, res, next) => req.path === "/api/v1/knowledge/text" ? next() : defaultJsonParser(req, res, next));
 app.use(express.urlencoded({ extended: true, limit: process.env.URLENCODED_BODY_LIMIT || "64kb" }));
 
