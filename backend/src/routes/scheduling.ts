@@ -3,9 +3,11 @@ import { and, eq } from "drizzle-orm";
 import { authenticate, tenantContext, requireRole, type AuthRequest } from "../middleware/auth.js";
 import { SchedulingService } from "../services/schedulingService.js";
 import { SchedulingAuthorizationService } from "../services/schedulingAuthorizationService.js";
+import { BookingCalendarSyncService } from "../services/bookingCalendarSyncService.js";
 import { sendInternalError } from "../utils/httpErrors.js";
 import { db } from "../db/index.js";
-import { calendarConnections } from "../db/extendedCustomerExperienceSchema.js";
+import { bookingCalendarSync } from "../db/bookingCalendarSyncSchema.js";
+import { calendarConnections, bookings } from "../db/extendedCustomerExperienceSchema.js";
 
 const router = Router();
 router.use(authenticate);
@@ -82,6 +84,33 @@ router.get("/slots", async (req: AuthRequest, res) => {
 router.get("/bookings", async (req: AuthRequest, res) => {
   try { return res.json(await SchedulingService.listBookings(req.organization!.id)); }
   catch (error) { return sendInternalError(req, res, error, { code: "BOOKINGS_LOAD_FAILED", message: "Unable to load bookings" }); }
+});
+
+router.get("/bookings/:id/calendar-sync", async (req: AuthRequest, res) => {
+  try {
+    const organizationId = req.organization!.id;
+    const [booking] = await db.select({ id: bookings.id }).from(bookings).where(and(eq(bookings.organizationId, organizationId), eq(bookings.id, req.params.id))).limit(1);
+    if (!booking) return res.status(404).json({ error: "Booking not found" });
+    const [sync] = await db.select().from(bookingCalendarSync).where(and(eq(bookingCalendarSync.organizationId, organizationId), eq(bookingCalendarSync.bookingId, booking.id))).limit(1);
+    return res.json(sync || { bookingId: booking.id, status: "not_required", action: null, attempts: 0, lastError: null, nextAttemptAt: null });
+  } catch (error) {
+    return sendInternalError(req, res, error, { code: "BOOKING_CALENDAR_SYNC_LOAD_FAILED", message: "Unable to load calendar sync status" });
+  }
+});
+
+router.post("/bookings/:id/calendar-sync/retry", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
+  try {
+    const organizationId = req.organization!.id;
+    const [booking] = await db.select({ id: bookings.id }).from(bookings).where(and(eq(bookings.organizationId, organizationId), eq(bookings.id, req.params.id))).limit(1);
+    if (!booking) return res.status(404).json({ error: "Booking not found" });
+    const retried = await BookingCalendarSyncService.retry(organizationId, booking.id);
+    if (!retried) return res.status(409).json({ error: "Calendar sync is not retryable" });
+    const result = await BookingCalendarSyncService.processOne(organizationId, booking.id);
+    const [sync] = await db.select().from(bookingCalendarSync).where(and(eq(bookingCalendarSync.organizationId, organizationId), eq(bookingCalendarSync.bookingId, booking.id))).limit(1);
+    return res.json({ sync, result });
+  } catch (error) {
+    return sendInternalError(req, res, error, { code: "BOOKING_CALENDAR_SYNC_RETRY_FAILED", message: "Unable to retry calendar sync" });
+  }
 });
 
 router.post("/bookings", async (req: AuthRequest, res) => {
