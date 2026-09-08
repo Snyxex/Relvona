@@ -1,19 +1,5 @@
 import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
-import { conversations, organizations, users } from "./schema.js";
-
-export const conversationFeedback = pgTable("conversation_feedback", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
-  conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "cascade" }).notNull(),
-  source: text("source").notNull(), // customer | agent
-  actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
-  rating: text("rating").notNull(), // positive | negative
-  reason: text("reason"),
-  metadata: jsonb("metadata").default({}).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-}, (table) => ({
-  feedbackConversationIdx: index("conversation_feedback_idx").on(table.organizationId, table.conversationId, table.createdAt),
-}));
+import { conversations, organizations } from "./schema.js";
 
 export const knowledgeGaps = pgTable("knowledge_gaps", {
   id: uuid("id").primaryKey().defaultRandom(),
