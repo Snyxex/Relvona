@@ -16,7 +16,7 @@ router.get("/", async (req: AuthRequest, res) => {
 router.post("/", async (req: AuthRequest, res) => {
   try {
     const { provider, name, config, credentials } = req.body || {};
-    if (!['hubspot', 'zendesk'].includes(provider) || typeof name !== 'string' || !config || typeof config !== 'object' || Array.isArray(config) || !credentials || typeof credentials !== 'object' || Array.isArray(credentials)) {
+    if (!["hubspot", "zendesk"].includes(provider) || typeof name !== "string" || !config || typeof config !== "object" || Array.isArray(config) || !credentials || typeof credentials !== "object" || Array.isArray(credentials)) {
       return res.status(400).json({ error: "Invalid integration configuration" });
     }
     const created = await IntegrationConnectionService.create({ organizationId: req.organization!.id, provider, name, config, credentials });
@@ -38,6 +38,20 @@ router.patch("/:id", async (req: AuthRequest, res) => {
     if (message === "Integration connection not found") return res.status(404).json({ error: message });
     if (/Invalid/i.test(message)) return res.status(400).json({ error: message });
     return sendInternalError(req, res, error, { code: "INTEGRATION_UPDATE_FAILED", message: "Unable to update integration" });
+  }
+});
+
+router.post("/:id/zendesk-webhook-secret", async (req: AuthRequest, res) => {
+  try {
+    const secret = req.body?.secret;
+    if (typeof secret !== "string") return res.status(400).json({ error: "secret is required" });
+    await IntegrationConnectionService.setZendeskWebhookSigningSecret(req.organization!.id, req.params.id, secret);
+    return res.status(204).end();
+  } catch (error) {
+    const message = (error as Error).message;
+    if (message === "Zendesk integration connection not found") return res.status(404).json({ error: message });
+    if (/Invalid/i.test(message)) return res.status(400).json({ error: message });
+    return sendInternalError(req, res, error, { code: "ZENDESK_WEBHOOK_SECRET_UPDATE_FAILED", message: "Unable to update Zendesk webhook signing secret" });
   }
 });
 
