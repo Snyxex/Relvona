@@ -9,6 +9,7 @@ import { organizations } from "./db/schema.js";
 import { IngestionJobService } from "./services/ingestionJobService.js";
 import { ConversationAutoCloseService } from "./services/conversationAutoCloseService.js";
 import { WebhookDeliverySweepService } from "./services/webhookDeliverySweepService.js";
+import { IntegrationSyncService } from "./services/integrationSyncService.js";
 import { closeQueues, publishIngestion } from "./services/queueService.js";
 import type { IngestionInput, IngestionReference } from "./services/ingestionTypes.js";
 import { logger, withLogContext, setLogContext } from "./observability/logger.js";
@@ -49,6 +50,7 @@ let shuttingDown = false;
 let dispatching: Promise<void> | undefined;
 let autoClosing: Promise<void> | undefined;
 let webhookSweeping: Promise<void> | undefined;
+let integrationSyncSweeping: Promise<void> | undefined;
 
 async function dispatch() {
   let cursor: string | undefined;
@@ -81,13 +83,22 @@ function scheduleWebhookSweep() {
     .catch(() => logger.warn("webhook.delivery_sweep_failed"))
     .finally(() => { webhookSweeping = undefined; });
 }
+function scheduleIntegrationSyncSweep() {
+  if (integrationSyncSweeping || shuttingDown) return;
+  integrationSyncSweeping = IntegrationSyncService.sweepAll(() => shuttingDown)
+    .then((result) => { if (result.processed) logger.info("integration.sync_sweep", result); })
+    .catch(() => logger.warn("integration.sync_sweep_failed"))
+    .finally(() => { integrationSyncSweeping = undefined; });
+}
 
 const dispatchTimer = setInterval(scheduleDispatch, 10_000);
 const autoCloseTimer = setInterval(scheduleAutoClose, Number(process.env.CONVERSATION_AUTO_CLOSE_SWEEP_MS || 60_000));
 const webhookTimer = setInterval(scheduleWebhookSweep, Number(process.env.WEBHOOK_DELIVERY_SWEEP_MS || 5_000));
+const integrationSyncTimer = setInterval(scheduleIntegrationSyncSweep, Number(process.env.INTEGRATION_SYNC_SWEEP_MS || 5_000));
 scheduleDispatch();
 scheduleAutoClose();
 scheduleWebhookSweep();
+scheduleIntegrationSyncSweep();
 
 async function shutdown(signal: string) {
   if (shuttingDown) return;
@@ -95,6 +106,7 @@ async function shutdown(signal: string) {
   clearInterval(dispatchTimer);
   clearInterval(autoCloseTimer);
   clearInterval(webhookTimer);
+  clearInterval(integrationSyncTimer);
   logger.info("worker.shutdown_started", { signal });
   const timer = setTimeout(() => { logger.error("worker.shutdown_timeout"); process.exit(1); }, Number(process.env.SHUTDOWN_TIMEOUT_MS || 30_000));
   timer.unref();
@@ -103,6 +115,7 @@ async function shutdown(signal: string) {
     await dispatching;
     await autoClosing;
     await webhookSweeping;
+    await integrationSyncSweeping;
     await closeQueues();
     connection.disconnect();
     await closeDatabasePool();
