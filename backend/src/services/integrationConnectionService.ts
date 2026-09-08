@@ -7,7 +7,7 @@ const REQUEST_TIMEOUT_MS = Number(process.env.INTEGRATION_REQUEST_TIMEOUT_MS || 
 const MAX_RESPONSE_BYTES = Number(process.env.INTEGRATION_MAX_RESPONSE_BYTES || 1_000_000);
 
 type HubSpotCredentials = { accessToken: string };
-type ZendeskCredentials = { apiToken: string };
+type ZendeskCredentials = { apiToken: string; webhookSigningSecret?: string };
 type IntegrationCredentials = HubSpotCredentials | ZendeskCredentials;
 
 function publicConnection(row: typeof integrationConnections.$inferSelect) {
@@ -89,7 +89,16 @@ export class IntegrationConnectionService {
     if (!current) throw new Error("Integration connection not found");
     const config = data.config === undefined ? undefined : normalizeConfig(current.provider, data.config);
     const credentials = data.credentials === undefined ? undefined : normalizeCredentials(current.provider, data.credentials);
-    const encryptedCredentials = credentials ? (encryptSecret(JSON.stringify(credentials)) || undefined) : undefined;
+    let encryptedCredentials: string | undefined;
+    if (credentials) {
+      if (current.provider === "zendesk") {
+        const existingPlaintext = decryptSecret(current.encryptedCredentials);
+        let existing: ZendeskCredentials | undefined;
+        try { existing = existingPlaintext ? JSON.parse(existingPlaintext) as ZendeskCredentials : undefined; } catch { existing = undefined; }
+        credentials.webhookSigningSecret = existing?.webhookSigningSecret;
+      }
+      encryptedCredentials = encryptSecret(JSON.stringify(credentials)) || undefined;
+    }
     const [updated] = await db.update(integrationConnections).set({
       name: data.name === undefined ? undefined : normalizeName(data.name),
       enabled: data.enabled,
@@ -100,6 +109,37 @@ export class IntegrationConnectionService {
       updatedAt: new Date(),
     }).where(and(eq(integrationConnections.organizationId, data.organizationId), eq(integrationConnections.id, data.id))).returning();
     return publicConnection(updated);
+  }
+
+  static async setZendeskWebhookSigningSecret(organizationId: string, id: string, secret: string) {
+    const normalized = secret.trim();
+    if (normalized.length < 16 || normalized.length > 512) throw new Error("Invalid Zendesk webhook signing secret");
+    const [current] = await db.select().from(integrationConnections).where(and(
+      eq(integrationConnections.organizationId, organizationId),
+      eq(integrationConnections.id, id),
+      eq(integrationConnections.provider, "zendesk"),
+    )).limit(1);
+    if (!current) throw new Error("Zendesk integration connection not found");
+    const plaintext = decryptSecret(current.encryptedCredentials);
+    if (!plaintext) throw new Error("Integration credentials cannot be decrypted");
+    let credentials: ZendeskCredentials;
+    try { credentials = JSON.parse(plaintext) as ZendeskCredentials; }
+    catch { throw new Error("Integration credentials are invalid"); }
+    if (!credentials.apiToken) throw new Error("Integration credentials are invalid");
+    credentials.webhookSigningSecret = normalized;
+    const encryptedCredentials = encryptSecret(JSON.stringify(credentials));
+    if (!encryptedCredentials) throw new Error("Unable to encrypt integration credentials");
+    await db.update(integrationConnections).set({ encryptedCredentials, updatedAt: new Date() }).where(and(
+      eq(integrationConnections.organizationId, organizationId),
+      eq(integrationConnections.id, id),
+    ));
+  }
+
+  static async getZendeskWebhookSigningSecret(organizationId: string, id: string) {
+    const { row, credentials } = await this.getUsable(organizationId, "zendesk", id);
+    const secret = (credentials as ZendeskCredentials).webhookSigningSecret;
+    if (!secret) throw new Error("Zendesk webhook signing secret is not configured");
+    return { secret, row };
   }
 
   static async remove(organizationId: string, id: string) {
