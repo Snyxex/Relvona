@@ -46,8 +46,11 @@ registry.register({
   riskLevel: "read", requiresApproval: false,
   async execute(context, input) {
     if (typeof input.ticketId !== "string") return { success: false, error: "ticketId is required" };
-    try { return { success: true, data: await TicketCaseService.detail(context.organizationId, input.ticketId) as unknown as Record<string, unknown> }; }
-    catch (error) { return { success: false, error: (error as Error).message }; }
+    try {
+      const detail = await TicketCaseService.detail(context.organizationId, input.ticketId);
+      if (context.customerId && detail.ticket.customerId !== context.customerId) return { success: false, error: "Ticket not found" };
+      return { success: true, data: detail as unknown as Record<string, unknown> };
+    } catch (error) { return { success: false, error: (error as Error).message }; }
   },
 });
 
@@ -69,10 +72,12 @@ registry.register({
 registry.register({
   id: "scheduling.list_bookings",
   name: "List bookings",
-  description: "Read bookings for the current organization.",
+  description: "Read bookings for the current organization, scoped to the conversation customer when one is present.",
   inputSchema: { type: "object", properties: {} },
   riskLevel: "read", requiresApproval: false,
-  async execute(context) { return { success: true, data: { bookings: await SchedulingService.listBookings(context.organizationId) } as unknown as Record<string, unknown> }; },
+  async execute(context) {
+    return { success: true, data: { bookings: await SchedulingService.listBookings(context.organizationId, context.customerId) } as unknown as Record<string, unknown> };
+  },
 });
 
 registry.register({
@@ -99,7 +104,7 @@ registry.register({
   async execute(context, input) {
     if (typeof input.bookingId !== "string" || typeof input.startsAt !== "string" || typeof input.timezone !== "string") return { success: false, error: "Invalid reschedule input" };
     try {
-      const booking = await SchedulingService.rescheduleBooking({ organizationId: context.organizationId, bookingId: input.bookingId, startsAt: new Date(input.startsAt), timezone: input.timezone, actorType: "ai", actorUserId: context.actorUserId });
+      const booking = await SchedulingService.rescheduleBooking({ organizationId: context.organizationId, bookingId: input.bookingId, startsAt: new Date(input.startsAt), timezone: input.timezone, actorType: "ai", actorUserId: context.actorUserId, expectedCustomerId: context.customerId });
       return { success: true, data: { booking } as unknown as Record<string, unknown> };
     } catch (error) { return { success: false, error: (error as Error).message }; }
   },
@@ -113,7 +118,7 @@ registry.register({
   riskLevel: "write", requiresApproval: true,
   async execute(context, input) {
     if (typeof input.bookingId !== "string") return { success: false, error: "bookingId is required" };
-    try { return { success: true, data: { booking: await SchedulingService.cancelBooking({ organizationId: context.organizationId, bookingId: input.bookingId, actorType: "ai", actorUserId: context.actorUserId }) } as unknown as Record<string, unknown> }; }
+    try { return { success: true, data: { booking: await SchedulingService.cancelBooking({ organizationId: context.organizationId, bookingId: input.bookingId, actorType: "ai", actorUserId: context.actorUserId, expectedCustomerId: context.customerId }) } as unknown as Record<string, unknown> }; }
     catch (error) { return { success: false, error: (error as Error).message }; }
   },
 });
