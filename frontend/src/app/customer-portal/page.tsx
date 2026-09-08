@@ -15,36 +15,48 @@ type PortalMeeting = {
   meetingType: { name: string; durationMinutes: number };
 };
 
-const SESSION_KEY = "supportai_customer_portal_session";
-
 export default function CustomerPortalPage() {
   const [organizationId, setOrganizationId] = useState(""); const [email, setEmail] = useState(""); const [sent, setSent] = useState(false); const [loading, setLoading] = useState(false);
   const [dashboard, setDashboard] = useState<PortalDashboard | null>(null); const [meetings, setMeetings] = useState<PortalMeeting[]>([]); const [reschedule, setReschedule] = useState<Record<string, string>>({}); const [error, setError] = useState("");
 
-  async function authorized(path: string, init: RequestInit = {}) {
-    const token = sessionStorage.getItem(SESSION_KEY); if (!token) throw new Error("Sitzung ist abgelaufen");
-    const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(init.headers || {}) } });
-    if (response.status === 401) { sessionStorage.removeItem(SESSION_KEY); setDashboard(null); throw new Error("Sitzung ist abgelaufen"); }
+  async function portalFetch(path: string, init: RequestInit = {}) {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      ...init,
+      credentials: "include",
+      headers: { "Content-Type": "application/json", ...(init.headers || {}) },
+    });
+    if (response.status === 401) { setDashboard(null); setMeetings([]); throw new Error("Sitzung ist abgelaufen"); }
     return response;
   }
 
   async function loadPortal() {
-    const [dashboardResponse, meetingsResponse] = await Promise.all([authorized("/customer-portal/dashboard"), authorized("/customer-portal/meetings")]);
+    const [dashboardResponse, meetingsResponse] = await Promise.all([portalFetch("/customer-portal/dashboard"), portalFetch("/customer-portal/meetings")]);
     if (!dashboardResponse.ok || !meetingsResponse.ok) throw new Error("Portal konnte nicht geladen werden");
     setDashboard(await dashboardResponse.json()); setMeetings(await meetingsResponse.json());
   }
 
-  useEffect(() => { const params = new URLSearchParams(window.location.search); setOrganizationId(params.get("organizationId") || ""); if (sessionStorage.getItem(SESSION_KEY)) loadPortal().catch(() => sessionStorage.removeItem(SESSION_KEY)); }, []);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setOrganizationId(params.get("organizationId") || "");
+    loadPortal().catch(() => undefined);
+  }, []);
 
   async function requestLink(event: FormEvent) {
     event.preventDefault(); setLoading(true); setError("");
-    try { await fetch(`${API_BASE_URL}/customer-portal/request-link`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organizationId, email }) }); setSent(true); }
-    catch { setError("Der Anmeldelink konnte nicht angefordert werden."); } finally { setLoading(false); }
+    try {
+      await fetch(`${API_BASE_URL}/customer-portal/request-link`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ organizationId, email }),
+      });
+      setSent(true);
+    } catch { setError("Der Anmeldelink konnte nicht angefordert werden."); } finally { setLoading(false); }
   }
 
   async function cancelMeeting(id: string) {
     if (!window.confirm("Diesen Termin wirklich stornieren?")) return;
-    setError(""); const response = await authorized(`/customer-portal/meetings/${id}/cancel`, { method: "POST", body: "{}" });
+    setError(""); const response = await portalFetch(`/customer-portal/meetings/${id}/cancel`, { method: "POST", body: "{}" });
     if (!response.ok) { setError((await response.json().catch(() => ({}))).error || "Termin konnte nicht storniert werden."); return; }
     await loadPortal();
   }
@@ -52,12 +64,15 @@ export default function CustomerPortalPage() {
   async function rescheduleMeeting(meeting: PortalMeeting) {
     const value = reschedule[meeting.booking.id]; if (!value) return;
     const startsAt = new Date(value); if (Number.isNaN(startsAt.getTime())) return;
-    setError(""); const response = await authorized(`/customer-portal/meetings/${meeting.booking.id}/reschedule`, { method: "POST", body: JSON.stringify({ startsAt: startsAt.toISOString(), timezone: meeting.booking.timezone }) });
+    setError(""); const response = await portalFetch(`/customer-portal/meetings/${meeting.booking.id}/reschedule`, { method: "POST", body: JSON.stringify({ startsAt: startsAt.toISOString(), timezone: meeting.booking.timezone }) });
     if (!response.ok) { setError((await response.json().catch(() => ({}))).error || "Termin konnte nicht umgebucht werden."); return; }
     setReschedule((current) => ({ ...current, [meeting.booking.id]: "" })); await loadPortal();
   }
 
-  async function logout() { const token = sessionStorage.getItem(SESSION_KEY); if (token) await fetch(`${API_BASE_URL}/customer-portal/logout`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined); sessionStorage.removeItem(SESSION_KEY); setDashboard(null); setMeetings([]); }
+  async function logout() {
+    await portalFetch("/customer-portal/logout", { method: "POST", body: "{}" }).catch(() => undefined);
+    setDashboard(null); setMeetings([]);
+  }
 
   if (dashboard) {
     return <main className="min-h-screen bg-background p-6 md:p-10"><div className="mx-auto max-w-5xl space-y-6">
