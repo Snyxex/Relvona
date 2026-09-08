@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { and, desc, eq, isNotNull, lt, or } from "drizzle-orm";
 import { db } from "../db/index.js";
+import { externalActors, externalTicketMessages } from "../db/externalTicketMessageSchema.js";
 import { integrationInboundEvents } from "../db/integrationInboundSchema.js";
 import { integrationSyncExecutions, integrationSyncRules } from "../db/integrationSyncSchema.js";
 import { organizations, tickets } from "../db/schema.js";
@@ -11,10 +12,24 @@ import { TicketService } from "./ticketService.js";
 const MAX_TIMESTAMP_SKEW_MS = Number(process.env.ZENDESK_WEBHOOK_MAX_SKEW_MS || 5 * 60_000);
 const PROCESSING_STALE_MS = Number(process.env.INTEGRATION_INBOUND_STALE_MS || 10 * 60_000);
 
-type ZendeskInboundPayload = {
+type ZendeskTicketUpdatedPayload = {
   eventType: "ticket.updated";
-  ticket: { id: string | number; status?: string; priority?: string };
+  ticket: { id: string; status?: string; priority?: string };
 };
+
+type ZendeskCommentCreatedPayload = {
+  eventType: "ticket.comment.created";
+  ticket: { id: string };
+  comment: {
+    id: string;
+    body: string;
+    public: boolean;
+    createdAt?: string;
+    author: { id: string; name?: string; email?: string; role: "end-user" | "agent" | "admin" | "system" | "unknown" };
+  };
+};
+
+type ZendeskInboundPayload = ZendeskTicketUpdatedPayload | ZendeskCommentCreatedPayload;
 
 function timingSafeStringEqual(left: string, right: string) {
   const a = Buffer.from(left, "utf8");
@@ -22,23 +37,58 @@ function timingSafeStringEqual(left: string, right: string) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+function normalizeTicketId(rawId: unknown) {
+  const id = typeof rawId === "number" ? String(rawId) : typeof rawId === "string" ? rawId.trim() : "";
+  if (!/^\d{1,20}$/.test(id)) throw new Error("Invalid Zendesk ticket id");
+  return id;
+}
+
+function normalizeExternalId(rawId: unknown, label: string) {
+  const id = typeof rawId === "number" ? String(rawId) : typeof rawId === "string" ? rawId.trim() : "";
+  if (!/^[A-Za-z0-9._:-]{1,200}$/.test(id)) throw new Error(`Invalid Zendesk ${label} id`);
+  return id;
+}
+
 function normalizeInboundPayload(value: unknown): ZendeskInboundPayload {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid Zendesk webhook payload");
   const payload = value as Record<string, unknown>;
-  if (payload.eventType !== "ticket.updated") throw new Error("Unsupported Zendesk webhook event");
   const ticket = payload.ticket;
   if (!ticket || typeof ticket !== "object" || Array.isArray(ticket)) throw new Error("Invalid Zendesk ticket payload");
-  const rawId = (ticket as Record<string, unknown>).id;
-  const id = typeof rawId === "number" ? String(rawId) : typeof rawId === "string" ? rawId.trim() : "";
-  if (!/^\d{1,20}$/.test(id)) throw new Error("Invalid Zendesk ticket id");
-  const rawStatus = (ticket as Record<string, unknown>).status;
-  const rawPriority = (ticket as Record<string, unknown>).priority;
-  const status = typeof rawStatus === "string" ? rawStatus.trim().toLowerCase() : undefined;
-  const priority = typeof rawPriority === "string" ? rawPriority.trim().toLowerCase() : undefined;
-  if (status !== undefined && !["new", "open", "pending", "hold", "solved", "closed"].includes(status)) throw new Error("Invalid Zendesk ticket status");
-  if (priority !== undefined && !["low", "normal", "high", "urgent"].includes(priority)) throw new Error("Invalid Zendesk ticket priority");
-  if (status === undefined && priority === undefined) throw new Error("Zendesk webhook has no supported ticket changes");
-  return { eventType: "ticket.updated", ticket: { id, status, priority } };
+  const ticketObject = ticket as Record<string, unknown>;
+  const id = normalizeTicketId(ticketObject.id);
+
+  if (payload.eventType === "ticket.updated") {
+    const rawStatus = ticketObject.status;
+    const rawPriority = ticketObject.priority;
+    const status = typeof rawStatus === "string" ? rawStatus.trim().toLowerCase() : undefined;
+    const priority = typeof rawPriority === "string" ? rawPriority.trim().toLowerCase() : undefined;
+    if (status !== undefined && !["new", "open", "pending", "hold", "solved", "closed"].includes(status)) throw new Error("Invalid Zendesk ticket status");
+    if (priority !== undefined && !["low", "normal", "high", "urgent"].includes(priority)) throw new Error("Invalid Zendesk ticket priority");
+    if (status === undefined && priority === undefined) throw new Error("Zendesk webhook has no supported ticket changes");
+    return { eventType: "ticket.updated", ticket: { id, status, priority } };
+  }
+
+  if (payload.eventType === "ticket.comment.created") {
+    const comment = payload.comment;
+    if (!comment || typeof comment !== "object" || Array.isArray(comment)) throw new Error("Invalid Zendesk comment payload");
+    const value = comment as Record<string, unknown>;
+    const commentId = normalizeExternalId(value.id, "comment");
+    const body = typeof value.body === "string" ? value.body.trim() : "";
+    if (!body || body.length > 10_000) throw new Error("Invalid Zendesk comment body");
+    if (typeof value.public !== "boolean") throw new Error("Invalid Zendesk comment visibility");
+    const author = value.author;
+    if (!author || typeof author !== "object" || Array.isArray(author)) throw new Error("Invalid Zendesk comment author");
+    const authorObject = author as Record<string, unknown>;
+    const authorId = normalizeExternalId(authorObject.id, "author");
+    const rawRole = typeof authorObject.role === "string" ? authorObject.role.trim().toLowerCase() : "unknown";
+    const role = (["end-user", "agent", "admin", "system"] as const).includes(rawRole as any) ? rawRole as "end-user" | "agent" | "admin" | "system" : "unknown";
+    const name = typeof authorObject.name === "string" && authorObject.name.trim() ? authorObject.name.trim().slice(0, 200) : undefined;
+    const email = typeof authorObject.email === "string" && /^\S+@\S+\.\S+$/.test(authorObject.email.trim()) ? authorObject.email.trim().toLowerCase().slice(0, 254) : undefined;
+    const createdAt = typeof value.createdAt === "string" && Number.isFinite(Date.parse(value.createdAt)) ? new Date(value.createdAt).toISOString() : undefined;
+    return { eventType: "ticket.comment.created", ticket: { id }, comment: { id: commentId, body, public: value.public, createdAt, author: { id: authorId, name, email, role } } };
+  }
+
+  throw new Error("Unsupported Zendesk webhook event");
 }
 
 function localStatus(status: string | undefined) {
@@ -77,7 +127,7 @@ export class IntegrationInboundService {
       provider: "zendesk",
       invocationId: data.invocationId,
       eventType: payload.eventType,
-      externalEntityId: String(payload.ticket.id),
+      externalEntityId: payload.ticket.id,
       payload: payload as unknown as Record<string, unknown>,
       status: "pending",
     }).onConflictDoNothing({ target: [integrationInboundEvents.organizationId, integrationInboundEvents.connectionId, integrationInboundEvents.invocationId] }).returning();
@@ -103,6 +153,45 @@ export class IntegrationInboundService {
     return link?.ticketId;
   }
 
+  private static async ingestZendeskComment(organizationId: string, connectionId: string, ticketId: string, payload: ZendeskCommentCreatedPayload) {
+    if (payload.comment.author.role !== "end-user") return "ignored" as const;
+
+    const [actor] = await db.insert(externalActors).values({
+      organizationId,
+      connectionId,
+      provider: "zendesk",
+      externalId: payload.comment.author.id,
+      role: payload.comment.author.role,
+      displayName: payload.comment.author.name,
+      email: payload.comment.author.email,
+      metadata: { source: "zendesk_webhook" },
+    }).onConflictDoUpdate({
+      target: [externalActors.organizationId, externalActors.connectionId, externalActors.externalId],
+      set: {
+        role: payload.comment.author.role,
+        displayName: payload.comment.author.name,
+        email: payload.comment.author.email,
+        updatedAt: new Date(),
+      },
+    }).returning();
+
+    const [message] = await db.insert(externalTicketMessages).values({
+      organizationId,
+      ticketId,
+      connectionId,
+      actorId: actor.id,
+      provider: "zendesk",
+      externalMessageId: payload.comment.id,
+      direction: "inbound",
+      visibility: payload.comment.public ? "public" : "internal",
+      content: payload.comment.body,
+      providerCreatedAt: payload.comment.createdAt ? new Date(payload.comment.createdAt) : undefined,
+      metadata: { source: "zendesk_webhook" },
+    }).onConflictDoNothing({ target: [externalTicketMessages.organizationId, externalTicketMessages.connectionId, externalTicketMessages.externalMessageId] }).returning();
+
+    return message ? "succeeded" as const : "ignored" as const;
+  }
+
   static async processPending(organizationId: string, limit = 25) {
     const staleBefore = new Date(Date.now() - PROCESSING_STALE_MS);
     const candidates = await db.select().from(integrationInboundEvents).where(and(
@@ -122,7 +211,7 @@ export class IntegrationInboundService {
       if (!claimed) continue;
 
       try {
-        if (claimed.provider !== "zendesk" || claimed.eventType !== "ticket.updated" || !claimed.externalEntityId) throw new Error("Unsupported inbound integration event");
+        if (claimed.provider !== "zendesk" || !claimed.externalEntityId) throw new Error("Unsupported inbound integration event");
         const localTicketId = await this.localTicketIdForZendesk(organizationId, claimed.connectionId, claimed.externalEntityId);
         if (!localTicketId) {
           await db.update(integrationInboundEvents).set({ status: "ignored", error: "No linked local ticket", updatedAt: new Date() })
@@ -132,6 +221,15 @@ export class IntegrationInboundService {
         }
 
         const payload = normalizeInboundPayload(claimed.payload);
+        if (payload.eventType === "ticket.comment.created") {
+          const result = await this.ingestZendeskComment(organizationId, claimed.connectionId, localTicketId, payload);
+          await db.update(integrationInboundEvents).set({ status: result, error: null, updatedAt: new Date() })
+            .where(and(eq(integrationInboundEvents.organizationId, organizationId), eq(integrationInboundEvents.id, claimed.id)));
+          if (result === "succeeded") succeeded += 1;
+          else ignored += 1;
+          continue;
+        }
+
         const [current] = await db.select({ status: tickets.status, priority: tickets.priority }).from(tickets)
           .where(and(eq(tickets.organizationId, organizationId), eq(tickets.id, localTicketId))).limit(1);
         if (!current) throw new Error("Linked local ticket not found");
