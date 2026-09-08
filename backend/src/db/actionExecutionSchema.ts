@@ -1,10 +1,11 @@
 import { boolean, index, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
-import { conversations, organizations, users } from "./schema.js";
+import { conversations, customers, organizations, users } from "./schema.js";
 
 export const actionExecutions = pgTable("action_executions", {
   id: uuid("id").primaryKey().defaultRandom(),
   organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
   conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+  customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
   toolId: text("tool_id").notNull(),
   input: jsonb("input").default({}).notNull(),
   status: text("status").default("pending").notNull(),
