@@ -69,13 +69,28 @@ async function main() {
     assert.equal(restored.rows[0].model_name, "model-v1");
     assert.equal(Number(restored.rows[0].temperature), 0.2);
 
-    const versions = await withDatabaseTenantContext(async () => {
+    let versions = await withDatabaseTenantContext(async () => {
       setDatabaseTenant(organizationId);
       return AssistantVersionService.list(organizationId, assistantId);
     });
     assert.equal(versions.length, 2);
     assert.equal(versions.find((version) => version.id === first.id)?.status, "active");
     assert.equal(versions.find((version) => version.id === second.id)?.status, "published");
+
+    await admin.query(
+      "UPDATE assistants SET system_prompt = 'Manual live draft' WHERE id = $1 AND organization_id = $2",
+      [assistantId, organizationId],
+    );
+    await withDatabaseTenantContext(async () => {
+      setDatabaseTenant(organizationId);
+      await AssistantVersionService.markLiveDraft(organizationId, assistantId);
+    });
+    versions = await withDatabaseTenantContext(async () => {
+      setDatabaseTenant(organizationId);
+      return AssistantVersionService.list(organizationId, assistantId);
+    });
+    assert.equal(versions.some((version) => version.status === "active"), false, "manual live drift must clear the active-version marker");
+    assert.equal(versions.find((version) => version.id === first.id)?.status, "archived");
 
     console.log("Assistant version integration test passed.");
   } finally {
