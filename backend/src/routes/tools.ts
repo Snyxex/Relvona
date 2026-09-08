@@ -47,8 +47,11 @@ router.post("/executions", requireRole(["owner", "admin", "agent"]), async (req:
 });
 
 router.post("/executions/:id/approve", requireRole(["owner", "admin", "agent"]), async (req: AuthRequest, res) => {
-  try { return res.json(await ActionExecutionService.approve({ organizationId: req.organization!.id, executionId: req.params.id, userId: req.user!.id, reason: typeof req.body?.reason === "string" ? req.body.reason : undefined })); }
-  catch (error) { return res.status(409).json({ error: (error as Error).message }); }
+  try {
+    await ActionExecutionService.approve({ organizationId: req.organization!.id, executionId: req.params.id, userId: req.user!.id, reason: typeof req.body?.reason === "string" ? req.body.reason : undefined });
+    const executed = await ActionExecutionService.execute({ organizationId: req.organization!.id, executionId: req.params.id, context: { organizationId: req.organization!.id, actorUserId: req.user!.id, actorRole: req.organization!.role } });
+    return res.json(executed);
+  } catch (error) { return res.status(409).json({ error: (error as Error).message }); }
 });
 
 router.post("/executions/:id/reject", requireRole(["owner", "admin", "agent"]), async (req: AuthRequest, res) => {
@@ -57,9 +60,8 @@ router.post("/executions/:id/reject", requireRole(["owner", "admin", "agent"]), 
 });
 
 router.post("/executions/:id/execute", requireRole(["owner", "admin", "agent"]), async (req: AuthRequest, res) => {
-  try {
-    return res.json(await ActionExecutionService.execute({ organizationId: req.organization!.id, executionId: req.params.id, context: { organizationId: req.organization!.id, actorUserId: req.user!.id, actorRole: req.organization!.role } }));
-  } catch (error) { return res.status(409).json({ error: (error as Error).message }); }
+  try { return res.json(await ActionExecutionService.execute({ organizationId: req.organization!.id, executionId: req.params.id, context: { organizationId: req.organization!.id, actorUserId: req.user!.id, actorRole: req.organization!.role } })); }
+  catch (error) { return res.status(409).json({ error: (error as Error).message }); }
 });
 
 export default router;
