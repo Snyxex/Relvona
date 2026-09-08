@@ -20,3 +20,16 @@ export const knowledgeGaps = pgTable("knowledge_gaps", {
   knowledgeGapUnique: uniqueIndex("knowledge_gap_org_fingerprint_unique").on(table.organizationId, table.fingerprint),
   knowledgeGapStatusIdx: index("knowledge_gap_status_idx").on(table.organizationId, table.status, table.lastSeenAt),
 }));
+
+/** Tracks source observations so repeated discovery scans are idempotent. */
+export const knowledgeGapSignals = pgTable("knowledge_gap_signals", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
+  gapId: uuid("gap_id").references(() => knowledgeGaps.id, { onDelete: "cascade" }),
+  sourceType: text("source_type").notNull(),
+  sourceId: text("source_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  knowledgeGapSignalUnique: uniqueIndex("knowledge_gap_signal_unique").on(table.organizationId, table.sourceType, table.sourceId),
+  knowledgeGapSignalGapIdx: index("knowledge_gap_signal_gap_idx").on(table.organizationId, table.gapId),
+}));
