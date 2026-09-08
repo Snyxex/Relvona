@@ -108,11 +108,19 @@ router.get("/:id/comments", async (req: AuthRequest, res) => {
 
 router.post("/:id/comments", async (req: AuthRequest, res) => {
   try {
-    const { content } = req.body;
+    const { content, isInternal } = req.body || {};
     if (typeof content !== "string" || !content.trim() || content.length > 10_000) return res.status(400).json({ error: "Content is required" });
-    const comment = await TicketService.addComment({ organizationId: req.organization!.id, ticketId: req.params.id, userId: req.user!.id, content: content.trim(), isInternal: true });
+    if (isInternal !== undefined && typeof isInternal !== "boolean") return res.status(400).json({ error: "isInternal must be boolean" });
+    const internal = isInternal !== false;
+    const comment = await TicketService.addComment({ organizationId: req.organization!.id, ticketId: req.params.id, userId: req.user!.id, content: content.trim(), isInternal: internal });
     await TicketCaseService.markFirstResponse({ organizationId: req.organization!.id, ticketId: req.params.id, actorUserId: req.user!.id });
-    await TicketCaseService.recordTransition({ organizationId: req.organization!.id, ticketId: req.params.id, actorUserId: req.user!.id, type: "comment.internal_added", metadata: { commentId: comment.id } });
+    await TicketCaseService.recordTransition({
+      organizationId: req.organization!.id,
+      ticketId: req.params.id,
+      actorUserId: req.user!.id,
+      type: internal ? "comment.internal_added" : "comment.public_added",
+      metadata: { commentId: comment.id },
+    });
     return res.status(201).json(comment);
   } catch (error) {
     if ((error as Error).message === "Ticket not found") return res.status(404).json({ error: "Ticket not found" });
