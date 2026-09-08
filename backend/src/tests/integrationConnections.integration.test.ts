@@ -13,6 +13,7 @@ const admin = new pg.Client({ connectionString: adminUrl });
 
 async function main() {
   await admin.connect();
+  const originalFetch = globalThis.fetch;
   try {
     await admin.query(
       "INSERT INTO organizations (id, name, slug) VALUES ($1, 'Integration Tenant', $2), ($3, 'Other Integration Tenant', $4)",
@@ -66,15 +67,51 @@ async function main() {
       /Invalid Zendesk subdomain/,
     );
 
+    const zendeskToken = `zd-${randomUUID()}-${randomUUID()}`;
+    const zendesk = await withDatabaseTenantContext(async () => {
+      setDatabaseTenant(organizationId);
+      return IntegrationConnectionService.create({
+        organizationId,
+        provider: "zendesk",
+        name: "Primary Zendesk",
+        config: { subdomain: "support-example", email: "admin@example.test" },
+        credentials: { apiToken: zendeskToken },
+      });
+    });
+
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+
+    await withDatabaseTenantContext(async () => {
+      setDatabaseTenant(organizationId);
+      await IntegrationConnectionService.request({ organizationId, provider: "hubspot", connectionId: created.id, method: "GET", path: "/crm/v3/objects/contacts?limit=1" });
+      await IntegrationConnectionService.request({ organizationId, provider: "zendesk", connectionId: zendesk.id, method: "GET", path: "/api/v2/users/me.json" });
+    });
+
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].url, "https://api.hubapi.com/crm/v3/objects/contacts?limit=1", "HubSpot host must be fixed by the adapter");
+    assert.equal((calls[0].init?.headers as Record<string, string>).Authorization, `Bearer ${hubspotToken}`);
+    assert.equal(calls[0].init?.redirect, "error", "provider redirects must be disabled");
+
+    assert.equal(calls[1].url, "https://support-example.zendesk.com/api/v2/users/me.json", "Zendesk host must derive only from a validated subdomain");
+    const expectedZendeskAuth = `Basic ${Buffer.from(`admin@example.test/token:${zendeskToken}`, "utf8").toString("base64")}`;
+    assert.equal((calls[1].init?.headers as Record<string, string>).Authorization, expectedZendeskAuth);
+    assert.equal(calls[1].init?.redirect, "error", "Zendesk redirects must be disabled");
+
     await withDatabaseTenantContext(async () => {
       setDatabaseTenant(organizationId);
       await IntegrationConnectionService.remove(organizationId, created.id);
+      await IntegrationConnectionService.remove(organizationId, zendesk.id);
     });
     const remaining = await admin.query("SELECT id FROM integration_connections WHERE organization_id = $1", [organizationId]);
     assert.equal(remaining.rowCount, 0);
 
-    console.log("Integration connection encryption and tenant isolation test passed.");
+    console.log("Integration connection encryption, tenant isolation, and provider request tests passed.");
   } finally {
+    globalThis.fetch = originalFetch;
     await admin.query("DELETE FROM organizations WHERE id IN ($1, $2)", [organizationId, otherOrganizationId]).catch(() => undefined);
     await admin.end();
   }
