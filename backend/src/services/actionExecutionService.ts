@@ -25,6 +25,7 @@ export class ActionExecutionService {
     const [execution] = await db.insert(actionExecutions).values({
       organizationId: data.context.organizationId,
       conversationId: data.context.conversationId,
+      customerId: data.context.customerId,
       toolId: tool.id,
       input: data.input,
       status,
@@ -70,7 +71,7 @@ export class ActionExecutionService {
     const [claimed] = await db.update(actionExecutions).set({ status: "executing", updatedAt: new Date() }).where(and(eq(actionExecutions.organizationId, data.organizationId), eq(actionExecutions.id, execution.id), eq(actionExecutions.status, "approved"))).returning();
     if (!claimed) throw new Error("Action is already being executed");
     try {
-      const result = await tool.execute({ ...data.context, organizationId: data.organizationId, conversationId: execution.conversationId || data.context.conversationId }, execution.input as Record<string, unknown>);
+      const result = await tool.execute({ ...data.context, organizationId: data.organizationId, conversationId: execution.conversationId || data.context.conversationId, customerId: execution.customerId || data.context.customerId }, execution.input as Record<string, unknown>);
       const [finished] = await db.update(actionExecutions).set({ status: result.success ? "executed" : "failed", result: result.data || null, error: result.success ? null : (result.error || "Tool execution failed").slice(0, 2000), executedAt: new Date(), updatedAt: new Date() }).where(and(eq(actionExecutions.organizationId, data.organizationId), eq(actionExecutions.id, execution.id))).returning();
       return finished;
     } catch (error) {
