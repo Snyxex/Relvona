@@ -10,6 +10,7 @@ export function registerIntegrationSyncBridge() {
   registered = true;
   for (const type of syncEventTypes) {
     domainEventBus.subscribe(type, async (event) => {
+      if (event.type === "ticket.updated" && event.payload.source === "zendesk") return;
       await withDatabaseTenantContext(async () => {
         setDatabaseTenant(event.organizationId);
         await IntegrationSyncService.handleDomainEvent(event);
