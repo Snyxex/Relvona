@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
-import { db } from "../db/index.js";
+import { db, withTenantTransaction } from "../db/index.js";
 import { webhookDeliveries, webhookEvents, webhookSubscriptions } from "../db/webhookSchema.js";
 import { encryptSecret } from "../utils/crypto.js";
 import type { DomainEvent, DomainEventType } from "./domainEventBus.js";
@@ -48,13 +48,7 @@ export class WebhookService {
     await assertWebhookUrlAllowed(data.url);
     const eventTypes = normalizeEventTypes(data.eventTypes);
     const secret = `whsec_${crypto.randomBytes(32).toString("base64url")}`;
-    const [row] = await db.insert(webhookSubscriptions).values({
-      organizationId: data.organizationId,
-      name,
-      url: data.url,
-      eventTypes,
-      encryptedSecret: encryptSecret(secret)!,
-    }).returning();
+    const [row] = await db.insert(webhookSubscriptions).values({ organizationId: data.organizationId, name, url: data.url, eventTypes, encryptedSecret: encryptSecret(secret)! }).returning();
     return { subscription: publicSubscription(row), secret };
   }
 
@@ -87,24 +81,19 @@ export class WebhookService {
   }
 
   static async capture(event: DomainEvent) {
-    const subscriptions = await db.select().from(webhookSubscriptions).where(and(eq(webhookSubscriptions.organizationId, event.organizationId), eq(webhookSubscriptions.enabled, true)));
-    const matching = subscriptions.filter((subscription) => subscription.eventTypes.includes(event.type));
-    if (!matching.length) return undefined;
+    return withTenantTransaction(event.organizationId, async (tx) => {
+      const subscriptions = await tx.select().from(webhookSubscriptions).where(and(eq(webhookSubscriptions.organizationId, event.organizationId), eq(webhookSubscriptions.enabled, true)));
+      const matching = subscriptions.filter((subscription) => subscription.eventTypes.includes(event.type));
+      if (!matching.length) return undefined;
 
-    const [storedEvent] = await db.insert(webhookEvents).values({
-      organizationId: event.organizationId,
-      type: event.type,
-      payload: {
-        conversationId: event.conversationId,
-        ...event.payload,
-      },
-      occurredAt: event.occurredAt,
-    }).returning();
-    await db.insert(webhookDeliveries).values(matching.map((subscription) => ({
-      organizationId: event.organizationId,
-      subscriptionId: subscription.id,
-      eventId: storedEvent.id,
-    }))).onConflictDoNothing();
-    return storedEvent;
+      const [storedEvent] = await tx.insert(webhookEvents).values({
+        organizationId: event.organizationId,
+        type: event.type,
+        payload: { conversationId: event.conversationId, ...event.payload },
+        occurredAt: event.occurredAt,
+      }).returning();
+      await tx.insert(webhookDeliveries).values(matching.map((subscription) => ({ organizationId: event.organizationId, subscriptionId: subscription.id, eventId: storedEvent.id }))).onConflictDoNothing();
+      return storedEvent;
+    });
   }
 }
