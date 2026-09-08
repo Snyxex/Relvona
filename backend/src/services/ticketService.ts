@@ -19,8 +19,13 @@ export class TicketService {
     await domainEventBus.emit({ type: "ticket.created", organizationId: ticket.organizationId, conversationId: ticket.conversationId || undefined, payload: ticket });
   }
 
-  private static async emitUpdated(ticket: typeof tickets.$inferSelect) {
-    await domainEventBus.emit({ type: "ticket.updated", organizationId: ticket.organizationId, conversationId: ticket.conversationId || undefined, payload: ticket });
+  private static async emitUpdated(ticket: typeof tickets.$inferSelect, changedFields: string[]) {
+    await domainEventBus.emit({
+      type: "ticket.updated",
+      organizationId: ticket.organizationId,
+      conversationId: ticket.conversationId || undefined,
+      payload: { ...ticket, changedFields },
+    });
   }
 
   private static async getNextTicketNumber(organizationId: string): Promise<number> {
@@ -198,11 +203,12 @@ export class TicketService {
     if (data.status && !validStatuses.includes(data.status)) throw new Error("Invalid ticket status");
     if (data.priority && !validPriorities.includes(data.priority)) throw new Error("Invalid ticket priority");
     const updatePayload: any = { updatedAt: new Date() };
+    const changedFields: string[] = [];
 
-    if (data.status) updatePayload.status = data.status;
-    if (data.priority) updatePayload.priority = data.priority;
-    if (data.assignedAgentId !== undefined) updatePayload.assignedAgentId = data.assignedAgentId;
-    if (data.tags) updatePayload.tags = data.tags;
+    if (data.status !== undefined) { updatePayload.status = data.status; changedFields.push("status"); }
+    if (data.priority !== undefined) { updatePayload.priority = data.priority; changedFields.push("priority"); }
+    if (data.assignedAgentId !== undefined) { updatePayload.assignedAgentId = data.assignedAgentId; changedFields.push("assignedAgentId"); }
+    if (data.tags !== undefined) { updatePayload.tags = data.tags; changedFields.push("tags"); }
 
     await this.assertAssignableAgent(data.organizationId, data.assignedAgentId);
     const [updated] = await db
@@ -211,7 +217,7 @@ export class TicketService {
       .where(and(eq(tickets.id, data.ticketId), eq(tickets.organizationId, data.organizationId)))
       .returning();
 
-    if (updated) await this.emitUpdated(updated);
+    if (updated) await this.emitUpdated(updated, changedFields);
     return updated;
   }
 
