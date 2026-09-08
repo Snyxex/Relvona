@@ -19,6 +19,7 @@ import customerPortalRouter from "./customerPortal.js";
 import schedulingRouter from "./scheduling.js";
 import calendarOAuthRouter from "./calendarOAuth.js";
 import webhooksRouter from "./webhooks.js";
+import integrationConnectionsRouter from "./integrationConnections.js";
 import { registerWebhookDomainBridge } from "../services/webhookDomainBridge.js";
 
 registerWebhookDomainBridge();
@@ -41,6 +42,7 @@ apiRouter.use("/v1/customer-portal", customerPortalRouter);
 apiRouter.use("/v1/scheduling", schedulingRouter);
 apiRouter.use("/v1/calendar-oauth", calendarOAuthRouter);
 apiRouter.use("/v1/webhooks", webhooksRouter);
+apiRouter.use("/v1/integrations", integrationConnectionsRouter);
 apiRouter.use("/v1/admin", adminSettingsRouter);
 apiRouter.use("/v1/platform-admin", platformAdminRouter);
 apiRouter.use("/v1/tools", toolsRouter);
