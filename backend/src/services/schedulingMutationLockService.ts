@@ -16,12 +16,15 @@ const lockPool = new pg.Pool({
   allowExitOnIdle: true,
 });
 
+let closing = false;
+
 /**
  * Serializes booking mutations per organization across all application instances.
  * A dedicated pool prevents lock waiters from consuming normal API query slots.
  */
 export class SchedulingMutationLockService {
   static async run<T>(organizationId: string, work: () => Promise<T>): Promise<T> {
+    if (closing) throw new Error("Scheduling service is shutting down");
     if (!/^[0-9a-f-]{36}$/i.test(organizationId)) throw new Error("Invalid organization id");
     const client = await lockPool.connect();
     const key = `supportai:scheduling:${organizationId}`;
@@ -33,4 +36,14 @@ export class SchedulingMutationLockService {
       client.release();
     }
   }
+
+  static async close(): Promise<void> {
+    if (closing) return;
+    closing = true;
+    await lockPool.end();
+  }
+}
+
+export async function closeSchedulingMutationLockPool(): Promise<void> {
+  await SchedulingMutationLockService.close();
 }
