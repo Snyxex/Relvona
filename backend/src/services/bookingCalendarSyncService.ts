@@ -94,10 +94,7 @@ export class BookingCalendarSyncService {
       }
 
       const provider = await CalendarProviderFactory.forUser(organizationId, booking.assignedUserId);
-      if (!provider) {
-        await this.markSynced(organizationId, bookingId, attempt);
-        return { processed: true, status: "synced" };
-      }
+      if (!provider) throw new Error("Calendar provider is unavailable for assigned user");
 
       if (claimed.action === "delete") {
         if (booking.providerEventId) await provider.deleteEvent(booking.providerEventId);
