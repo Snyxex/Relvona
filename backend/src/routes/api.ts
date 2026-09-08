@@ -16,6 +16,7 @@ import platformAdminRouter from "./platformAdmin.js";
 import visitorMemoryRouter from "./visitorMemory.js";
 import customerPortalRouter from "./customerPortal.js";
 import schedulingRouter from "./scheduling.js";
+import calendarOAuthRouter from "./calendarOAuth.js";
 
 const apiRouter = Router();
 
@@ -32,6 +33,7 @@ apiRouter.use("/v1/widget/privacy", widgetPrivacyRouter);
 apiRouter.use("/v1/widget", widgetRouter);
 apiRouter.use("/v1/customer-portal", customerPortalRouter);
 apiRouter.use("/v1/scheduling", schedulingRouter);
+apiRouter.use("/v1/calendar-oauth", calendarOAuthRouter);
 apiRouter.use("/v1/admin", adminSettingsRouter);
 apiRouter.use("/v1/platform-admin", platformAdminRouter);
 apiRouter.use("/v1/tools", toolsRouter);
