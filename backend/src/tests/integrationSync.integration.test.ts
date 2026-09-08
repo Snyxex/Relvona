@@ -19,7 +19,7 @@ async function main() {
   try {
     await admin.query("INSERT INTO organizations (id, name, slug) VALUES ($1, 'Sync Tenant', $2)", [organizationId, `sync-${organizationId}`]);
     await admin.query("INSERT INTO customers (id, organization_id, name, email) VALUES ($1, $2, 'Sync Customer', 'sync@example.test')", [customerId, organizationId]);
-    await admin.query("INSERT INTO tickets (id, organization_id, customer_id, ticket_number, subject, description, priority, status, tags) VALUES ($1, $2, $3, 7001, 'Sync issue', 'Created by sync regression test', 'high', 'open', ARRAY[]::text[])", [ticketId, organizationId, customerId]);
+    await admin.query("INSERT INTO tickets (id, organization_id, customer_id, ticket_number, subject, description, priority, status, tags) VALUES ($1, $2, $3, 7001, 'Sync issue', 'Created by sync regression test', 'high', 'open', '[]'::jsonb)", [ticketId, organizationId, customerId]);
 
     const connection = await withDatabaseTenantContext(async () => {
       setDatabaseTenant(organizationId);
