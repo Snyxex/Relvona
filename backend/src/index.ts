@@ -80,8 +80,9 @@ app.all("/api/auth/*", toNodeHandler(auth));
 const defaultJsonParser = express.json({
   limit: process.env.JSON_BODY_LIMIT || "128kb",
   verify: (req, _res, buffer) => {
-    if (req.originalUrl.startsWith("/api/v1/integrations/zendesk/inbound/")) {
-      (req as express.Request & { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
+    const expressReq = req as express.Request & { rawBody?: Buffer };
+    if (expressReq.originalUrl.startsWith("/api/v1/integrations/zendesk/inbound/")) {
+      expressReq.rawBody = Buffer.from(buffer);
     }
   },
 });
@@ -266,4 +267,4 @@ async function shutdown(signal: string) {
   }
 }
 process.once("SIGTERM", () => { void shutdown("SIGTERM"); });
-process.once("SIGINT", () => { void shutdown("SIGINT"); });
+process.once("SIGINT", () => { void shutdown("SIGINT"));
