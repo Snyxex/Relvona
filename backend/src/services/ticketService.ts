@@ -229,7 +229,7 @@ export class TicketService {
     isInternal?: boolean;
   }) {
     const [ticket] = await db
-      .select({ id: tickets.id })
+      .select({ id: tickets.id, conversationId: tickets.conversationId })
       .from(tickets)
       .where(and(eq(tickets.id, data.ticketId), eq(tickets.organizationId, data.organizationId)))
       .limit(1);
@@ -245,6 +245,15 @@ export class TicketService {
         isInternal: data.isInternal ?? true,
       })
       .returning();
+
+    if (!comment.isInternal) {
+      await domainEventBus.emit({
+        type: "ticket.comment.created",
+        organizationId: data.organizationId,
+        conversationId: ticket.conversationId || undefined,
+        payload: { id: comment.id, ticketId: comment.ticketId, userId: comment.userId, content: comment.content, createdAt: comment.createdAt },
+      });
+    }
 
     return comment;
   }
