@@ -19,12 +19,12 @@ export class TicketService {
     await domainEventBus.emit({ type: "ticket.created", organizationId: ticket.organizationId, conversationId: ticket.conversationId || undefined, payload: ticket });
   }
 
-  private static async emitUpdated(ticket: typeof tickets.$inferSelect, changedFields: string[]) {
+  private static async emitUpdated(ticket: typeof tickets.$inferSelect, changedFields: string[], source?: string) {
     await domainEventBus.emit({
       type: "ticket.updated",
       organizationId: ticket.organizationId,
       conversationId: ticket.conversationId || undefined,
-      payload: { ...ticket, changedFields },
+      payload: { ...ticket, changedFields, source },
     });
   }
 
@@ -197,6 +197,7 @@ export class TicketService {
     priority?: string;
     assignedAgentId?: string;
     tags?: string[];
+    eventSource?: string;
   }) {
     const validStatuses = ["open", "pending", "in_progress", "resolved", "closed"];
     const validPriorities = ["low", "normal", "high", "urgent"];
@@ -217,7 +218,7 @@ export class TicketService {
       .where(and(eq(tickets.id, data.ticketId), eq(tickets.organizationId, data.organizationId)))
       .returning();
 
-    if (updated) await this.emitUpdated(updated, changedFields);
+    if (updated) await this.emitUpdated(updated, changedFields, data.eventSource);
     return updated;
   }
 
