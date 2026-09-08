@@ -2,6 +2,7 @@ import { Router } from "express";
 import { authenticate, tenantContext, type AuthRequest } from "../middleware/auth.js";
 import { CalendarOAuthService } from "../services/calendarOAuthService.js";
 import { createRateLimiter } from "../middleware/security.js";
+import { sendInternalError } from "../utils/httpErrors.js";
 
 const router = Router();
 
@@ -12,7 +13,7 @@ router.post("/:provider/start", authenticate, tenantContext, createRateLimiter({
     const result = await CalendarOAuthService.start({ organizationId: req.organization!.id, userId: req.user!.id, provider, redirectAfter: req.body?.redirectAfter });
     return res.json(result);
   } catch (error) {
-    return res.status(500).json({ error: (error as Error).message });
+    return sendInternalError(req, res, error, { code: "CALENDAR_OAUTH_START_FAILED", message: "Unable to start calendar connection" });
   }
 });
 
