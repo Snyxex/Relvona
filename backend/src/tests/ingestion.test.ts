@@ -37,7 +37,7 @@ async function main() {
     assert.match(embeddedTexts.join(" "), /How can I renew/);
     assert.equal(prepared.chunks[0].metadata.category, "billing");
     assert.equal(prepared.chunks[0].metadata.language, "en");
-    await assert.rejects(IngestionService.prepare({ type: "pdf", knowledgeBaseId: "base", title: "Invalid", filename: "invalid.pdf", bufferBase64: Buffer.from("not a pdf").toString("base64") }), /PDF validation/);
+    assert.throws(() => validateIngestionInput({ type: "pdf", knowledgeBaseId: "base", title: "Invalid", filename: "invalid.pdf", objectId: "not-a-uuid" }), /PDF object reference/);
     const fetched: string[] = [];
     CrawlerSecurity.safeFetch = async (url) => { fetched.push(url); return url.endsWith("/next") ? "<main>Second useful page</main>" : '<main>First page</main><a href="/next">Next</a><a href="/next#section">Duplicate</a><a href="http://127.0.0.1/">Internal</a>'; };
     const crawl = await IngestionService.prepare({ type: "website", knowledgeBaseId: "base", title: "Docs", targetUrl: "https://example.com/", maxPages: 2, maxDepth: 1 });

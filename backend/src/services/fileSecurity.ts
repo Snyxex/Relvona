@@ -98,6 +98,15 @@ export class FileSecurity {
         };
       }
       confirmedMime = "application/pdf";
+    } else if (ext === ".png") {
+      if (!fileBuffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) { issues.push("Magic Byte mismatch: invalid PNG"); return { isValid: false, securityStatus: "QUARANTINED", mimeType: declaredMimeType, sanitizedFilename, detectedIssues: issues }; }
+      confirmedMime = "image/png";
+    } else if (ext === ".jpg" || ext === ".jpeg") {
+      if (fileBuffer.length < 3 || fileBuffer[0] !== 0xff || fileBuffer[1] !== 0xd8 || fileBuffer[2] !== 0xff) { issues.push("Magic Byte mismatch: invalid JPEG"); return { isValid: false, securityStatus: "QUARANTINED", mimeType: declaredMimeType, sanitizedFilename, detectedIssues: issues }; }
+      confirmedMime = "image/jpeg";
+    } else if (ext === ".webp") {
+      if (fileBuffer.subarray(0, 4).toString() !== "RIFF" || fileBuffer.subarray(8, 12).toString() !== "WEBP") { issues.push("Magic Byte mismatch: invalid WEBP"); return { isValid: false, securityStatus: "QUARANTINED", mimeType: declaredMimeType, sanitizedFilename, detectedIssues: issues }; }
+      confirmedMime = "image/webp";
     } else if ([".txt", ".md", ".json", ".faq"].includes(ext)) {
       confirmedMime = "text/plain";
     } else {

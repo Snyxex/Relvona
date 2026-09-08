@@ -18,13 +18,14 @@ import { logger, withLogContext, setLogContext } from "./observability/logger.js
 import { trace } from "@opentelemetry/api";
 import { shutdownTracing } from "./observability/tracing.js";
 import { validateRuntimeConfiguration } from "./config/runtime.js";
+import { FileObjectService } from "./services/fileObjectService.js";
 
 validateRuntimeConfiguration();
 const redisUrl = process.env.REDIS_URL;
 if (!redisUrl) throw new Error("REDIS_URL is required for the ingestion worker");
 const connection = new Redis(redisUrl, { maxRetriesPerRequest: null });
 connection.on("error", () => logger.warn("ingestion.worker_redis_unavailable"));
-type LegacyJob = { type: "document" | "pdf" | "crawl"; organizationId: string; knowledgeBaseId: string; title: string; sourceType: "document" | "faq"; content: string; filePath: string; bufferBase64: string; targetUrl: string; maxPages?: number };
+type LegacyJob = { type: "document" | "pdf" | "crawl"; organizationId: string; knowledgeBaseId: string; title: string; sourceType: "document" | "faq"; content: string; filePath: string; targetUrl: string; maxPages?: number };
 
 const worker = new Worker<IngestionReference | LegacyJob>("ingestion", async (job) => trace.getTracer("ingestion-worker").startActiveSpan("ingestion.process", async (span) => withLogContext({ jobId: String(job.id) }, async () => {
   try {
@@ -33,9 +34,8 @@ const worker = new Worker<IngestionReference | LegacyJob>("ingestion", async (jo
     if ("jobId" in job.data) ref = job.data;
     else {
       const old = job.data;
-      const input: IngestionInput = old.type === "pdf"
-        ? { type: "pdf", knowledgeBaseId: old.knowledgeBaseId, title: old.title, filename: old.filePath, bufferBase64: old.bufferBase64 }
-        : old.type === "crawl" ? { type: "website", knowledgeBaseId: old.knowledgeBaseId, title: old.targetUrl, targetUrl: old.targetUrl, maxPages: old.maxPages ?? 20, maxDepth: 2 }
+      if (old.type === "pdf") throw new Error("Legacy PDF queue payload rejected: upload again to move data into object storage");
+      const input: IngestionInput = old.type === "crawl" ? { type: "website", knowledgeBaseId: old.knowledgeBaseId, title: old.targetUrl, targetUrl: old.targetUrl, maxPages: old.maxPages ?? 20, maxDepth: 2 }
         : { type: old.sourceType, knowledgeBaseId: old.knowledgeBaseId, title: old.title, content: old.content };
       const hex = createHash("sha256").update(`legacy-ingestion:${old.organizationId}:${job.id}`).digest("hex");
       const legacyId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
@@ -55,6 +55,7 @@ let webhookSweeping: Promise<void> | undefined;
 let integrationSyncSweeping: Promise<void> | undefined;
 let integrationInboundSweeping: Promise<void> | undefined;
 let calendarSyncSweeping: Promise<void> | undefined;
+let storageCleanupSweeping: Promise<void> | undefined;
 
 async function dispatch() {
   let cursor: string | undefined;
@@ -108,6 +109,14 @@ function scheduleCalendarSyncSweep() {
     .catch(() => logger.warn("calendar.sync_sweep_failed"))
     .finally(() => { calendarSyncSweeping = undefined; });
 }
+function scheduleStorageCleanup() {
+  if (storageCleanupSweeping || shuttingDown) return;
+  storageCleanupSweeping = (async () => {
+    const tenants = await db.select({ id: organizations.id }).from(organizations).limit(10_000);
+    let deleted = 0; for (const tenant of tenants) deleted += await FileObjectService.cleanupForOrganization(tenant.id);
+    if (deleted) logger.info("storage.cleanup_completed", { deleted });
+  })().catch(() => logger.warn("storage.cleanup_failed")).finally(() => { storageCleanupSweeping = undefined; });
+}
 
 const dispatchTimer = setInterval(scheduleDispatch, 10_000);
 const autoCloseTimer = setInterval(scheduleAutoClose, Number(process.env.CONVERSATION_AUTO_CLOSE_SWEEP_MS || 60_000));
@@ -115,12 +124,14 @@ const webhookTimer = setInterval(scheduleWebhookSweep, Number(process.env.WEBHOO
 const integrationSyncTimer = setInterval(scheduleIntegrationSyncSweep, Number(process.env.INTEGRATION_SYNC_SWEEP_MS || 5_000));
 const integrationInboundTimer = setInterval(scheduleIntegrationInboundSweep, Number(process.env.INTEGRATION_INBOUND_SWEEP_MS || 5_000));
 const calendarSyncTimer = setInterval(scheduleCalendarSyncSweep, Number(process.env.CALENDAR_SYNC_SWEEP_MS || 5_000));
+const storageCleanupTimer = setInterval(scheduleStorageCleanup, Number(process.env.STORAGE_CLEANUP_SWEEP_MS || 60_000));
 scheduleDispatch();
 scheduleAutoClose();
 scheduleWebhookSweep();
 scheduleIntegrationSyncSweep();
 scheduleIntegrationInboundSweep();
 scheduleCalendarSyncSweep();
+scheduleStorageCleanup();
 
 async function shutdown(signal: string) {
   if (shuttingDown) return;
@@ -131,6 +142,7 @@ async function shutdown(signal: string) {
   clearInterval(integrationSyncTimer);
   clearInterval(integrationInboundTimer);
   clearInterval(calendarSyncTimer);
+  clearInterval(storageCleanupTimer);
   logger.info("worker.shutdown_started", { signal });
   const timer = setTimeout(() => { logger.error("worker.shutdown_timeout"); process.exit(1); }, Number(process.env.SHUTDOWN_TIMEOUT_MS || 30_000));
   timer.unref();
@@ -142,6 +154,7 @@ async function shutdown(signal: string) {
     await integrationSyncSweeping;
     await integrationInboundSweeping;
     await calendarSyncSweeping;
+    await storageCleanupSweeping;
     await closeQueues();
     connection.disconnect();
     await closeDatabasePool();

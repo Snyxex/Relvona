@@ -5,6 +5,7 @@ import { CrawlerSecurity } from "./crawlerSecurity.js";
 import { PiiRedactionService } from "./piiRedactionService.js";
 import { FileSecurity } from "./fileSecurity.js";
 import type { IngestionInput } from "./ingestionTypes.js";
+import { FileObjectService } from "./fileObjectService.js";
 
 export type PreparedSource = {
   title: string;
@@ -12,6 +13,7 @@ export type PreparedSource = {
   securityStatus: "SAFE" | "SUSPICIOUS";
   chunks: { content: string; embedding: number[]; metadata: Record<string, unknown> }[];
   pages: { url: string; title: string; contentHash: string; chunkCount: number }[];
+  normalizedText: string;
 };
 
 export type EmbeddingConfig = {
@@ -54,11 +56,14 @@ export class IngestionService {
       .replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/&quot;/gi, '"').replace(/&#39;/g, "'")
       .replace(/\s+/g, " ").trim();
   }
-  static async prepare(input: IngestionInput, embedding: EmbeddingConfig = {}): Promise<PreparedSource> {
+  static async prepare(input: IngestionInput, embedding: EmbeddingConfig = {}, organizationId?: string): Promise<PreparedSource> {
     const documents: { text: string; title: string; url?: string }[] = [];
     let pageCount: number | undefined;
     if (input.type === "pdf") {
-      const buffer = Buffer.from(input.bufferBase64, "base64");
+      if (!organizationId) throw new Error("Organization context required for storage-backed PDF");
+      const stored = await FileObjectService.readForOrganization(organizationId, input.objectId);
+      const buffers: Buffer[] = []; for await (const chunk of stored.body) buffers.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      const buffer = Buffer.concat(buffers);
       const validation = FileSecurity.validateUploadedFile(buffer, input.filename, "application/pdf");
       if (!validation.isValid) throw new Error("PDF validation failed");
       const pdf = await pdfParse(buffer);
@@ -114,6 +119,7 @@ export class IngestionService {
       if (vectors.length !== batch.length || vectors.some((v) => !Array.isArray(v) || v.length !== this.embeddingDimensions || v.some((n) => !Number.isFinite(n)) || !v.some((n) => n !== 0))) throw new Error("Invalid embedding vector response");
       batch.forEach((chunk, index) => { chunk.embedding = vectors[index]; });
     }
-    return { title: input.title, chunks, pages, securityStatus: suspicious ? "SUSPICIOUS" : "SAFE", contentHash: crypto.createHash("sha256").update(chunks.map((chunk) => chunk.content).join("\n")).digest("hex") };
+    const normalizedText = documents.map((document) => this.cleanIndexText(document.text)).join("\n\n");
+    return { title: input.title, chunks, pages, normalizedText, securityStatus: suspicious ? "SUSPICIOUS" : "SAFE", contentHash: crypto.createHash("sha256").update(chunks.map((chunk) => chunk.content).join("\n")).digest("hex") };
   }
 }

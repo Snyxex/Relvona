@@ -18,6 +18,17 @@ services:
     ports: ["127.0.0.1:6379:6379"]
     volumes: ["supportai-local-redis:/data"]
 
+  rustfs:
+    image: rustfs/rustfs:latest
+    environment:
+      RUSTFS_ACCESS_KEY: ${OBJECT_STORAGE_ACCESS_KEY}
+      RUSTFS_SECRET_KEY: ${OBJECT_STORAGE_SECRET_KEY}
+      RUSTFS_REGION: ${OBJECT_STORAGE_REGION:-us-east-1}
+      RUSTFS_CONSOLE_ENABLE: "true"
+    command: ["/data"]
+    ports: ["127.0.0.1:9000:9000", "127.0.0.1:9001:9001"]
+    volumes: ["supportai-local-rustfs:/data"]
+
   migrate:
     build:
       context: ./backend
@@ -40,6 +51,10 @@ services:
     environment:
       DATABASE_URL: postgresql://supportai_app:${DATABASE_APP_PASSWORD}@postgres:5432/ai_support_db
       REDIS_URL: redis://redis:6379
+      OBJECT_STORAGE_PROVIDER: s3
+      OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET}
+      OBJECT_STORAGE_FORCE_PATH_STYLE: "true"
       CORS_ORIGIN: http://localhost:3000
       NODE_ENV: development
     ports: ["127.0.0.1:8080:8080"]
@@ -57,6 +72,10 @@ services:
     environment:
       DATABASE_URL: postgresql://supportai_app:${DATABASE_APP_PASSWORD}@postgres:5432/ai_support_db
       REDIS_URL: redis://redis:6379
+      OBJECT_STORAGE_PROVIDER: s3
+      OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET}
+      OBJECT_STORAGE_FORCE_PATH_STYLE: "true"
       NODE_ENV: development
     depends_on:
       migrate:
@@ -78,3 +97,4 @@ services:
 volumes:
   supportai-local-pg:
   supportai-local-redis:
+  supportai-local-rustfs:

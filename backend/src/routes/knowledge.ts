@@ -2,13 +2,16 @@ import { Router, json, type Response, type NextFunction } from "express";
 import multer from "multer";
 import { authenticate, tenantContext, requireRole, AuthRequest } from "../middleware/auth.js";
 import { db } from "../db/index.js";
-import { knowledgeBases, knowledgeSources, knowledgeIngestionJobs, websites } from "../db/schema.js";
+import { knowledgeBases, knowledgeSources, knowledgeIngestionJobs, knowledgeSourceRevisions, websites } from "../db/schema.js";
 import { eq, and, desc } from "drizzle-orm";
 import { queueService } from "../services/queueService.js";
 import { FileSecurity } from "../services/fileSecurity.js";
 import { CrawlerSecurity } from "../services/crawlerSecurity.js";
 import { AuditService } from "../services/auditService.js";
 import { IngestionJobService, IngestionInputError } from "../services/ingestionJobService.js";
+import { FileObjectService } from "../services/fileObjectService.js";
+import { objectStorage } from "../services/objectStorage.js";
+import { objectStorageConfig } from "../config/objectStorage.js";
 import { sendInternalError } from "../utils/httpErrors.js";
 
 const upload = multer({
@@ -90,7 +93,9 @@ router.post("/pdf", requireRole(["owner", "admin"]), pdfUpload, async (req: Auth
     if (!await ownsKnowledgeBase(req.organization!.id, knowledgeBaseId)) return res.status(404).json({ error: "Knowledge base not found" });
     const validation = FileSecurity.validateUploadedFile(req.file.buffer, req.file.originalname, req.file.mimetype);
     if (!validation.isValid) return res.status(400).json({ error: "File Security Validation Failed", issues: validation.detectedIssues });
-    const job = await queueService.enqueuePdfIngestion({ organizationId: req.organization!.id, knowledgeBaseId, title: title || validation.sanitizedFilename, filePath: validation.sanitizedFilename, bufferBase64: req.file.buffer.toString("base64"), securityStatus: validation.securityStatus });
+    const object = await FileObjectService.stageKnowledgeUpload({ organizationId: req.organization!.id, originalFilename: req.file.originalname, mimeType: validation.mimeType, body: req.file.buffer });
+    const job = await queueService.enqueuePdfIngestion({ organizationId: req.organization!.id, knowledgeBaseId, title: title || validation.sanitizedFilename, filePath: validation.sanitizedFilename, objectId: object.id, securityStatus: validation.securityStatus });
+    await AuditService.logAction({ organizationId: req.organization!.id, actorUserId: req.user!.id, action: "knowledge_source.upload", resourceType: "file_object", resourceId: object.id, metadata: { sourceType: "pdf", fileSize: object.fileSize } });
     return res.status(202).json({ jobId: job.id, sourceId: job.sourceId, status: "queued", securityStatus: validation.securityStatus });
   } catch (error) { return sendInternalError(req, res, error, { code: "KNOWLEDGE_PDF_QUEUE_FAILED", message: "Unable to process PDF upload" }); }
 });
@@ -121,6 +126,39 @@ router.post("/sources/:id/reprocess", requireRole(["owner", "admin"]), async (re
   }
 });
 
+router.post("/pdf/intent", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
+  try {
+    const { knowledgeBaseId, title, originalFilename, mimeType, maxSize } = req.body;
+    if (!await ownsKnowledgeBase(req.organization!.id, knowledgeBaseId) || typeof title !== "string" || typeof originalFilename !== "string" || mimeType !== "application/pdf" || !Number.isInteger(maxSize) || maxSize < 1 || maxSize > 10 * 1024 * 1024) return res.status(400).json({ error: "UPLOAD_INVALID" });
+    const intent = await FileObjectService.createKnowledgeUploadIntent({ organizationId: req.organization!.id, knowledgeBaseId, title, originalFilename, mimeType, maxSize });
+    await AuditService.logAction({ organizationId: req.organization!.id, actorUserId: req.user!.id, action: "file.upload_intent_created", resourceType: "file_object", resourceId: intent.object.id });
+    return res.status(201).json({ objectId: intent.object.id, uploadUrl: intent.uploadUrl, expiresInSeconds: objectStorageConfig().signedUrlTtlSeconds });
+  } catch { return res.status(503).json({ error: "STORAGE_UNAVAILABLE" }); }
+});
+
+router.post("/pdf/:objectId/finalize", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
+  try {
+    const result = await FileObjectService.finalizeKnowledgeUpload(req.organization!.id, req.params.objectId);
+    if (result.alreadyFinalized) return res.json({ objectId: result.object.id, status: "UPLOADED", alreadyFinalized: true });
+    const meta = result.object.metadata as { knowledgeBaseId: string; title: string };
+    const job = await queueService.enqueuePdfIngestion({ organizationId: req.organization!.id, knowledgeBaseId: meta.knowledgeBaseId, title: meta.title, filePath: result.object.originalFilename, objectId: result.object.id, securityStatus: result.validation!.securityStatus });
+    await AuditService.logAction({ organizationId: req.organization!.id, actorUserId: req.user!.id, action: "file.upload_finalized", resourceType: "file_object", resourceId: result.object.id });
+    return res.status(202).json({ objectId: result.object.id, sourceId: job.sourceId, jobId: job.id, status: "queued" });
+  } catch (error) { const code = (error as Error).message; return res.status(code === "FILE_NOT_FOUND" ? 404 : code === "UPLOAD_INVALID" ? 400 : 409).json({ error: code }); }
+});
+
+router.get("/sources/:id/download", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
+  try {
+    const [revision] = await db.select({ rawObjectId: knowledgeSourceRevisions.rawObjectId }).from(knowledgeSourceRevisions).where(and(eq(knowledgeSourceRevisions.sourceId, req.params.id), eq(knowledgeSourceRevisions.organizationId, req.organization!.id))).orderBy(desc(knowledgeSourceRevisions.revision)).limit(1);
+    if (!revision?.rawObjectId) return res.status(404).json({ error: "Download unavailable" });
+    const file = await FileObjectService.readForOrganization(req.organization!.id, revision.rawObjectId);
+    await AuditService.logAction({ organizationId: req.organization!.id, actorUserId: req.user!.id, action: "knowledge_source.download", resourceType: "file_object", resourceId: revision.rawObjectId });
+    if (objectStorageConfig().provider === "s3") return res.json({ downloadUrl: await objectStorage().createSignedDownloadUrl(file.object.storageKey, objectStorageConfig().signedUrlTtlSeconds) });
+    res.type(file.object.mimeType).setHeader("Content-Disposition", `attachment; filename="${file.object.originalFilename.replace(/[\\\"\r\n]/g, "_")}"`);
+    file.body.pipe(res);
+  } catch { return res.status(404).json({ error: "Download unavailable" }); }
+});
+
 router.get("/sources/:id/content", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
   try {
     const input = await IngestionJobService.inputFor(req.organization!.id, req.params.id);
@@ -145,8 +183,10 @@ router.put("/sources/:id/content", requireRole(["owner", "admin"]), async (req: 
 
 router.delete("/sources/:id", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
   try {
+    const revisions = await db.select({ rawObjectId: knowledgeSourceRevisions.rawObjectId }).from(knowledgeSourceRevisions).where(and(eq(knowledgeSourceRevisions.sourceId, req.params.id), eq(knowledgeSourceRevisions.organizationId, req.organization!.id)));
     const deleted = await db.delete(knowledgeSources).where(and(eq(knowledgeSources.id, req.params.id), eq(knowledgeSources.organizationId, req.organization!.id))).returning({ id: knowledgeSources.id });
     if (!deleted.length) return res.status(404).json({ error: "Knowledge source not found" });
+    for (const revision of revisions) if (revision.rawObjectId) await FileObjectService.deleteForOrganization(req.organization!.id, revision.rawObjectId);
     await AuditService.logAction({ organizationId: req.organization!.id, actorUserId: req.user!.id, action: "knowledge_source.delete", resourceType: "knowledge_source", resourceId: req.params.id });
     return res.json({ success: true });
   } catch (error) { return sendInternalError(req, res, error, { code: "KNOWLEDGE_SOURCE_DELETE_FAILED", message: "Unable to delete knowledge source" }); }

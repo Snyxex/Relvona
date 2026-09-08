@@ -142,6 +142,7 @@ export const knowledgeSources = pgTable("knowledge_sources", {
   securityStatus: text("security_status").default("SAFE").notNull(), // 'SAFE' | 'SUSPICIOUS' | 'QUARANTINED'
   errorMessage: text("error_message"),
   contentHash: text("content_hash"),
+  currentRevision: integer("current_revision").default(0).notNull(),
   metadata: jsonb("metadata"),
   lastCrawledAt: timestamp("last_crawled_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -149,6 +150,31 @@ export const knowledgeSources = pgTable("knowledge_sources", {
 }, (table) => ({
   orgKbIdx: index("org_kb_source_idx").on(table.organizationId, table.knowledgeBaseId),
 }));
+
+export const fileObjects = pgTable("file_objects", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
+  storageKey: text("storage_key").notNull().unique(),
+  storageClass: text("storage_class").notNull(),
+  originalFilename: text("original_filename").notNull(),
+  mimeType: text("mime_type").notNull(),
+  fileSize: integer("file_size").notNull(),
+  sha256: text("sha256").notNull(),
+  status: text("status").default("PENDING_UPLOAD").notNull(),
+  metadata: jsonb("metadata"),
+  checksumVerifiedAt: timestamp("checksum_verified_at"),
+  expiresAt: timestamp("expires_at"),
+  deletedAt: timestamp("deleted_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(), updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({ orgHashIdx: index("file_objects_org_hash_idx").on(table.organizationId, table.sha256), cleanupIdx: index("file_objects_cleanup_idx").on(table.organizationId, table.status, table.expiresAt) }));
+
+export const knowledgeSourceRevisions = pgTable("knowledge_source_revisions", {
+  id: uuid("id").primaryKey().defaultRandom(), organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
+  sourceId: uuid("source_id").references(() => knowledgeSources.id, { onDelete: "cascade" }).notNull(), revision: integer("revision").notNull(),
+  rawObjectId: uuid("raw_object_id").references(() => fileObjects.id, { onDelete: "restrict" }), processedTextObjectId: uuid("processed_text_object_id").references(() => fileObjects.id, { onDelete: "restrict" }),
+  sha256: text("sha256"), processingStatus: text("processing_status").default("QUEUED").notNull(), securityStatus: text("security_status").default("SAFE").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(), updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({ sourceRevisionUnique: uniqueIndex("knowledge_source_revision_unique").on(table.sourceId, table.revision), orgSourceIdx: index("knowledge_source_revisions_org_source_idx").on(table.organizationId, table.sourceId) }));
 
 // Durable input and execution state; payloads are never returned in source lists.
 export const knowledgeIngestionJobs = pgTable("knowledge_ingestion_jobs", {
@@ -349,6 +375,20 @@ export const ticketComments = pgTable("ticket_comments", {
   isInternal: boolean("is_internal").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// File relations are explicit foreign keys: object storage remains a blob store,
+// while PostgreSQL remains the tenant-scoped authorization source of truth.
+export const fileAttachments = pgTable("file_attachments", {
+  id: uuid("id").primaryKey().defaultRandom(), organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
+  fileObjectId: uuid("file_object_id").references(() => fileObjects.id, { onDelete: "restrict" }).notNull(),
+  conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "cascade" }), conversationMessageId: uuid("conversation_message_id").references(() => conversationMessages.id, { onDelete: "set null" }), ticketId: uuid("ticket_id").references(() => tickets.id, { onDelete: "cascade" }), ticketCommentId: uuid("ticket_comment_id").references(() => ticketComments.id, { onDelete: "set null" }), customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
+  uploaderUserId: uuid("uploader_user_id").references(() => users.id, { onDelete: "set null" }), uploaderType: text("uploader_type").notNull(), visibility: text("visibility").default("INTERNAL_ONLY").notNull(), originalFilename: text("original_filename").notNull(), mimeType: text("mime_type").notNull(), fileSize: integer("file_size").notNull(), status: text("status").default("READY").notNull(), deletedAt: timestamp("deleted_at"), createdAt: timestamp("created_at").defaultNow().notNull(), updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({ attachmentObjectUnique: uniqueIndex("file_attachment_object_unique").on(table.fileObjectId), attachmentOrgIdx: index("file_attachments_org_idx").on(table.organizationId, table.conversationId, table.ticketId) }));
+
+export const fileExports = pgTable("exports", {
+  id: uuid("id").primaryKey().defaultRandom(), organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(), fileObjectId: uuid("file_object_id").references(() => fileObjects.id, { onDelete: "restrict" }),
+  exportType: text("export_type").notNull(), status: text("status").default("PENDING").notNull(), expiresAt: timestamp("expires_at"), createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }), createdAt: timestamp("created_at").defaultNow().notNull(), updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({ exportOrgIdx: index("exports_org_idx").on(table.organizationId, table.status, table.expiresAt) }));
 
 // 16. Analytics Events
 export const analyticsEvents = pgTable("analytics_events", {

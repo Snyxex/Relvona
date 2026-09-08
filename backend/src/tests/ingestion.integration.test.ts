@@ -13,7 +13,7 @@ async function main() {
   const app = new pg.Client({ connectionString: process.env.DATABASE_URL });
   const tenantA = randomUUID(); const tenantB = randomUUID();
   await admin.connect(); await app.connect();
-  const result = (content: string): PreparedSource => ({ title: "Test", contentHash: content, securityStatus: "SAFE", pages: [], chunks: [{ content, embedding: Array(1536).fill(0.01), metadata: {} }] });
+  const result = (content: string): PreparedSource => ({ title: "Test", contentHash: content, normalizedText: content, securityStatus: "SAFE", pages: [], chunks: [{ content, embedding: Array(1536).fill(0.01), metadata: {} }] });
   try {
     const role = await app.query("SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user");
     assert.equal(role.rows[0].rolsuper || role.rows[0].rolbypassrls, false, "Tests must use an RLS-constrained app role");

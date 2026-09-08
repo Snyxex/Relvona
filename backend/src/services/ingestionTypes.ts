@@ -5,7 +5,7 @@ export type IngestionInput = {
   language?: string;
 } & (
   | { type: "document" | "faq"; content: string }
-  | { type: "pdf"; bufferBase64: string; filename: string }
+  | { type: "pdf"; objectId: string; filename: string }
   | { type: "website"; targetUrl: string; maxPages: number; maxDepth: number }
 );
 

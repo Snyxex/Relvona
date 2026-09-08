@@ -22,6 +22,7 @@ import webhooksRouter from "./webhooks.js";
 import integrationConnectionsRouter from "./integrationConnections.js";
 import integrationSyncRouter from "./integrationSync.js";
 import integrationInboundRouter from "./integrationInbound.js";
+import attachmentsRouter from "./attachments.js";
 import { registerWebhookDomainBridge } from "../services/webhookDomainBridge.js";
 import { registerIntegrationSyncBridge } from "../services/integrationSyncBridge.js";
 
@@ -53,5 +54,6 @@ apiRouter.use("/v1/admin", adminSettingsRouter);
 apiRouter.use("/v1/platform-admin", platformAdminRouter);
 apiRouter.use("/v1/tools", toolsRouter);
 apiRouter.use("/v1/visitor-memory", visitorMemoryRouter);
+apiRouter.use("/v1/attachments", attachmentsRouter);
 
 export default apiRouter;

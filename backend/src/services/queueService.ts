@@ -28,8 +28,8 @@ export const queueService = {
   async enqueueDocumentIngestion(job: { organizationId: string; knowledgeBaseId: string; title: string; sourceType: "faq" | "document"; content: string; securityStatus: string; category?: string; language?: string }) {
     return this.submit(job.organizationId, { type: job.sourceType, knowledgeBaseId: job.knowledgeBaseId, title: job.title, content: job.content, category: job.category, language: job.language });
   },
-  async enqueuePdfIngestion(job: { organizationId: string; knowledgeBaseId: string; title: string; filePath: string; bufferBase64: string; securityStatus: string }) {
-    return this.submit(job.organizationId, { type: "pdf", knowledgeBaseId: job.knowledgeBaseId, title: job.title, filename: job.filePath, bufferBase64: job.bufferBase64 });
+  async enqueuePdfIngestion(job: { organizationId: string; knowledgeBaseId: string; title: string; filePath: string; objectId: string; securityStatus: string }) {
+    return this.submit(job.organizationId, { type: "pdf", knowledgeBaseId: job.knowledgeBaseId, title: job.title, filename: job.filePath, objectId: job.objectId });
   },
   async enqueueWebsiteCrawl(job: { organizationId: string; knowledgeBaseId: string; targetUrl: string; maxPages?: number; maxDepth?: number }) {
     return this.submit(job.organizationId, { type: "website", knowledgeBaseId: job.knowledgeBaseId, title: job.targetUrl, targetUrl: job.targetUrl, maxPages: job.maxPages ?? 20, maxDepth: job.maxDepth ?? 2 });

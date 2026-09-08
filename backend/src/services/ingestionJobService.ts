@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, lt, lte, or, sql } from "drizzle-orm";
 import { withTenantTransaction } from "../db/index.js";
-import { documentChunks, knowledgeBases, knowledgeIngestionJobs as jobs, knowledgeSources, websites, websitePages, organizationSettings } from "../db/schema.js";
+import { documentChunks, knowledgeBases, knowledgeIngestionJobs as jobs, knowledgeSources, knowledgeSourceRevisions, fileObjects, websites, websitePages, organizationSettings } from "../db/schema.js";
 import { IngestionService, type PreparedSource } from "./ingestionService.js";
+import { FileObjectService } from "./fileObjectService.js";
 import { canCommitIngestion, INGESTION_LEASE_MS, MAX_INGESTION_ATTEMPTS, type IngestionInput, type IngestionReference } from "./ingestionTypes.js";
 import { decryptSecret } from "../utils/crypto.js";
 
@@ -19,7 +20,7 @@ export function validateIngestionInput(input: IngestionInput) {
     try { const url = new URL(input.targetUrl); if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error(); }
     catch { throw new IngestionInputError("Invalid public website URL"); }
   } else if (input.type === "pdf") {
-    if (typeof input.bufferBase64 !== "string" || input.bufferBase64.length > 14_000_000 || typeof input.filename !== "string" || !input.filename.toLowerCase().endsWith(".pdf")) throw new IngestionInputError("Invalid PDF input");
+    if (typeof input.objectId !== "string" || !/^[0-9a-f-]{36}$/i.test(input.objectId) || typeof input.filename !== "string" || !input.filename.toLowerCase().endsWith(".pdf")) throw new IngestionInputError("Invalid PDF object reference");
   } else throw new IngestionInputError("Unsupported source type");
 }
 
@@ -34,6 +35,8 @@ export class IngestionJobService {
       }
       const [base] = await tx.select({ id: knowledgeBases.id }).from(knowledgeBases).where(and(eq(knowledgeBases.id, input.knowledgeBaseId), eq(knowledgeBases.organizationId, organizationId))).limit(1);
       if (!base) throw new IngestionInputError("Knowledge base not found");
+      const [pdfObject] = input.type === "pdf" ? await tx.select().from(fileObjects).where(and(eq(fileObjects.id, input.objectId), eq(fileObjects.organizationId, organizationId), eq(fileObjects.status, "UPLOADED"))).limit(1) : [];
+      if (input.type === "pdf" && !pdfObject) throw new IngestionInputError("Uploaded PDF object not found");
       const [existingJob] = sourceId ? await tx.select().from(jobs).where(and(eq(jobs.sourceId, sourceId), eq(jobs.organizationId, organizationId))).for("update") : [];
       const [existingSource] = sourceId ? await tx.select().from(knowledgeSources).where(and(eq(knowledgeSources.id, sourceId), eq(knowledgeSources.organizationId, organizationId))).limit(1) : [];
       if (sourceId && !existingSource) throw new IngestionInputError("Knowledge source not found");
@@ -48,10 +51,14 @@ export class IngestionJobService {
         ? await tx.update(knowledgeSources).set(sourceValues).where(and(eq(knowledgeSources.id, existingSource.id), eq(knowledgeSources.organizationId, organizationId))).returning()
         : await tx.insert(knowledgeSources).values({ ...sourceValues, organizationId, knowledgeBaseId: input.knowledgeBaseId, type: input.type, filePath: input.type === "pdf" ? input.filename : null }).returning();
       const revision = (existingJob?.revision || 0) + 1;
+      await tx.update(knowledgeSources).set({ currentRevision: revision, updatedAt: new Date() }).where(and(eq(knowledgeSources.id, source.id), eq(knowledgeSources.organizationId, organizationId)));
       const jobValues = { payload: input, revision, status: "queued", attempts: 0, leaseToken: null, leaseUntil: null, nextAttemptAt: new Date(), errorMessage: null, startedAt: null, finishedAt: null, updatedAt: new Date() };
       const [job] = existingJob
         ? await tx.update(jobs).set(jobValues).where(eq(jobs.id, existingJob.id)).returning()
         : await tx.insert(jobs).values({ ...jobValues, id: legacyId, organizationId, sourceId: source.id }).returning();
+      if (input.type === "pdf" && pdfObject) {
+        await tx.insert(knowledgeSourceRevisions).values({ organizationId, sourceId: source.id, revision, rawObjectId: pdfObject.id, sha256: pdfObject.sha256, processingStatus: "QUEUED", securityStatus: source.securityStatus });
+      }
       if (websiteId) await tx.update(websites).set({ crawlStatus: "queued" }).where(and(eq(websites.id, websiteId), eq(websites.organizationId, organizationId)));
       return { sourceId: source.id, jobId: job.id, organizationId, revision, attempt: 0, status: "queued" };
     });
@@ -69,7 +76,7 @@ export class IngestionJobService {
 
   private static async prepareForOrganization(organizationId: string, input: IngestionInput) {
     const [settings] = await withTenantTransaction(organizationId, (tx) => tx.select({ openaiKeyEncrypted: organizationSettings.openaiKeyEncrypted }).from(organizationSettings).where(eq(organizationSettings.organizationId, organizationId)).limit(1));
-    return IngestionService.prepare(input, { apiKey: decryptSecret(settings?.openaiKeyEncrypted) });
+    return IngestionService.prepare(input, { apiKey: decryptSecret(settings?.openaiKeyEncrypted) }, organizationId);
   }
 
   static async process(ref: IngestionReference, prepare?: (input: IngestionInput) => Promise<PreparedSource>) {
@@ -84,7 +91,8 @@ export class IngestionJobService {
     try {
       const input = claimed.payload as IngestionInput;
       const prepared = prepare ? await prepare(input) : await this.prepareForOrganization(ref.organizationId, input);
-      return await this.complete(ref, token, prepared);
+      const processed = await FileObjectService.storeProcessedText({ organizationId: ref.organizationId, sourceId: claimed.sourceId, revision: ref.revision, text: prepared.normalizedText });
+      return await this.complete(ref, token, prepared, processed.id);
     } catch {
       // Provider error bodies can include credentials or internal URLs. Store only a public error.
       await withTenantTransaction(ref.organizationId, async (tx) => {
@@ -99,7 +107,7 @@ export class IngestionJobService {
     }
   }
 
-  private static async complete(ref: IngestionReference, token: string, result: PreparedSource) {
+  private static async complete(ref: IngestionReference, token: string, result: PreparedSource, processedTextObjectId: string) {
     return withTenantTransaction(ref.organizationId, async (tx) => {
       const [job] = await tx.select().from(jobs).where(and(eq(jobs.id, ref.jobId), eq(jobs.organizationId, ref.organizationId))).for("update");
       if (!canCommitIngestion(job, ref.revision, token)) return { skipped: true };
@@ -112,6 +120,7 @@ export class IngestionJobService {
       }
       const crawledAt = source.type === "website" ? new Date() : null;
       await tx.update(knowledgeSources).set({ status: "completed", errorMessage: null, chunkCount: result.chunks.length, securityStatus: result.securityStatus, contentHash: result.contentHash, lastCrawledAt: crawledAt, updatedAt: new Date() }).where(eq(knowledgeSources.id, source.id));
+      await tx.update(knowledgeSourceRevisions).set({ processingStatus: "READY", processedTextObjectId, securityStatus: result.securityStatus, updatedAt: new Date() }).where(and(eq(knowledgeSourceRevisions.sourceId, source.id), eq(knowledgeSourceRevisions.organizationId, ref.organizationId), eq(knowledgeSourceRevisions.revision, ref.revision)));
       const websiteId = (source.metadata as { websiteId?: string } | null)?.websiteId;
       if (websiteId && source.type === "website") {
         const [website] = await tx.select({ id: websites.id }).from(websites).where(and(eq(websites.id, websiteId), eq(websites.organizationId, ref.organizationId))).limit(1);
