@@ -32,25 +32,34 @@ export class ActionExecutionService {
       : await db.insert(actionExecutions).values(values).returning();
     let execution = inserted[0];
     if (!execution && data.idempotencyKey) {
-      [execution] = await db.select().from(actionExecutions).where(and(
-        eq(actionExecutions.organizationId, data.context.organizationId),
-        eq(actionExecutions.toolId, tool.id),
-        eq(actionExecutions.idempotencyKey, data.idempotencyKey),
-      )).limit(1);
+      [execution] = await db.select().from(actionExecutions).where(and(eq(actionExecutions.organizationId, data.context.organizationId), eq(actionExecutions.toolId, tool.id), eq(actionExecutions.idempotencyKey, data.idempotencyKey))).limit(1);
     }
     if (!execution) throw new Error("Unable to create action execution");
-    if (!tool.requiresApproval && inserted.length > 0) return this.execute({ organizationId: data.context.organizationId, executionId: execution.id, context: data.context });
+    if (!tool.requiresApproval) return this.execute({ organizationId: data.context.organizationId, executionId: execution.id, context: data.context });
     return execution;
   }
 
   static async list(organizationId: string, status?: string) { return db.select().from(actionExecutions).where(and(eq(actionExecutions.organizationId, organizationId), status ? eq(actionExecutions.status, status) : undefined)).orderBy(desc(actionExecutions.createdAt)); }
 
+  private static async assertIndependentDecision(organizationId: string, executionId: string, userId: string) {
+    const [execution] = await db.select({ requestedByType: actionExecutions.requestedByType, requestedByUserId: actionExecutions.requestedByUserId })
+      .from(actionExecutions)
+      .where(and(eq(actionExecutions.organizationId, organizationId), eq(actionExecutions.id, executionId)))
+      .limit(1);
+    if (!execution) throw new Error("Action execution not found");
+    if (execution.requestedByType === "user" && execution.requestedByUserId === userId) {
+      throw new Error("Action requester cannot approve or reject their own action");
+    }
+  }
+
   static async approve(data: { organizationId: string; executionId: string; userId: string; reason?: string }) {
+    await this.assertIndependentDecision(data.organizationId, data.executionId, data.userId);
     const [updated] = await db.update(actionExecutions).set({ status: "approved", approvedByUserId: data.userId, approvedAt: new Date(), decisionReason: data.reason?.slice(0, 1000), updatedAt: new Date() }).where(and(eq(actionExecutions.organizationId, data.organizationId), eq(actionExecutions.id, data.executionId), eq(actionExecutions.status, "pending"), or(isNull(actionExecutions.expiresAt), gt(actionExecutions.expiresAt, new Date())))).returning();
     if (!updated) throw new Error("Action is not pending or has expired"); return updated;
   }
 
   static async reject(data: { organizationId: string; executionId: string; userId: string; reason?: string }) {
+    await this.assertIndependentDecision(data.organizationId, data.executionId, data.userId);
     const [updated] = await db.update(actionExecutions).set({ status: "rejected", rejectedByUserId: data.userId, rejectedAt: new Date(), decisionReason: data.reason?.slice(0, 1000), updatedAt: new Date() }).where(and(eq(actionExecutions.organizationId, data.organizationId), eq(actionExecutions.id, data.executionId), eq(actionExecutions.status, "pending"))).returning();
     if (!updated) throw new Error("Action is not pending"); await db.update(conversationSchedulingStates).set({ state: "cancelled", updatedAt: new Date() }).where(and(eq(conversationSchedulingStates.organizationId, data.organizationId), eq(conversationSchedulingStates.actionExecutionId, data.executionId))); return updated;
   }
