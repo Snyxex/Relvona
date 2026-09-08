@@ -18,6 +18,9 @@ import customerPortalRouter from "./customerPortal.js";
 import schedulingRouter from "./scheduling.js";
 import calendarOAuthRouter from "./calendarOAuth.js";
 import webhooksRouter from "./webhooks.js";
+import { registerWebhookDomainBridge } from "../services/webhookDomainBridge.js";
+
+registerWebhookDomainBridge();
 
 const apiRouter = Router();
 
