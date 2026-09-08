@@ -21,6 +21,7 @@
     "test:webhook-outbox": "tsx src/tests/webhookOutbox.integration.test.ts",
     "test:assistant-versions": "tsx src/tests/assistantVersions.integration.test.ts",
     "test:integration-connections": "tsx src/tests/integrationConnections.integration.test.ts",
+    "test:integration-sync": "tsx src/tests/integrationSync.integration.test.ts",
     "test:auth-regression": "tsx src/tests/authRegression.integration.test.ts",
     "test:tools": "tsx src/tests/toolRegistry.test.ts",
     "test:streaming": "tsx src/tests/streaming.test.ts",
@@ -29,7 +30,7 @@
     "test:active-directory": "tsx src/tests/activeDirectoryService.test.ts",
     "test:authorization": "tsx src/tests/authorizationMiddleware.test.ts",
     "test:ingestion-integration": "tsx src/tests/ingestion.integration.test.ts",
-    "test:ci-auth": "npm run build && npm run test:security && npm run test:error-responses && npm run test:authorization && npm run test:tenant-isolation && npm run test:customer-tool-isolation && npm run test:scheduling-concurrency && npm run test:portal-magic-link && npm run test:action-approval && npm run test:knowledge-gaps && npm run test:webhook-outbox && npm run test:assistant-versions && npm run test:integration-connections && npm run test:auth-regression",
+    "test:ci-auth": "npm run build && npm run test:security && npm run test:error-responses && npm run test:authorization && npm run test:tenant-isolation && npm run test:customer-tool-isolation && npm run test:scheduling-concurrency && npm run test:portal-magic-link && npm run test:action-approval && npm run test:knowledge-gaps && npm run test:webhook-outbox && npm run test:assistant-versions && npm run test:integration-connections && npm run test:integration-sync && npm run test:auth-regression",
     "secrets:rotate": "tsx src/scripts/rotateEncryptionKey.ts",
     "worker": "node dist/worker.js"
   },
