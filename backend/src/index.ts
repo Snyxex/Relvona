@@ -24,6 +24,7 @@ import { logger, requestLogging, withLogContext } from "./observability/logger.j
 import { readiness, closeHealthDependencies } from "./services/healthService.js";
 import { closeDatabasePool } from "./db/index.js";
 import { closeQueues } from "./services/queueService.js";
+import { closeSchedulingMutationLockPool } from "./services/schedulingMutationLockService.js";
 import { shutdownTracing } from "./observability/tracing.js";
 import { validateRuntimeConfiguration } from "./config/runtime.js";
 import { httpMetrics, metrics } from "./observability/metrics.js";
@@ -75,12 +76,8 @@ const widgetCors = cors({ origin: true, methods: ["GET", "POST", "OPTIONS"], all
 app.use((req, res, next) => (req.path.startsWith("/api/v1/widget/") ? widgetCors : dashboardCors)(req, res, next));
 app.use(bindDashboardDomain as (req: AuthRequest, res: express.Response, next: express.NextFunction) => void);
 app.use(requireTrustedOrigin);
-// Better Auth consumes request bodies itself. Mount it before Express parsers.
 app.all("/api/auth/*", toNodeHandler(auth));
 const defaultJsonParser = express.json({ limit: process.env.JSON_BODY_LIMIT || "128kb" });
-// Manual knowledge-text ingestion intentionally uses a larger authenticated
-// route-local parser. Skip the global parser here so unauthenticated callers do
-// not get the larger allowance before auth/tenant/RBAC checks run.
 app.use((req, res, next) => req.path === "/api/v1/knowledge/text" ? next() : defaultJsonParser(req, res, next));
 app.use(express.urlencoded({ extended: true, limit: process.env.URLENCODED_BODY_LIMIT || "64kb" }));
 
@@ -244,7 +241,12 @@ async function shutdown(signal: string) {
     const serverClosed = new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     await new Promise<void>((resolve) => io.close(() => resolve()));
     await serverClosed;
-    await Promise.allSettled([closeQueues(), closeHealthDependencies(), Promise.all(socketRedisClients.map((client) => client.quit().catch(() => client.disconnect())))]);
+    await Promise.allSettled([
+      closeQueues(),
+      closeHealthDependencies(),
+      closeSchedulingMutationLockPool(),
+      Promise.all(socketRedisClients.map((client) => client.quit().catch(() => client.disconnect()))),
+    ]);
     await closeDatabasePool();
     await shutdownTracing();
     logger.info("server.shutdown_complete", { signal });
