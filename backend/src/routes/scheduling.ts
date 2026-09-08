@@ -15,15 +15,7 @@ router.get("/connections", async (req: AuthRequest, res) => {
   try {
     const conditions = [eq(calendarConnections.organizationId, req.organization!.id)];
     if (req.organization!.role === "agent") conditions.push(eq(calendarConnections.userId, req.user!.id));
-    const rows = await db.select({
-      id: calendarConnections.id,
-      userId: calendarConnections.userId,
-      provider: calendarConnections.provider,
-      externalAccountId: calendarConnections.externalAccountId,
-      status: calendarConnections.status,
-      createdAt: calendarConnections.createdAt,
-      updatedAt: calendarConnections.updatedAt,
-    }).from(calendarConnections).where(and(...conditions));
+    const rows = await db.select({ id: calendarConnections.id, userId: calendarConnections.userId, provider: calendarConnections.provider, externalAccountId: calendarConnections.externalAccountId, status: calendarConnections.status, createdAt: calendarConnections.createdAt, updatedAt: calendarConnections.updatedAt }).from(calendarConnections).where(and(...conditions));
     return res.json(rows);
   } catch (error) { return sendInternalError(req, res, error, { code: "CALENDAR_CONNECTIONS_LOAD_FAILED", message: "Unable to load calendar connections" }); }
 });
@@ -44,10 +36,8 @@ router.get("/meeting-types", async (req: AuthRequest, res) => {
 });
 
 router.post("/meeting-types", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
-  try {
-    const row = await SchedulingService.createMeetingType({ organizationId: req.organization!.id, ...req.body });
-    return res.status(201).json(row);
-  } catch (error) {
+  try { return res.status(201).json(await SchedulingService.createMeetingType({ organizationId: req.organization!.id, ...req.body })); }
+  catch (error) {
     if ((error as Error).message === "Invalid meeting type") return res.status(400).json({ error: "Invalid meeting type" });
     return sendInternalError(req, res, error, { code: "MEETING_TYPE_CREATE_FAILED", message: "Unable to create meeting type" });
   }
@@ -59,13 +49,26 @@ router.get("/availability", async (req: AuthRequest, res) => {
 });
 
 router.post("/availability", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
-  try {
-    const rule = await SchedulingService.addAvailabilityRule({ organizationId: req.organization!.id, ...req.body });
-    return res.status(201).json(rule);
-  } catch (error) {
+  try { return res.status(201).json(await SchedulingService.addAvailabilityRule({ organizationId: req.organization!.id, ...req.body })); }
+  catch (error) {
     const message = (error as Error).message;
     if (["Invalid availability rule", "User not found", "Meeting type not found"].includes(message)) return res.status(400).json({ error: message });
     return sendInternalError(req, res, error, { code: "AVAILABILITY_CREATE_FAILED", message: "Unable to create availability" });
+  }
+});
+
+router.get("/slots", async (req: AuthRequest, res) => {
+  try {
+    const meetingTypeId = String(req.query.meetingTypeId || "");
+    const assignedUserId = typeof req.query.assignedUserId === "string" ? req.query.assignedUserId : undefined;
+    const from = new Date(String(req.query.from || ""));
+    const to = new Date(String(req.query.to || ""));
+    const slots = await SchedulingService.findAvailableSlots({ organizationId: req.organization!.id, meetingTypeId, assignedUserId, from, to, limit: req.query.limit ? Number(req.query.limit) : undefined });
+    return res.json(slots);
+  } catch (error) {
+    const message = (error as Error).message;
+    if (["Invalid slot range", "Meeting type not found"].includes(message)) return res.status(400).json({ error: message });
+    return sendInternalError(req, res, error, { code: "SLOTS_LOAD_FAILED", message: "Unable to calculate available slots" });
   }
 });
 
@@ -76,13 +79,24 @@ router.get("/bookings", async (req: AuthRequest, res) => {
 
 router.post("/bookings", async (req: AuthRequest, res) => {
   try {
-    const startsAt = new Date(req.body?.startsAt);
-    const booking = await SchedulingService.createBooking({ organizationId: req.organization!.id, ...req.body, startsAt, createdBy: "agent" });
+    const booking = await SchedulingService.createBooking({ organizationId: req.organization!.id, ...req.body, startsAt: new Date(req.body?.startsAt), createdBy: "agent" });
     return res.status(201).json(booking);
   } catch (error) {
     const message = (error as Error).message;
     if (["Invalid booking time", "Meeting type not found", "Booking violates minimum notice", "Booking exceeds allowed future range", "Booking conflict", "External calendar conflict", "Customer not found"].includes(message)) return res.status(400).json({ error: message });
     return sendInternalError(req, res, error, { code: "BOOKING_CREATE_FAILED", message: "Unable to create booking" });
+  }
+});
+
+router.post("/bookings/:id/reschedule", async (req: AuthRequest, res) => {
+  try {
+    const booking = await SchedulingService.rescheduleBooking({ organizationId: req.organization!.id, bookingId: req.params.id, startsAt: new Date(req.body?.startsAt), timezone: req.body?.timezone, actorType: "agent", actorUserId: req.user!.id });
+    return res.json(booking);
+  } catch (error) {
+    const message = (error as Error).message;
+    if (message === "Booking not found") return res.status(404).json({ error: message });
+    if (["Invalid booking time", "Meeting type not found", "Booking violates minimum notice", "Booking exceeds allowed future range", "Booking conflict", "External calendar conflict"].includes(message)) return res.status(400).json({ error: message });
+    return sendInternalError(req, res, error, { code: "BOOKING_RESCHEDULE_FAILED", message: "Unable to reschedule booking" });
   }
 });
 
