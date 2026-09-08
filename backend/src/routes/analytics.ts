@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { authenticate, tenantContext, requireRole, AuthRequest } from "../middleware/auth.js";
 import { AnalyticsService } from "../services/analyticsService.js";
+import { KnowledgeGapDiscoveryService } from "../services/knowledgeGapDiscoveryService.js";
 import { sendInternalError } from "../utils/httpErrors.js";
 
 const router = Router();
@@ -32,6 +33,15 @@ router.get("/knowledge-gaps", requireRole(["owner", "admin", "agent", "viewer"])
     return res.json(await AnalyticsService.listKnowledgeGaps(req.organization!.id, status, limit));
   } catch (error) {
     return sendInternalError(req, res, error, { code: "KNOWLEDGE_GAPS_LOAD_FAILED", message: "Unable to load knowledge gaps" });
+  }
+});
+
+router.post("/knowledge-gaps/discover", requireRole(["owner", "admin", "agent"]), async (req: AuthRequest, res) => {
+  try {
+    const limit = typeof req.body?.limit === "number" ? req.body.limit : 100;
+    return res.json(await KnowledgeGapDiscoveryService.discoverFromNegativeFeedback(req.organization!.id, limit));
+  } catch (error) {
+    return sendInternalError(req, res, error, { code: "KNOWLEDGE_GAP_DISCOVERY_FAILED", message: "Unable to analyze negative feedback" });
   }
 });
 
