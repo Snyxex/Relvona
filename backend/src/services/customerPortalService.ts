@@ -88,20 +88,19 @@ export class CustomerPortalService {
     const parsed = parseScopedToken(rawToken);
     if (!parsed) throw new Error("Invalid or expired magic link");
     return withTenantTransaction(parsed.organizationId, async (tx) => {
-      const [magicLink] = await tx.select().from(customerPortalMagicLinks).where(and(
+      const now = new Date();
+      const [magicLink] = await tx.update(customerPortalMagicLinks).set({ usedAt: now }).where(and(
         eq(customerPortalMagicLinks.organizationId, parsed.organizationId),
         eq(customerPortalMagicLinks.tokenHash, tokenHash(parsed.token)),
         isNull(customerPortalMagicLinks.usedAt),
-        gt(customerPortalMagicLinks.expiresAt, new Date()),
-      )).limit(1);
+        gt(customerPortalMagicLinks.expiresAt, now),
+      )).returning();
       if (!magicLink) throw new Error("Invalid or expired magic link");
 
       const [account] = await tx.select().from(customerPortalAccounts)
         .where(and(eq(customerPortalAccounts.organizationId, parsed.organizationId), eq(customerPortalAccounts.id, magicLink.accountId))).limit(1);
       if (!account || account.status === "disabled") throw new Error("Portal account unavailable");
 
-      const now = new Date();
-      await tx.update(customerPortalMagicLinks).set({ usedAt: now }).where(and(eq(customerPortalMagicLinks.organizationId, parsed.organizationId), eq(customerPortalMagicLinks.id, magicLink.id)));
       await tx.update(customerPortalAccounts).set({ status: "active", emailVerifiedAt: account.emailVerifiedAt || now, lastLoginAt: now, updatedAt: now }).where(and(eq(customerPortalAccounts.organizationId, parsed.organizationId), eq(customerPortalAccounts.id, account.id)));
 
       const sessionToken = createScopedToken(parsed.organizationId);
