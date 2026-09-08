@@ -4,6 +4,7 @@ import { customers, users } from "../db/schema.js";
 import { availabilityRules, bookingEvents, bookings, meetingTypes } from "../db/extendedCustomerExperienceSchema.js";
 import { CalendarProviderFactory } from "./calendarProviderFactory.js";
 import { SchedulingMutationLockService } from "./schedulingMutationLockService.js";
+import { domainEventBus } from "./domainEventBus.js";
 
 function normalizeSlug(value: string) {
   return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
@@ -32,6 +33,23 @@ function sameInterval(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
 }
 
 type BookingRow = typeof bookings.$inferSelect;
+
+async function emitBookingEvent(type: "booking.created" | "booking.rescheduled" | "booking.cancelled", booking: BookingRow) {
+  await domainEventBus.emit({
+    type,
+    organizationId: booking.organizationId,
+    conversationId: booking.conversationId || undefined,
+    payload: {
+      bookingId: booking.id,
+      meetingTypeId: booking.meetingTypeId,
+      assignedUserId: booking.assignedUserId || undefined,
+      status: booking.status,
+      startsAt: booking.startsAt.toISOString(),
+      endsAt: booking.endsAt.toISOString(),
+      timezone: booking.timezone,
+    },
+  });
+}
 
 export class SchedulingService {
   static async listMeetingTypes(organizationId: string) {
@@ -166,9 +184,12 @@ export class SchedulingService {
         const [synced] = await db.update(bookings).set({ providerEventId: event.externalEventId, meetingUrl: event.meetingUrl, updatedAt: new Date() }).where(and(eq(bookings.organizationId, data.organizationId), eq(bookings.id, booking.id))).returning();
         await db.insert(bookingEvents).values({ organizationId: data.organizationId, bookingId: booking.id, type: "calendar.event_created", actorType: "system", metadata: { providerEventId: event.externalEventId } });
         await db.insert(bookingEvents).values({ organizationId: data.organizationId, bookingId: booking.id, type: "booking.created", actorType: data.createdBy || "system" });
-        return synced || booking;
+        const result = synced || booking;
+        await emitBookingEvent("booking.created", result);
+        return result;
       }
       await db.insert(bookingEvents).values({ organizationId: data.organizationId, bookingId: booking.id, type: "booking.created", actorType: data.createdBy || "system" });
+      await emitBookingEvent("booking.created", booking);
       return booking;
     } catch (error) {
       await db.update(bookings).set({ status: "cancelled", updatedAt: new Date() }).where(and(eq(bookings.organizationId, data.organizationId), eq(bookings.id, booking.id)));
@@ -208,6 +229,7 @@ export class SchedulingService {
     }
     const [updated] = await db.update(bookings).set({ startsAt: data.startsAt, endsAt, timezone: data.timezone, updatedAt: new Date() }).where(and(eq(bookings.organizationId, data.organizationId), eq(bookings.id, existing.id))).returning();
     await db.insert(bookingEvents).values({ organizationId: data.organizationId, bookingId: existing.id, type: "booking.rescheduled", actorType: data.actorType, actorUserId: data.actorUserId, metadata: { from: existing.startsAt.toISOString(), to: data.startsAt.toISOString() } });
+    await emitBookingEvent("booking.rescheduled", updated);
     return updated;
   }
 
@@ -226,6 +248,7 @@ export class SchedulingService {
     const [booking] = await db.update(bookings).set({ status: "cancelled", updatedAt: new Date() }).where(and(eq(bookings.organizationId, data.organizationId), eq(bookings.id, data.bookingId), ne(bookings.status, "cancelled"))).returning();
     if (!booking) throw new Error("Booking not found");
     await db.insert(bookingEvents).values({ organizationId: data.organizationId, bookingId: booking.id, type: "booking.cancelled", actorType: data.actorType, actorUserId: data.actorUserId });
+    await emitBookingEvent("booking.cancelled", booking);
     return booking;
   }
 
