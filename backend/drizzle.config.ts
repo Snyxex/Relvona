@@ -4,7 +4,7 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 export default defineConfig({
-  schema: ["./src/db/schema.ts", "./src/db/platformRoles.ts", "./src/db/extendedCustomerExperienceSchema.ts"],
+  schema: ["./src/db/schema.ts", "./src/db/platformRoles.ts", "./src/db/extendedCustomerExperienceSchema.ts", "./src/db/actionExecutionSchema.ts"],
   out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {
