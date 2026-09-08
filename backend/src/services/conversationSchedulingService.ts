@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { conversationSchedulingStates } from "../db/conversationSchedulingSchema.js";
 import { ActionExecutionService } from "./actionExecutionService.js";
+import { SchedulingAuthorizationService } from "./schedulingAuthorizationService.js";
 import { SchedulingService } from "./schedulingService.js";
 
 const meetingIntent = /\b(termin|meeting|besprechung|gespräch|telefonieren|anruf|call|appointment|schedule|meet|demo)\b/i;
@@ -50,8 +51,14 @@ export class ConversationSchedulingService {
     const preferred = enabled.find((type) => new RegExp(type.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(data.text)) || enabled[0];
     const rules = await SchedulingService.listAvailabilityRules(data.organizationId, preferred.id); const candidateUserIds = [...new Set(rules.filter((rule) => rule.enabled && rule.userId).map((rule) => rule.userId!))]; const { from, to } = dateWindow(data.text);
     let assignedUserId: string | undefined; let slots: Awaited<ReturnType<typeof SchedulingService.findAvailableSlots>> = [];
-    if (candidateUserIds.length) { for (const userId of candidateUserIds) { const candidate = await SchedulingService.findAvailableSlots({ organizationId: data.organizationId, meetingTypeId: preferred.id, assignedUserId: userId, from, to, limit: 3 }); if (candidate.length) { assignedUserId = userId; slots = candidate; break; } } }
-    else slots = await SchedulingService.findAvailableSlots({ organizationId: data.organizationId, meetingTypeId: preferred.id, from, to, limit: 3 });
+    if (candidateUserIds.length) {
+      for (const userId of candidateUserIds) {
+        try { await SchedulingAuthorizationService.assertSchedulableMember(data.organizationId, userId); }
+        catch { continue; }
+        const candidate = await SchedulingService.findAvailableSlots({ organizationId: data.organizationId, meetingTypeId: preferred.id, assignedUserId: userId, from, to, limit: 3 });
+        if (candidate.length) { assignedUserId = userId; slots = candidate; break; }
+      }
+    } else slots = await SchedulingService.findAvailableSlots({ organizationId: data.organizationId, meetingTypeId: preferred.id, from, to, limit: 3 });
     if (!slots.length) return { handled: true, reply: "Ich konnte im gewünschten Zeitraum keinen freien Termin finden. Sie können mir einen anderen Zeitraum nennen." };
     const serialized = slots.map((slot) => ({ startsAt: slot.startsAt.toISOString(), endsAt: slot.endsAt.toISOString(), timezone: slot.timezone })); const expiresAt = new Date(Date.now() + 30 * 60_000);
     if (state) [state] = await db.update(conversationSchedulingStates).set({ meetingTypeId: preferred.id, assignedUserId, state: "offered", offeredSlots: serialized, expiresAt, updatedAt: new Date() }).where(eq(conversationSchedulingStates.id, state.id)).returning();
