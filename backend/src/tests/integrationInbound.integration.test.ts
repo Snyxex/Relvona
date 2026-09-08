@@ -2,11 +2,14 @@ import assert from "node:assert/strict";
 import crypto, { randomUUID } from "node:crypto";
 import pg from "pg";
 import { setDatabaseTenant, withDatabaseTenantContext } from "../db/tenantContext.js";
+import { externalActors, externalTicketMessages } from "../db/externalTicketMessageSchema.js";
 import { integrationSyncExecutions } from "../db/integrationSyncSchema.js";
 import { IntegrationConnectionService } from "../services/integrationConnectionService.js";
 import { IntegrationInboundService } from "../services/integrationInboundService.js";
 import { registerIntegrationSyncBridge } from "../services/integrationSyncBridge.js";
 import { IntegrationSyncService } from "../services/integrationSyncService.js";
+import { db } from "../db/index.js";
+import { and, eq } from "drizzle-orm";
 
 const adminUrl = process.env.DATABASE_ADMIN_URL;
 if (!adminUrl) throw new Error("DATABASE_ADMIN_URL is required for inbound integration tests");
@@ -19,6 +22,12 @@ const signingSecret = "zendesk-signing-secret-for-inbound-regression";
 
 function signature(timestamp: string, rawBody: Buffer) {
   return crypto.createHmac("sha256", signingSecret).update(timestamp).update(rawBody).digest("base64");
+}
+
+async function enqueue(connectionId: string, payload: unknown, invocationId = `inv-${randomUUID()}`) {
+  const rawBody = Buffer.from(JSON.stringify(payload), "utf8");
+  const timestamp = new Date().toISOString();
+  return IntegrationInboundService.verifyAndEnqueue({ organizationId, connectionId, signature: signature(timestamp, rawBody), timestamp, invocationId, rawBody, payload });
 }
 
 async function main() {
@@ -42,7 +51,7 @@ async function main() {
       const updateRule = await IntegrationSyncService.createRule({ organizationId, connectionId: connection.id, eventType: "ticket.updated", action: "zendesk.update_ticket" });
       await IntegrationSyncService.setEnabled(organizationId, createRule.id, true);
       await IntegrationSyncService.setEnabled(organizationId, updateRule.id, true);
-      await (await import("../db/index.js")).db.insert(integrationSyncExecutions).values({
+      await db.insert(integrationSyncExecutions).values({
         organizationId,
         ruleId: createRule.id,
         eventKey: `ticket.created:${ticketId}`,
@@ -62,50 +71,18 @@ async function main() {
 
     await withDatabaseTenantContext(async () => {
       setDatabaseTenant(organizationId);
-      const first = await IntegrationInboundService.verifyAndEnqueue({
-        organizationId,
-        connectionId: setup.connection.id,
-        signature: signature(timestamp, rawBody),
-        timestamp,
-        invocationId,
-        rawBody,
-        payload,
-      });
+      const first = await IntegrationInboundService.verifyAndEnqueue({ organizationId, connectionId: setup.connection.id, signature: signature(timestamp, rawBody), timestamp, invocationId, rawBody, payload });
       assert.equal(first.accepted, true);
       assert.equal(first.duplicate, false);
 
-      const duplicate = await IntegrationInboundService.verifyAndEnqueue({
-        organizationId,
-        connectionId: setup.connection.id,
-        signature: signature(timestamp, rawBody),
-        timestamp,
-        invocationId,
-        rawBody,
-        payload,
-      });
+      const duplicate = await IntegrationInboundService.verifyAndEnqueue({ organizationId, connectionId: setup.connection.id, signature: signature(timestamp, rawBody), timestamp, invocationId, rawBody, payload });
       assert.equal(duplicate.accepted, false);
       assert.equal(duplicate.duplicate, true, "same Zendesk invocation must be deduplicated");
 
-      await assert.rejects(() => IntegrationInboundService.verifyAndEnqueue({
-        organizationId,
-        connectionId: setup.connection.id,
-        signature: "invalid-signature",
-        timestamp,
-        invocationId: `inv-${randomUUID()}`,
-        rawBody,
-        payload,
-      }), /signature/i);
+      await assert.rejects(() => IntegrationInboundService.verifyAndEnqueue({ organizationId, connectionId: setup.connection.id, signature: "invalid-signature", timestamp, invocationId: `inv-${randomUUID()}`, rawBody, payload }), /signature/i);
 
       const staleTimestamp = new Date(Date.now() - 10 * 60_000).toISOString();
-      await assert.rejects(() => IntegrationInboundService.verifyAndEnqueue({
-        organizationId,
-        connectionId: setup.connection.id,
-        signature: signature(staleTimestamp, rawBody),
-        timestamp: staleTimestamp,
-        invocationId: `inv-${randomUUID()}`,
-        rawBody,
-        payload,
-      }), /replay window/i);
+      await assert.rejects(() => IntegrationInboundService.verifyAndEnqueue({ organizationId, connectionId: setup.connection.id, signature: signature(staleTimestamp, rawBody), timestamp: staleTimestamp, invocationId: `inv-${randomUUID()}`, rawBody, payload }), /replay window/i);
 
       const processed = await IntegrationInboundService.processPending(organizationId);
       assert.equal(processed.succeeded, 1);
@@ -122,7 +99,55 @@ async function main() {
       assert.equal(executions.filter((row) => row.ruleId === setup.updateRule.id).length, 0, "Zendesk-sourced local updates must not enqueue an outbound update");
     });
 
-    console.log("Zendesk inbound signature, replay, deduplication, and loop-prevention tests passed.");
+    const customerComment = {
+      eventType: "ticket.comment.created" as const,
+      ticket: { id: "12345" },
+      comment: {
+        id: "90001",
+        body: "I still need help with this issue.",
+        public: true,
+        createdAt: new Date().toISOString(),
+        author: { id: "501", name: "External Customer", email: "customer@example.test", role: "end-user" as const },
+      },
+    };
+
+    await withDatabaseTenantContext(async () => {
+      setDatabaseTenant(organizationId);
+      assert.equal((await enqueue(setup.connection.id, customerComment)).accepted, true);
+      const firstCommentProcess = await IntegrationInboundService.processPending(organizationId);
+      assert.equal(firstCommentProcess.succeeded, 1, "end-user comment must be stored");
+
+      assert.equal((await enqueue(setup.connection.id, customerComment)).accepted, true, "different invocation ids may repeat the same provider comment");
+      const duplicateCommentProcess = await IntegrationInboundService.processPending(organizationId);
+      assert.equal(duplicateCommentProcess.ignored, 1, "provider comment id must deduplicate repeated deliveries");
+
+      const messages = await db.select().from(externalTicketMessages).where(and(eq(externalTicketMessages.organizationId, organizationId), eq(externalTicketMessages.ticketId, ticketId)));
+      assert.equal(messages.length, 1);
+      assert.equal(messages[0].content, customerComment.comment.body);
+      assert.equal(messages[0].visibility, "public");
+
+      const actors = await db.select().from(externalActors).where(and(eq(externalActors.organizationId, organizationId), eq(externalActors.connectionId, setup.connection.id)));
+      assert.equal(actors.length, 1);
+      assert.equal(actors[0].externalId, "501");
+      assert.equal(actors[0].role, "end-user");
+      assert.equal(actors[0].email, "customer@example.test");
+    });
+
+    const agentEcho = {
+      eventType: "ticket.comment.created" as const,
+      ticket: { id: "12345" },
+      comment: { id: "90002", body: "Agent response echoed by Zendesk.", public: true, author: { id: "777", name: "Zendesk Agent", role: "agent" as const } },
+    };
+    await withDatabaseTenantContext(async () => {
+      setDatabaseTenant(organizationId);
+      await enqueue(setup.connection.id, agentEcho);
+      const result = await IntegrationInboundService.processPending(organizationId);
+      assert.equal(result.ignored, 1, "agent-authored Zendesk comments must not loop back into the local timeline");
+      const messages = await db.select().from(externalTicketMessages).where(and(eq(externalTicketMessages.organizationId, organizationId), eq(externalTicketMessages.ticketId, ticketId)));
+      assert.equal(messages.length, 1);
+    });
+
+    console.log("Zendesk inbound status, signature, replay, customer comment, deduplication, author separation, and loop-prevention tests passed.");
   } finally {
     await admin.query("DELETE FROM organizations WHERE id = $1", [organizationId]).catch(() => undefined);
     await admin.end();
