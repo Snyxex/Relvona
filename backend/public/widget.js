@@ -5,6 +5,31 @@
   const apiBase = scriptTag ? scriptTag.getAttribute("data-api-base") || "http://localhost:8080" : "http://localhost:8080";
   const autoOpen = scriptTag ? scriptTag.getAttribute("data-auto-open") === "true" : false;
   const storageSuffix = assistantId || "default";
+  const visitorStorageKey = `ai_chat_visitor_token_${storageSuffix}`;
+
+  function randomVisitorToken() {
+    if (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function") {
+      return `v1_${globalThis.crypto.randomUUID().replace(/-/g, "")}`;
+    }
+    if (globalThis.crypto && typeof globalThis.crypto.getRandomValues === "function") {
+      const bytes = new Uint8Array(24);
+      globalThis.crypto.getRandomValues(bytes);
+      return `v1_${Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")}`;
+    }
+    return null;
+  }
+
+  function getOrCreateVisitorToken() {
+    try {
+      const existing = localStorage.getItem(visitorStorageKey);
+      if (existing && /^[A-Za-z0-9._~-]{24,200}$/.test(existing)) return existing;
+      const created = randomVisitorToken();
+      if (created) localStorage.setItem(visitorStorageKey, created);
+      return created;
+    } catch {
+      return randomVisitorToken();
+    }
+  }
 
   let config = {
     name: "Support Assistant",
@@ -16,6 +41,7 @@
 
   let state = {
     isOpen: false,
+    visitorToken: getOrCreateVisitorToken(),
     customerId: localStorage.getItem(`ai_chat_customer_id_${storageSuffix}`) || null,
     conversationId: localStorage.getItem(`ai_chat_conv_id_${storageSuffix}`) || null,
     conversationToken: localStorage.getItem(`ai_chat_conv_token_${storageSuffix}`) || null,
@@ -309,6 +335,7 @@
           assistantId: config.assistantId,
           widgetKey,
           organizationId: config.organizationId,
+          visitorToken: state.visitorToken || undefined,
           conversationId: state.conversationId || undefined,
           conversationToken: state.conversationToken || undefined,
           content: text,

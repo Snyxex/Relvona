@@ -8,6 +8,8 @@ import { PiiRedactionService } from "./piiRedactionService.js";
 import { TicketService } from "./ticketService.js";
 import { domainEventBus } from "./domainEventBus.js";
 import { ConversationWorkflowService } from "./conversationWorkflowService.js";
+import { VisitorIdentityService } from "./visitorIdentityService.js";
+import { VisitorMemoryCaptureService } from "./visitorMemoryCaptureService.js";
 
 export class ConversationService {
   private static ticketConfirmation(language: string, ticketNumber: number, created: boolean): string {
@@ -40,7 +42,7 @@ export class ConversationService {
       .join("\n")
       .slice(-1_500);
   }
-  // Find or Create Customer
+
   static async getOrCreateCustomer(data: {
     organizationId: string;
     email?: string;
@@ -61,7 +63,7 @@ export class ConversationService {
       .insert(customers)
       .values({
         organizationId: data.organizationId,
-        email: data.email ? data.email.toLowerCase() : `visitor_${Date.now()}@anonymous.com`,
+        email: data.email ? data.email.toLowerCase() : null,
         name: data.name || "Website Visitor",
         externalId: data.externalId,
       })
@@ -70,7 +72,6 @@ export class ConversationService {
     return newCustomer;
   }
 
-  // Initiate or Get Active Conversation Session
   static async getOrCreateConversation(data: {
     organizationId: string;
     assistantId?: string;
@@ -84,7 +85,7 @@ export class ConversationService {
         .where(and(eq(assistants.id, data.assistantId), eq(assistants.organizationId, data.organizationId))).limit(1);
       if (!assistant) throw new Error("Assistant not found");
     }
-    // Check if there is an active conversation (not resolved)
+
     const [existing] = await db
       .select()
       .from(conversations)
@@ -102,7 +103,6 @@ export class ConversationService {
       return existing;
     }
 
-    // Resolve assistant ID if not provided
     let targetAssistantId = data.assistantId;
     if (!targetAssistantId) {
       const [defaultAssistant] = await db
@@ -124,7 +124,6 @@ export class ConversationService {
       })
       .returning();
 
-    // Log Analytics Event
     await db.insert(analyticsEvents).values({
       organizationId: data.organizationId,
       eventType: "conversation_created",
@@ -134,18 +133,14 @@ export class ConversationService {
     return newConv;
   }
 
-  // Handle Customer Message Entry (RAG & Handoff Workflow)
   static async processCustomerMessage(data: {
     organizationId: string;
     conversationId: string;
     content: string;
     onToken?: (token: string) => void | Promise<void>;
   }) {
-    // 1. Fetch Conversation
     const [conv] = await db.select().from(conversations).where(and(eq(conversations.id, data.conversationId), eq(conversations.organizationId, data.organizationId))).limit(1);
     if (!conv) throw new Error("Conversation not found");
-    // A customer reply reopens a completed case into the human queue. AI is not
-    // silently re-enabled after a human-owned lifecycle.
     if (conv.state === "CLOSED" || conv.state === "RESOLVED") {
       await db.update(conversations).set({ state: conv.state === "CLOSED" ? "WAITING_FOR_AGENT" : "AGENT_ACTIVE", updatedAt: new Date() }).where(and(eq(conversations.id, conv.id), eq(conversations.organizationId, data.organizationId)));
     }
@@ -153,11 +148,9 @@ export class ConversationService {
     await TenantQuotaService.consumeWidgetRequest(data.organizationId, settings?.widgetRequestsPerMinute ?? 120);
     await TenantQuotaService.consumeWidgetEndUserRequest(data.organizationId, conv.customerId, settings?.widgetRequestsPerMinute ?? 120);
 
-    // 2. Redact accidental PII before persistence, embeddings, and provider calls.
     const redactedInput = PiiRedactionService.redact(data.content);
     if (redactedInput.detected.length) await db.insert(analyticsEvents).values({ organizationId: data.organizationId, eventType: "pii_redacted", metadata: { conversationId: conv.id, types: redactedInput.detected } });
 
-    // 3. Save Customer Message
     const [custMsg] = await db
       .insert(conversationMessages)
       .values({
@@ -170,7 +163,6 @@ export class ConversationService {
       .returning();
 
     await domainEventBus.emit({ type: "message.created", organizationId: data.organizationId, conversationId: conv.id, payload: custMsg });
-    // Human-owned and queued conversations must not auto-respond with AI.
     if (["AGENT_ACTIVE", "WAITING_FOR_AGENT", "WAITING_FOR_CUSTOMER", "RESOLVED", "CLOSED"].includes(conv.state)) {
       await db.update(conversations).set({ updatedAt: new Date() })
         .where(and(eq(conversations.id, conv.id), eq(conversations.organizationId, data.organizationId)));
@@ -181,7 +173,6 @@ export class ConversationService {
       };
     }
 
-    // Fetch conversation message history
     const historyMsgs = await db
       .select()
       .from(conversationMessages)
@@ -190,8 +181,6 @@ export class ConversationService {
       .limit(12);
 
     const chronologicalHistory = historyMsgs.reverse();
-    // The current message was saved immediately before this query and is appended by
-    // RAGService itself, so do not pay to send it twice.
     const historyBeforeCurrentMessage = chronologicalHistory.filter((message) => message.id !== custMsg.id);
     const recentHistory = historyBeforeCurrentMessage.slice(-4);
     const formattedHistory = recentHistory.map((m) => ({
@@ -202,24 +191,33 @@ export class ConversationService {
       ? this.compactHistory(historyBeforeCurrentMessage.slice(0, -4))
       : conv.summary;
 
-    // Execute RAG Engine
+    const visitorMemories = await VisitorIdentityService.memoriesForConversation(data.organizationId, conv.id, 8);
+    const visitorMemoryContext = visitorMemories.length
+      ? `Previous support context for this pseudonymous visitor:\n${visitorMemories
+          .map((memory) => `- [${memory.type}] ${memory.summary.slice(0, 320)}`)
+          .join("\n")}`.slice(0, 2_200)
+      : undefined;
+    const aiContextSummary = [rollingSummary, visitorMemoryContext].filter(Boolean).join("\n\n") || undefined;
+    if (visitorMemories.length) {
+      await db.insert(analyticsEvents).values({
+        organizationId: data.organizationId,
+        eventType: "visitor_memory_context_used",
+        metadata: { conversationId: conv.id, memoryCount: visitorMemories.length },
+      });
+    }
+
     let ragResult;
     try {
       ragResult = await RAGService.generateRAGAnswer({
         organizationId: data.organizationId,
         assistantId: conv.assistantId!,
-      customerQuery: redactedInput.text,
-        // The opening message determines the customer-facing language. Do not
-        // switch languages mid-conversation just because a later message has
-        // fewer detectable language markers.
+        customerQuery: redactedInput.text,
         responseLanguage: historyBeforeCurrentMessage.some((message) => message.senderType === "customer") ? conv.detectedLanguage : undefined,
         conversationHistory: formattedHistory,
-        conversationSummary: rollingSummary,
+        conversationSummary: aiContextSummary,
         onToken: data.onToken,
       });
     } catch (error) {
-      // Spend is enforced before provider calls. When the daily budget is spent,
-      // preserve the request and queue a human handoff instead of silently failing.
       if (error instanceof TenantQuotaExceededError) {
         if (error.message === "Widget request quota exceeded") throw error;
         await db.update(conversations).set({ state: "WAITING_FOR_AGENT", updatedAt: new Date() }).where(eq(conversations.id, conv.id));
@@ -229,8 +227,6 @@ export class ConversationService {
         return { customerMessage: custMsg, aiResponse: null, state: "WAITING_FOR_AGENT", handoffTriggered: true, budgetFallback: true, fallbackMessage: "Unser KI-Support ist für heute ausgeschöpft. Wir haben Ihre Anfrage an unser Support-Team weitergegeben.", ticketId: ticket.ticket.id, ticketNumber: ticket.ticket.ticketNumber, ticketCreated: ticket.created };
       }
 
-      // Provider, embedding, or model failures must not discard a customer's
-      // issue. Do not expose technical errors; create a durable human handoff.
       await db.update(conversations).set({ state: "WAITING_FOR_AGENT", updatedAt: new Date() }).where(eq(conversations.id, conv.id));
       await ConversationWorkflowService.recordHandoff({ organizationId: data.organizationId, conversationId: conv.id, reason: "AI_PROCESSING_FAILED", requestedPriority: RAGService.analyzeSentiment(redactedInput.text) === "frustrated" ? "HIGH" : "NORMAL" });
       const escalation = await TicketService.getOrCreateEscalationTicket({
@@ -249,7 +245,6 @@ export class ConversationService {
 
     const sentiment = RAGService.analyzeSentiment(redactedInput.text);
 
-    // Update conversation metadata
     await db
       .update(conversations)
       .set({
@@ -260,9 +255,6 @@ export class ConversationService {
       })
       .where(eq(conversations.id, conv.id));
 
-    // An AI handoff means the retrieved knowledge was insufficient, the user
-    // explicitly requested a human, or the issue needs manual handling. Turn
-    // that state into a real, deduplicated support ticket immediately.
     const escalation = ragResult.handoffTriggered
       ? await TicketService.getOrCreateEscalationTicket({
           organizationId: data.organizationId,
@@ -279,7 +271,6 @@ export class ConversationService {
       ragResult.answer = this.ticketConfirmation(ragResult.detectedLanguage, escalation.ticket.ticketNumber, escalation.created);
     }
 
-    // Save AI Response Message
     const [aiMsg] = await db
       .insert(conversationMessages)
       .values({
@@ -295,7 +286,6 @@ export class ConversationService {
       .returning();
 
     await domainEventBus.emit({ type: "message.created", organizationId: data.organizationId, conversationId: conv.id, payload: aiMsg });
-    // Check if handoff was triggered
     let newState = conv.state;
     if (ragResult.handoffTriggered) {
       newState = "WAITING_FOR_AGENT";
@@ -318,6 +308,14 @@ export class ConversationService {
       });
     }
 
+    void VisitorMemoryCaptureService.captureExchange({
+      organizationId: data.organizationId,
+      conversationId: conv.id,
+      customerText: redactedInput.text,
+      assistantText: ragResult.answer,
+      handoffTriggered: ragResult.handoffTriggered,
+    }).catch(() => undefined);
+
     return {
       customerMessage: custMsg,
       aiResponse: aiMsg,
@@ -330,7 +328,6 @@ export class ConversationService {
     };
   }
 
-  // Agent Sends Message
   static async sendAgentMessage(data: {
     organizationId: string;
     conversationId: string;
@@ -345,10 +342,6 @@ export class ConversationService {
       .limit(1);
     if (!conv) throw new Error("Conversation not found");
 
-    // Sending a reply is a claim operation, not a free-form state mutation. It
-    // must not let a second agent steal a conversation or reply while awaiting a
-    // customer / after resolution. The conditional assignment in the workflow
-    // service makes simultaneous "send" attempts deterministic.
     if (conv.state === "WAITING_FOR_AGENT") {
       if (conv.assignedAgentId && conv.assignedAgentId !== data.agentId) throw new Error("Conversation is assigned to another agent");
       await ConversationWorkflowService.assign({
@@ -381,8 +374,6 @@ export class ConversationService {
     });
 
     await domainEventBus.emit({ type: "message.created", organizationId: data.organizationId, conversationId: conv.id, payload: agentMsg });
-    // Claim the open ticket that caused this handoff as soon as an agent
-    // actually responds. This keeps the ticket queue aligned with the chat.
     const claimedTickets = await db
       .update(tickets)
       .set({
@@ -410,7 +401,6 @@ export class ConversationService {
     return agentMsg;
   }
 
-  // Resolve Conversation
   static async resolveConversation(organizationId: string, conversationId: string) {
     const [updated] = await db
       .update(conversations)

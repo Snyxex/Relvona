@@ -7,6 +7,7 @@ import { encryptSecret } from "../utils/crypto.js";
 import crypto from "crypto";
 import { IngestionService } from "../services/ingestionService.js";
 import { OutboundUrlPolicy } from "../services/outboundUrlPolicy.js";
+import { AssistantVersionService } from "../services/assistantVersionService.js";
 import { PublicRequestError, sendInternalError, sendPublicError } from "../utils/httpErrors.js";
 
 const newWidgetApiKey = () => `wpk_${crypto.randomBytes(24).toString("base64url")}`;
@@ -118,6 +119,7 @@ router.put("/:id", requireRole(["owner", "admin"]), async (req: AuthRequest, res
       updatedAt: new Date(),
     }).where(and(eq(assistants.id, req.params.id), eq(assistants.organizationId, req.organization!.id))).returning();
     if (!updated) return res.status(404).json({ error: "Assistant not found" });
+    await AssistantVersionService.markLiveDraft(req.organization!.id, updated.id);
     return res.json(withoutSecrets(updated));
   } catch (error) {
     if (error instanceof PublicRequestError) return sendPublicError(res, error);

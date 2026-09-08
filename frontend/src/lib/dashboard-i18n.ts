@@ -38,6 +38,10 @@ const translations: Record<string, Translation> = {
   "Questions needing attention": { de: "Fragen mit Handlungsbedarf", en: "Questions needing attention", es: "Preguntas que requieren atención", fr: "Questions nécessitant une attention" },
   "Active Conversations": { de: "Aktive Unterhaltungen", en: "Active Conversations", es: "Conversaciones activas", fr: "Conversations actives" },
   "Customer Support Tickets": { de: "Kunden-Support-Tickets", en: "Customer Support Tickets", es: "Tickets de atención al cliente", fr: "Tickets de support client" },
+  "Interne Kommentare": { de: "Ticket-Kommunikation", en: "Ticket communication", es: "Comunicación del ticket", fr: "Communication du ticket" },
+  "Noch keine Kommentare.": { de: "Noch keine Ticket-Kommunikation.", en: "No ticket communication yet.", es: "Todavía no hay comunicación en el ticket.", fr: "Aucune communication sur le ticket pour le moment." },
+  "Interne Notiz hinzufügen…": { de: "Interne Notiz hinzufügen…", en: "Add internal note…", es: "Añadir nota interna…", fr: "Ajouter une note interne…" },
+  "Wähle ein Ticket, um Anfrage, Status und interne Kommentare zu sehen.": { de: "Wähle ein Ticket, um Anfrage, Status und die gesamte Ticket-Kommunikation zu sehen.", en: "Select a ticket to view the request, status, and full ticket communication.", es: "Selecciona un ticket para ver la solicitud, el estado y toda la comunicación.", fr: "Sélectionnez un ticket pour voir la demande, le statut et toute la communication." },
   "Knowledge Base & PDF Processing": { de: "Wissensdatenbank und PDF-Verarbeitung", en: "Knowledge Base & PDF Processing", es: "Base de conocimiento y procesamiento de PDF", fr: "Base de connaissances et traitement PDF" },
   "Recursive Website Crawler": { de: "Rekursiver Website-Crawler", en: "Recursive Website Crawler", es: "Rastreador web recursivo", fr: "Robot de site web récursif" },
   "AI Assistant Configuration": { de: "KI-Assistent konfigurieren", en: "AI Assistant Configuration", es: "Configuración del asistente IA", fr: "Configuration de l’assistant IA" },
@@ -66,6 +70,60 @@ function translate(value: string, language: DashboardLanguage) {
   return key ? translations[key][language] : value;
 }
 
+function styleTicketCommunication() {
+  document.querySelectorAll<HTMLElement>("p").forEach((authorLine) => {
+    const label = authorLine.textContent?.trim() || "";
+    const card = authorLine.parentElement;
+    if (!card) return;
+
+    let palette: { border: string; background: string; badgeBackground: string; badgeColor: string } | null = null;
+    let type = "";
+
+    if (label.startsWith("Interne Notiz ·")) {
+      type = "internal-note";
+      palette = {
+        border: "rgba(245, 158, 11, 0.55)",
+        background: "rgba(120, 53, 15, 0.22)",
+        badgeBackground: "rgba(180, 83, 9, 0.35)",
+        badgeColor: "rgb(253, 230, 138)",
+      };
+    } else if (label.startsWith("Öffentliche Antwort ·")) {
+      type = "public-reply";
+      palette = {
+        border: "rgba(59, 130, 246, 0.55)",
+        background: "rgba(30, 64, 175, 0.18)",
+        badgeBackground: "rgba(37, 99, 235, 0.3)",
+        badgeColor: "rgb(191, 219, 254)",
+      };
+    } else if (label.startsWith("Zendesk-Kunde ·") || label.startsWith("Externer Kunde ·")) {
+      type = "external-customer";
+      palette = {
+        border: "rgba(16, 185, 129, 0.55)",
+        background: "rgba(6, 78, 59, 0.2)",
+        badgeBackground: "rgba(5, 150, 105, 0.28)",
+        badgeColor: "rgb(167, 243, 208)",
+      };
+    }
+
+    if (!palette) return;
+
+    card.dataset.ticketCommunicationType = type;
+    card.style.border = `1px solid ${palette.border}`;
+    card.style.backgroundColor = palette.background;
+    card.style.boxShadow = "0 1px 2px rgba(0, 0, 0, 0.18)";
+
+    authorLine.style.display = "inline-flex";
+    authorLine.style.alignItems = "center";
+    authorLine.style.width = "fit-content";
+    authorLine.style.padding = "2px 7px";
+    authorLine.style.borderRadius = "9999px";
+    authorLine.style.backgroundColor = palette.badgeBackground;
+    authorLine.style.color = palette.badgeColor;
+    authorLine.style.fontWeight = "600";
+    authorLine.style.letterSpacing = "0.01em";
+  });
+}
+
 /** Localize static dashboard content after React renders it. Dynamic customer data is never altered. */
 export function localizeDashboard(language: DashboardLanguage) {
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -84,5 +142,6 @@ export function localizeDashboard(language: DashboardLanguage) {
       if (value) element.setAttribute(attribute, translate(value, language));
     });
   });
+  styleTicketCommunication();
   document.documentElement.lang = language;
 }

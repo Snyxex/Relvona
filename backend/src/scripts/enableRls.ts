@@ -7,7 +7,7 @@ const appPassword = process.env.DATABASE_APP_PASSWORD;
 if (!/^[a-z_][a-z0-9_]{0,62}$/i.test(appRole) || !appPassword) throw new Error("DATABASE_APP_USER and DATABASE_APP_PASSWORD must configure the non-owner application login");
 
 const tenantTables = [
-  "knowledge_ingestion_jobs", "api_keys", "customers", "assistants", "knowledge_bases", "knowledge_sources", "document_chunks", "websites", "website_pages", "conversations", "conversation_messages", "message_feedback", "tickets", "ticket_comments", "analytics_events", "audit_logs", "organization_settings", "model_routing_rules", "conversation_activities", "conversation_handoffs", "conversation_tags", "conversation_tag_links", "agent_presence",
+  "knowledge_ingestion_jobs", "api_keys", "customers", "assistants", "assistant_versions", "knowledge_bases", "knowledge_sources", "document_chunks", "websites", "website_pages", "conversations", "conversation_messages", "message_feedback", "tickets", "ticket_comments", "analytics_events", "audit_logs", "organization_settings", "model_routing_rules", "conversation_activities", "conversation_handoffs", "conversation_tags", "conversation_tag_links", "agent_presence", "anonymous_visitors", "visitor_conversations", "visitor_memories", "customer_portal_accounts", "customer_portal_magic_links", "customer_portal_sessions", "customer_portal_visitor_links", "ticket_sla_policies", "ticket_case_metadata", "ticket_case_events", "calendar_connections", "meeting_types", "availability_rules", "bookings", "booking_events", "booking_calendar_sync", "action_executions", "calendar_oauth_states", "conversation_scheduling_states", "knowledge_gaps", "knowledge_gap_signals", "webhook_subscriptions", "webhook_events", "webhook_deliveries", "integration_connections", "integration_sync_rules", "integration_sync_executions", "integration_inbound_events", "external_actors", "external_ticket_messages",
 ];
 
 async function main() {
@@ -22,9 +22,6 @@ async function main() {
     await client.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "${appRole}"`);
     await client.query(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "${appRole}"`);
     for (const table of tenantTables) {
-      // Compatibility deployments may still be applying additive migrations.
-      // Do not leave all subsequent tenant tables without policies merely
-      // because one optional/new table has not been created yet.
       const exists = await client.query("SELECT to_regclass($1) AS table_name", [`public.${table}`]);
       if (!exists.rows[0]?.table_name) continue;
       await client.query(`ALTER TABLE "${table}" ENABLE ROW LEVEL SECURITY`);

@@ -8,6 +8,10 @@ import { db, closeDatabasePool } from "./db/index.js";
 import { organizations } from "./db/schema.js";
 import { IngestionJobService } from "./services/ingestionJobService.js";
 import { ConversationAutoCloseService } from "./services/conversationAutoCloseService.js";
+import { WebhookDeliverySweepService } from "./services/webhookDeliverySweepService.js";
+import { IntegrationSyncService } from "./services/integrationSyncService.js";
+import { IntegrationInboundService } from "./services/integrationInboundService.js";
+import { BookingCalendarSyncService } from "./services/bookingCalendarSyncService.js";
 import { closeQueues, publishIngestion } from "./services/queueService.js";
 import type { IngestionInput, IngestionReference } from "./services/ingestionTypes.js";
 import { logger, withLogContext, setLogContext } from "./observability/logger.js";
@@ -28,7 +32,6 @@ const worker = new Worker<IngestionReference | LegacyJob>("ingestion", async (jo
     let ref: IngestionReference;
     if ("jobId" in job.data) ref = job.data;
     else {
-      // Existing Redis jobs are imported once; replay after a crash keeps the same source.
       const old = job.data;
       const input: IngestionInput = old.type === "pdf"
         ? { type: "pdf", knowledgeBaseId: old.knowledgeBaseId, title: old.title, filename: old.filePath, bufferBase64: old.bufferBase64 }
@@ -48,10 +51,14 @@ worker.on("failed", (job) => logger.error("ingestion.delivery_failed", { jobId: 
 let shuttingDown = false;
 let dispatching: Promise<void> | undefined;
 let autoClosing: Promise<void> | undefined;
+let webhookSweeping: Promise<void> | undefined;
+let integrationSyncSweeping: Promise<void> | undefined;
+let integrationInboundSweeping: Promise<void> | undefined;
+let calendarSyncSweeping: Promise<void> | undefined;
+
 async function dispatch() {
   let cursor: string | undefined;
   while (!shuttingDown) {
-    // Organization identities are bootstrap data. Every job lookup uses scoped RLS transactions.
     const tenants = await db.select({ id: organizations.id }).from(organizations).where(cursor ? gt(organizations.id, cursor) : undefined).orderBy(organizations.id).limit(100);
     if (!tenants.length) return;
     for (const tenant of tenants) {
@@ -73,16 +80,57 @@ function scheduleAutoClose() {
     for (const tenant of tenants) await ConversationAutoCloseService.closeDue(tenant.id);
   })().catch(() => logger.warn("conversation.auto_close_retry_pending")).finally(() => { autoClosing = undefined; });
 }
+function scheduleWebhookSweep() {
+  if (webhookSweeping || shuttingDown) return;
+  webhookSweeping = WebhookDeliverySweepService.sweepAll(() => shuttingDown)
+    .then((result) => { if (result.delivered || result.failed) logger.info("webhook.delivery_sweep", result); })
+    .catch(() => logger.warn("webhook.delivery_sweep_failed"))
+    .finally(() => { webhookSweeping = undefined; });
+}
+function scheduleIntegrationSyncSweep() {
+  if (integrationSyncSweeping || shuttingDown) return;
+  integrationSyncSweeping = IntegrationSyncService.sweepAll(() => shuttingDown)
+    .then((result) => { if (result.processed) logger.info("integration.sync_sweep", result); })
+    .catch(() => logger.warn("integration.sync_sweep_failed"))
+    .finally(() => { integrationSyncSweeping = undefined; });
+}
+function scheduleIntegrationInboundSweep() {
+  if (integrationInboundSweeping || shuttingDown) return;
+  integrationInboundSweeping = IntegrationInboundService.sweepAll(() => shuttingDown)
+    .then((result) => { if (result.processed) logger.info("integration.inbound_sweep", result); })
+    .catch(() => logger.warn("integration.inbound_sweep_failed"))
+    .finally(() => { integrationInboundSweeping = undefined; });
+}
+function scheduleCalendarSyncSweep() {
+  if (calendarSyncSweeping || shuttingDown) return;
+  calendarSyncSweeping = BookingCalendarSyncService.sweepAll(() => shuttingDown)
+    .then((result) => { if (result.processed) logger.info("calendar.sync_sweep", result); })
+    .catch(() => logger.warn("calendar.sync_sweep_failed"))
+    .finally(() => { calendarSyncSweeping = undefined; });
+}
+
 const dispatchTimer = setInterval(scheduleDispatch, 10_000);
 const autoCloseTimer = setInterval(scheduleAutoClose, Number(process.env.CONVERSATION_AUTO_CLOSE_SWEEP_MS || 60_000));
+const webhookTimer = setInterval(scheduleWebhookSweep, Number(process.env.WEBHOOK_DELIVERY_SWEEP_MS || 5_000));
+const integrationSyncTimer = setInterval(scheduleIntegrationSyncSweep, Number(process.env.INTEGRATION_SYNC_SWEEP_MS || 5_000));
+const integrationInboundTimer = setInterval(scheduleIntegrationInboundSweep, Number(process.env.INTEGRATION_INBOUND_SWEEP_MS || 5_000));
+const calendarSyncTimer = setInterval(scheduleCalendarSyncSweep, Number(process.env.CALENDAR_SYNC_SWEEP_MS || 5_000));
 scheduleDispatch();
 scheduleAutoClose();
+scheduleWebhookSweep();
+scheduleIntegrationSyncSweep();
+scheduleIntegrationInboundSweep();
+scheduleCalendarSyncSweep();
 
 async function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   clearInterval(dispatchTimer);
   clearInterval(autoCloseTimer);
+  clearInterval(webhookTimer);
+  clearInterval(integrationSyncTimer);
+  clearInterval(integrationInboundTimer);
+  clearInterval(calendarSyncTimer);
   logger.info("worker.shutdown_started", { signal });
   const timer = setTimeout(() => { logger.error("worker.shutdown_timeout"); process.exit(1); }, Number(process.env.SHUTDOWN_TIMEOUT_MS || 30_000));
   timer.unref();
@@ -90,6 +138,10 @@ async function shutdown(signal: string) {
     await worker.close();
     await dispatching;
     await autoClosing;
+    await webhookSweeping;
+    await integrationSyncSweeping;
+    await integrationInboundSweeping;
+    await calendarSyncSweeping;
     await closeQueues();
     connection.disconnect();
     await closeDatabasePool();
