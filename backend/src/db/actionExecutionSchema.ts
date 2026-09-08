@@ -28,5 +28,5 @@ export const actionExecutions = pgTable("action_executions", {
 }, (table) => ({
   actionExecutionOrgIdx: index("action_execution_org_idx").on(table.organizationId, table.status, table.createdAt),
   actionExecutionConversationIdx: index("action_execution_conversation_idx").on(table.organizationId, table.conversationId, table.createdAt),
-  actionExecutionIdempotencyUnique: uniqueIndex("action_execution_idempotency_unique").on(table.organizationId, table.idempotencyKey),
+  actionExecutionIdempotencyUnique: uniqueIndex("action_execution_idempotency_unique").on(table.organizationId, table.toolId, table.idempotencyKey),
 }));
