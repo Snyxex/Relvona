@@ -1,12 +1,14 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, lt, or } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { customers, tickets } from "../db/schema.js";
+import { setDatabaseTenant, withDatabaseTenantContext } from "../db/tenantContext.js";
+import { customers, organizations, tickets } from "../db/schema.js";
 import { integrationConnections } from "../db/integrationConnectionSchema.js";
 import { integrationSyncExecutions, integrationSyncRules } from "../db/integrationSyncSchema.js";
 import type { DomainEvent } from "./domainEventBus.js";
 import { ZendeskAdapter } from "./integrationConnectionService.js";
 
 const allowedRule = { eventType: "ticket.created", action: "zendesk.create_ticket" } as const;
+const PROCESSING_STALE_MS = Number(process.env.INTEGRATION_SYNC_STALE_MS || 10 * 60_000);
 
 export class IntegrationSyncService {
   static async listRules(organizationId: string) {
@@ -56,38 +58,84 @@ export class IntegrationSyncService {
       eq(integrationSyncRules.action, allowedRule.action),
       eq(integrationSyncRules.enabled, true),
     ));
-    await Promise.allSettled(rules.map((rule) => this.executeTicketCreatedRule(rule.id, event.organizationId, rule.connectionId, entityId)));
+    for (const rule of rules) {
+      await db.insert(integrationSyncExecutions).values({
+        organizationId: event.organizationId,
+        ruleId: rule.id,
+        eventKey: `ticket.created:${entityId}`,
+        entityId,
+        status: "pending",
+      }).onConflictDoNothing({ target: [integrationSyncExecutions.ruleId, integrationSyncExecutions.eventKey] });
+    }
   }
 
-  private static async executeTicketCreatedRule(ruleId: string, organizationId: string, connectionId: string, ticketId: string) {
-    const eventKey = `ticket.created:${ticketId}`;
-    const [execution] = await db.insert(integrationSyncExecutions).values({
-      organizationId,
-      ruleId,
-      eventKey,
-      entityId: ticketId,
-      status: "pending",
-    }).onConflictDoNothing({ target: [integrationSyncExecutions.ruleId, integrationSyncExecutions.eventKey] }).returning();
-    if (!execution) return;
+  static async processPending(organizationId: string, limit = 25) {
+    const staleBefore = new Date(Date.now() - PROCESSING_STALE_MS);
+    const candidates = await db.select().from(integrationSyncExecutions).where(and(
+      eq(integrationSyncExecutions.organizationId, organizationId),
+      or(eq(integrationSyncExecutions.status, "pending"), and(eq(integrationSyncExecutions.status, "processing"), lt(integrationSyncExecutions.updatedAt, staleBefore))),
+    )).orderBy(integrationSyncExecutions.createdAt).limit(limit);
 
-    try {
-      const [row] = await db.select({ ticket: tickets, customer: customers }).from(tickets)
-        .innerJoin(customers, eq(tickets.customerId, customers.id))
-        .where(and(eq(tickets.organizationId, organizationId), eq(tickets.id, ticketId))).limit(1);
-      if (!row) throw new Error("Local ticket not found");
-      const result = await ZendeskAdapter.createTicket(organizationId, {
-        subject: row.ticket.subject,
-        body: row.ticket.description || `Support ticket #${row.ticket.ticketNumber}`,
-        priority: row.ticket.priority,
-        requesterEmail: row.customer.email || undefined,
-        requesterName: row.customer.name || undefined,
-      }, connectionId);
-      const externalId = typeof (result as any)?.ticket?.id === "number" || typeof (result as any)?.ticket?.id === "string" ? String((result as any).ticket.id) : null;
-      await db.update(integrationSyncExecutions).set({ status: "succeeded", externalId, error: null, updatedAt: new Date() })
-        .where(and(eq(integrationSyncExecutions.organizationId, organizationId), eq(integrationSyncExecutions.id, execution.id)));
-    } catch (error) {
-      await db.update(integrationSyncExecutions).set({ status: "failed", error: (error as Error).message.slice(0, 1000), updatedAt: new Date() })
-        .where(and(eq(integrationSyncExecutions.organizationId, organizationId), eq(integrationSyncExecutions.id, execution.id)));
+    let succeeded = 0;
+    let failed = 0;
+    for (const candidate of candidates) {
+      const [claimed] = await db.update(integrationSyncExecutions).set({ status: "processing", updatedAt: new Date() }).where(and(
+        eq(integrationSyncExecutions.organizationId, organizationId),
+        eq(integrationSyncExecutions.id, candidate.id),
+        or(eq(integrationSyncExecutions.status, "pending"), and(eq(integrationSyncExecutions.status, "processing"), lt(integrationSyncExecutions.updatedAt, staleBefore))),
+      )).returning();
+      if (!claimed) continue;
+
+      try {
+        const [rule] = await db.select().from(integrationSyncRules).where(and(
+          eq(integrationSyncRules.organizationId, organizationId),
+          eq(integrationSyncRules.id, claimed.ruleId),
+          eq(integrationSyncRules.enabled, true),
+        )).limit(1);
+        if (!rule) throw new Error("Integration sync rule is disabled or missing");
+        if (rule.eventType !== allowedRule.eventType || rule.action !== allowedRule.action) throw new Error("Unsupported integration sync execution");
+
+        const [row] = await db.select({ ticket: tickets, customer: customers }).from(tickets)
+          .innerJoin(customers, eq(tickets.customerId, customers.id))
+          .where(and(eq(tickets.organizationId, organizationId), eq(tickets.id, claimed.entityId))).limit(1);
+        if (!row) throw new Error("Local ticket not found");
+
+        const result = await ZendeskAdapter.createTicket(organizationId, {
+          subject: row.ticket.subject,
+          body: row.ticket.description || `Support ticket #${row.ticket.ticketNumber}`,
+          priority: row.ticket.priority,
+          requesterEmail: row.customer.email || undefined,
+          requesterName: row.customer.name || undefined,
+        }, rule.connectionId);
+        const rawExternalId = (result as any)?.ticket?.id;
+        const externalId = typeof rawExternalId === "number" || typeof rawExternalId === "string" ? String(rawExternalId) : null;
+        await db.update(integrationSyncExecutions).set({ status: "succeeded", externalId, error: null, updatedAt: new Date() })
+          .where(and(eq(integrationSyncExecutions.organizationId, organizationId), eq(integrationSyncExecutions.id, claimed.id)));
+        succeeded += 1;
+      } catch (error) {
+        await db.update(integrationSyncExecutions).set({ status: "failed", error: (error as Error).message.slice(0, 1000), updatedAt: new Date() })
+          .where(and(eq(integrationSyncExecutions.organizationId, organizationId), eq(integrationSyncExecutions.id, claimed.id)));
+        failed += 1;
+      }
     }
+    return { processed: candidates.length, succeeded, failed };
+  }
+
+  static async sweepAll(shouldStop?: () => boolean) {
+    const tenantRows = await db.select({ id: organizations.id }).from(organizations).limit(10_000);
+    let processed = 0;
+    let succeeded = 0;
+    let failed = 0;
+    for (const tenant of tenantRows) {
+      if (shouldStop?.()) break;
+      const result = await withDatabaseTenantContext(async () => {
+        setDatabaseTenant(tenant.id);
+        return this.processPending(tenant.id);
+      });
+      processed += result.processed;
+      succeeded += result.succeeded;
+      failed += result.failed;
+    }
+    return { processed, succeeded, failed };
   }
 }
