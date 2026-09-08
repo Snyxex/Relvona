@@ -3,9 +3,14 @@ import pg from "pg";
 const lockDatabaseUrl = process.env.DATABASE_URL;
 if (process.env.NODE_ENV === "production" && !lockDatabaseUrl) throw new Error("DATABASE_URL is required for scheduling locks");
 
+const configuredLockPoolMax = Number(process.env.DATABASE_SCHEDULING_LOCK_POOL_MAX || 2);
+const lockPoolMax = Number.isInteger(configuredLockPoolMax) && configuredLockPoolMax >= 1
+  ? Math.min(configuredLockPoolMax, 8)
+  : 2;
+
 const lockPool = new pg.Pool({
   connectionString: lockDatabaseUrl || "postgres://postgres:postgrespassword@localhost:5432/ai_support_db",
-  max: Math.max(1, Math.min(Number(process.env.DATABASE_SCHEDULING_LOCK_POOL_MAX || 2), 8)),
+  max: lockPoolMax,
   idleTimeoutMillis: 10_000,
   connectionTimeoutMillis: Number(process.env.DATABASE_CONNECTION_TIMEOUT_MS || 5_000),
   allowExitOnIdle: true,
