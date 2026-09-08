@@ -70,6 +70,60 @@ function translate(value: string, language: DashboardLanguage) {
   return key ? translations[key][language] : value;
 }
 
+function styleTicketCommunication() {
+  document.querySelectorAll<HTMLElement>("p").forEach((authorLine) => {
+    const label = authorLine.textContent?.trim() || "";
+    const card = authorLine.parentElement;
+    if (!card) return;
+
+    let palette: { border: string; background: string; badgeBackground: string; badgeColor: string } | null = null;
+    let type = "";
+
+    if (label.startsWith("Interne Notiz ·")) {
+      type = "internal-note";
+      palette = {
+        border: "rgba(245, 158, 11, 0.55)",
+        background: "rgba(120, 53, 15, 0.22)",
+        badgeBackground: "rgba(180, 83, 9, 0.35)",
+        badgeColor: "rgb(253, 230, 138)",
+      };
+    } else if (label.startsWith("Öffentliche Antwort ·")) {
+      type = "public-reply";
+      palette = {
+        border: "rgba(59, 130, 246, 0.55)",
+        background: "rgba(30, 64, 175, 0.18)",
+        badgeBackground: "rgba(37, 99, 235, 0.3)",
+        badgeColor: "rgb(191, 219, 254)",
+      };
+    } else if (label.startsWith("Zendesk-Kunde ·") || label.startsWith("Externer Kunde ·")) {
+      type = "external-customer";
+      palette = {
+        border: "rgba(16, 185, 129, 0.55)",
+        background: "rgba(6, 78, 59, 0.2)",
+        badgeBackground: "rgba(5, 150, 105, 0.28)",
+        badgeColor: "rgb(167, 243, 208)",
+      };
+    }
+
+    if (!palette) return;
+
+    card.dataset.ticketCommunicationType = type;
+    card.style.border = `1px solid ${palette.border}`;
+    card.style.backgroundColor = palette.background;
+    card.style.boxShadow = "0 1px 2px rgba(0, 0, 0, 0.18)";
+
+    authorLine.style.display = "inline-flex";
+    authorLine.style.alignItems = "center";
+    authorLine.style.width = "fit-content";
+    authorLine.style.padding = "2px 7px";
+    authorLine.style.borderRadius = "9999px";
+    authorLine.style.backgroundColor = palette.badgeBackground;
+    authorLine.style.color = palette.badgeColor;
+    authorLine.style.fontWeight = "600";
+    authorLine.style.letterSpacing = "0.01em";
+  });
+}
+
 /** Localize static dashboard content after React renders it. Dynamic customer data is never altered. */
 export function localizeDashboard(language: DashboardLanguage) {
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -88,5 +142,6 @@ export function localizeDashboard(language: DashboardLanguage) {
       if (value) element.setAttribute(attribute, translate(value, language));
     });
   });
+  styleTicketCommunication();
   document.documentElement.lang = language;
 }
