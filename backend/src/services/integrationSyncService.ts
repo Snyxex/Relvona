@@ -36,6 +36,15 @@ function updateEventKey(event: DomainEvent, entityId: string) {
   return `ticket.updated:${entityId}:${updatedAt}`;
 }
 
+function isRelevantTicketUpdate(event: DomainEvent) {
+  if (event.type !== "ticket.updated") return true;
+  const changedFields = Array.isArray(event.payload.changedFields)
+    ? event.payload.changedFields.filter((field): field is string => typeof field === "string")
+    : [];
+  if (!changedFields.length) return true;
+  return changedFields.includes("status") || changedFields.includes("priority");
+}
+
 export class IntegrationSyncService {
   static async listRules(organizationId: string) {
     return db.select().from(integrationSyncRules).where(eq(integrationSyncRules.organizationId, organizationId)).orderBy(desc(integrationSyncRules.createdAt));
@@ -98,6 +107,7 @@ export class IntegrationSyncService {
 
   static async handleDomainEvent(event: DomainEvent) {
     if (event.type !== "ticket.created" && event.type !== "ticket.updated") return;
+    if (!isRelevantTicketUpdate(event)) return;
     const entityId = typeof event.payload.id === "string" ? event.payload.id : undefined;
     if (!entityId) return;
     const action = event.type === "ticket.created" ? "zendesk.create_ticket" : "zendesk.update_ticket";
