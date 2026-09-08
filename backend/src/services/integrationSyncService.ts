@@ -48,6 +48,28 @@ export class IntegrationSyncService {
     if (!deleted) throw new Error("Integration sync rule not found");
   }
 
+  static async retryExecution(organizationId: string, id: string) {
+    const [execution] = await db.select({ id: integrationSyncExecutions.id, ruleId: integrationSyncExecutions.ruleId, status: integrationSyncExecutions.status })
+      .from(integrationSyncExecutions)
+      .where(and(eq(integrationSyncExecutions.organizationId, organizationId), eq(integrationSyncExecutions.id, id)))
+      .limit(1);
+    if (!execution) throw new Error("Integration sync execution not found");
+    if (execution.status !== "failed") throw new Error("Only failed sync executions can be retried");
+
+    const [rule] = await db.select({ id: integrationSyncRules.id, enabled: integrationSyncRules.enabled })
+      .from(integrationSyncRules)
+      .where(and(eq(integrationSyncRules.organizationId, organizationId), eq(integrationSyncRules.id, execution.ruleId)))
+      .limit(1);
+    if (!rule) throw new Error("Integration sync rule not found");
+    if (!rule.enabled) throw new Error("Integration sync rule is disabled");
+
+    const [updated] = await db.update(integrationSyncExecutions).set({ status: "pending", error: null, updatedAt: new Date() })
+      .where(and(eq(integrationSyncExecutions.organizationId, organizationId), eq(integrationSyncExecutions.id, id), eq(integrationSyncExecutions.status, "failed")))
+      .returning();
+    if (!updated) throw new Error("Integration sync execution is no longer retryable");
+    return updated;
+  }
+
   static async handleDomainEvent(event: DomainEvent) {
     if (event.type !== allowedRule.eventType) return;
     const entityId = typeof event.payload.id === "string" ? event.payload.id : undefined;
