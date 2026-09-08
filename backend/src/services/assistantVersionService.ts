@@ -1,5 +1,5 @@
 import { and, desc, eq, sql } from "drizzle-orm";
-import { db } from "../db/index.js";
+import { db, withTenantTransaction } from "../db/index.js";
 import { assistantVersions } from "../db/assistantVersionSchema.js";
 import { assistants } from "../db/schema.js";
 
@@ -18,13 +18,13 @@ type AssistantSnapshot = {
   embeddingBaseUrl: string | null;
   temperature: number;
   handoffEnabled: boolean;
-  handoffKeywords: any;
+  handoffKeywords: unknown;
   primaryColor: string;
   welcomeMessage: string;
-  widgetAllowedOrigins: any;
+  widgetAllowedOrigins: unknown;
   chatPageEnabled: boolean;
-  widgetSettings: any;
-  modelProfiles: any;
+  widgetSettings: unknown;
+  modelProfiles: unknown;
   activeModelProfileId: string | null;
 };
 
@@ -110,7 +110,7 @@ export class AssistantVersionService {
 
   static async publish(data: { organizationId: string; assistantId: string; userId: string; label?: string }) {
     const label = data.label?.trim().slice(0, 120) || null;
-    return db.transaction(async (tx) => {
+    return withTenantTransaction(data.organizationId, async (tx) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`assistant-version:${data.organizationId}:${data.assistantId}`}))`);
       const [assistant] = await tx.select().from(assistants).where(and(
         eq(assistants.organizationId, data.organizationId),
@@ -136,7 +136,7 @@ export class AssistantVersionService {
   }
 
   static async activate(data: { organizationId: string; assistantId: string; versionId: string }) {
-    return db.transaction(async (tx) => {
+    return withTenantTransaction(data.organizationId, async (tx) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`assistant-version:${data.organizationId}:${data.assistantId}`}))`);
       const [version] = await tx.select().from(assistantVersions).where(and(
         eq(assistantVersions.organizationId, data.organizationId),
@@ -186,7 +186,7 @@ export class AssistantVersionService {
     });
   }
 
-  static async markLiveDraft(organizationId: string, assistantId: string) {
+  static async markLiveConfigurationDirty(organizationId: string, assistantId: string) {
     await db.update(assistantVersions).set({ status: "archived" }).where(and(
       eq(assistantVersions.organizationId, organizationId),
       eq(assistantVersions.assistantId, assistantId),
