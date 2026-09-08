@@ -1,4 +1,4 @@
-import { index, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, index, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { conversations, organizations, users } from "./schema.js";
 
 export const actionExecutions = pgTable("action_executions", {
@@ -7,10 +7,10 @@ export const actionExecutions = pgTable("action_executions", {
   conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
   toolId: text("tool_id").notNull(),
   input: jsonb("input").default({}).notNull(),
-  status: text("status").default("pending").notNull(), // pending | approved | rejected | executing | executed | failed | expired
+  status: text("status").default("pending").notNull(),
   riskLevel: text("risk_level").notNull(),
-  requiresApproval: text("requires_approval").default("true").notNull(),
-  requestedByType: text("requested_by_type").default("ai").notNull(), // ai | user | system
+  requiresApproval: boolean("requires_approval").default(true).notNull(),
+  requestedByType: text("requested_by_type").default("ai").notNull(),
   requestedByUserId: uuid("requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
   approvedByUserId: uuid("approved_by_user_id").references(() => users.id, { onDelete: "set null" }),
   rejectedByUserId: uuid("rejected_by_user_id").references(() => users.id, { onDelete: "set null" }),
