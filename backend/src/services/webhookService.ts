@@ -13,6 +13,7 @@ export const WEBHOOK_EVENT_TYPES: DomainEventType[] = [
   "intent.detected",
   "ticket.created",
   "ticket.updated",
+  "ticket.comment.created",
   "tool.failed",
   "customer.frustrated",
   "ai.low_confidence",
