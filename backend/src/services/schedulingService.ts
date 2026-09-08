@@ -16,6 +16,20 @@ function overlaps(startA: Date, endA: Date, startB: Date, endB: Date) {
   return startA < endB && endA > startB;
 }
 
+function localWeekdayMinute(date: Date, timezone: string) {
+  const formatter = new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  const parts = formatter.formatToParts(date);
+  const weekdayName = parts.find((part) => part.type === "weekday")?.value || "Sun";
+  const hour = Number(parts.find((part) => part.type === "hour")?.value || 0);
+  const minute = Number(parts.find((part) => part.type === "minute")?.value || 0);
+  const weekday = ({ Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 } as Record<string, number>)[weekdayName] ?? 0;
+  return { weekday, minuteOfDay: hour * 60 + minute };
+}
+
+function sameInterval(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
+  return Math.abs(aStart.getTime() - bStart.getTime()) < 60_000 && Math.abs(aEnd.getTime() - bEnd.getTime()) < 60_000;
+}
+
 export class SchedulingService {
   static async listMeetingTypes(organizationId: string) {
     return db.select().from(meetingTypes).where(eq(meetingTypes.organizationId, organizationId)).orderBy(asc(meetingTypes.name));
@@ -61,6 +75,55 @@ export class SchedulingService {
       .orderBy(asc(availabilityRules.weekday), asc(availabilityRules.startMinute));
   }
 
+  static async findAvailableSlots(data: { organizationId: string; meetingTypeId: string; assignedUserId?: string; from: Date; to: Date; limit?: number; stepMinutes?: number }) {
+    if (Number.isNaN(data.from.getTime()) || Number.isNaN(data.to.getTime()) || data.to <= data.from) throw new Error("Invalid slot range");
+    const [type] = await db.select().from(meetingTypes).where(and(eq(meetingTypes.organizationId, data.organizationId), eq(meetingTypes.id, data.meetingTypeId), eq(meetingTypes.enabled, true))).limit(1);
+    if (!type) throw new Error("Meeting type not found");
+    const now = new Date();
+    const earliest = new Date(Math.max(data.from.getTime(), now.getTime() + type.minimumNoticeMinutes * 60_000));
+    const latest = new Date(Math.min(data.to.getTime(), now.getTime() + type.maxFutureDays * 86_400_000));
+    if (latest <= earliest) return [];
+
+    const rules = (await db.select().from(availabilityRules).where(and(eq(availabilityRules.organizationId, data.organizationId), eq(availabilityRules.enabled, true))))
+      .filter((rule) => (!rule.meetingTypeId || rule.meetingTypeId === data.meetingTypeId) && (!rule.userId || rule.userId === data.assignedUserId));
+    if (!rules.length) return [];
+
+    const internal = await db.select().from(bookings).where(and(
+      eq(bookings.organizationId, data.organizationId),
+      data.assignedUserId ? eq(bookings.assignedUserId, data.assignedUserId) : undefined,
+      ne(bookings.status, "cancelled"),
+      lt(bookings.startsAt, latest),
+      gt(bookings.endsAt, earliest),
+    ));
+    const provider = data.assignedUserId ? await CalendarProviderFactory.forUser(data.organizationId, data.assignedUserId) : undefined;
+    const external = provider ? await provider.listBusyIntervals({ from: earliest, to: latest }) : [];
+
+    const step = Math.max(5, Math.min(data.stepMinutes || 15, 60));
+    const durationMs = type.durationMinutes * 60_000;
+    let cursorMs = Math.ceil(earliest.getTime() / (step * 60_000)) * step * 60_000;
+    const slots: Array<{ startsAt: Date; endsAt: Date; timezone: string }> = [];
+    const limit = Math.max(1, Math.min(data.limit || 12, 50));
+
+    while (cursorMs + durationMs <= latest.getTime() && slots.length < limit) {
+      const start = new Date(cursorMs);
+      const end = new Date(cursorMs + durationMs);
+      const matchingRule = rules.find((rule) => {
+        const startLocal = localWeekdayMinute(start, rule.timezone);
+        const endLocal = localWeekdayMinute(end, rule.timezone);
+        return startLocal.weekday === rule.weekday && endLocal.weekday === rule.weekday && startLocal.minuteOfDay >= rule.startMinute && endLocal.minuteOfDay <= rule.endMinute;
+      });
+      if (matchingRule) {
+        const bufferedStart = new Date(start.getTime() - type.bufferBeforeMinutes * 60_000);
+        const bufferedEnd = new Date(end.getTime() + type.bufferAfterMinutes * 60_000);
+        const internalConflict = internal.some((item) => overlaps(bufferedStart, bufferedEnd, item.startsAt, item.endsAt));
+        const externalConflict = external.some((item) => overlaps(bufferedStart, bufferedEnd, item.start, item.end));
+        if (!internalConflict && !externalConflict) slots.push({ startsAt: start, endsAt: end, timezone: matchingRule.timezone });
+      }
+      cursorMs += step * 60_000;
+    }
+    return slots;
+  }
+
   static async createBooking(data: {
     organizationId: string; meetingTypeId: string; assignedUserId?: string; customerId?: string; conversationId?: string;
     guestEmail?: string; guestName?: string; startsAt: Date; timezone: string; idempotencyKey?: string; createdBy?: string;
@@ -68,30 +131,22 @@ export class SchedulingService {
     if (!validTimezone(data.timezone) || Number.isNaN(data.startsAt.getTime())) throw new Error("Invalid booking time");
     const [type] = await db.select().from(meetingTypes).where(and(eq(meetingTypes.organizationId, data.organizationId), eq(meetingTypes.id, data.meetingTypeId), eq(meetingTypes.enabled, true))).limit(1);
     if (!type) throw new Error("Meeting type not found");
-
     const now = new Date();
     if (data.startsAt.getTime() < now.getTime() + type.minimumNoticeMinutes * 60_000) throw new Error("Booking violates minimum notice");
     if (data.startsAt.getTime() > now.getTime() + type.maxFutureDays * 86_400_000) throw new Error("Booking exceeds allowed future range");
     const endsAt = new Date(data.startsAt.getTime() + type.durationMinutes * 60_000);
-
     if (data.idempotencyKey) {
       const [existing] = await db.select().from(bookings).where(and(eq(bookings.organizationId, data.organizationId), eq(bookings.idempotencyKey, data.idempotencyKey))).limit(1);
       if (existing) return existing;
     }
-
     if (data.customerId) {
       const [customer] = await db.select({ id: customers.id }).from(customers).where(and(eq(customers.organizationId, data.organizationId), eq(customers.id, data.customerId))).limit(1);
       if (!customer) throw new Error("Customer not found");
     }
-
     const conflictStart = new Date(data.startsAt.getTime() - type.bufferBeforeMinutes * 60_000);
     const conflictEnd = new Date(endsAt.getTime() + type.bufferAfterMinutes * 60_000);
-    const [conflict] = await db.select({ id: bookings.id }).from(bookings).where(and(
-      eq(bookings.organizationId, data.organizationId), data.assignedUserId ? eq(bookings.assignedUserId, data.assignedUserId) : undefined,
-      ne(bookings.status, "cancelled"), lt(bookings.startsAt, conflictEnd), gt(bookings.endsAt, conflictStart),
-    )).limit(1);
+    const [conflict] = await db.select({ id: bookings.id }).from(bookings).where(and(eq(bookings.organizationId, data.organizationId), data.assignedUserId ? eq(bookings.assignedUserId, data.assignedUserId) : undefined, ne(bookings.status, "cancelled"), lt(bookings.startsAt, conflictEnd), gt(bookings.endsAt, conflictStart))).limit(1);
     if (conflict) throw new Error("Booking conflict");
-
     let provider = undefined;
     if (data.assignedUserId) {
       provider = await CalendarProviderFactory.forUser(data.organizationId, data.assignedUserId);
@@ -100,28 +155,11 @@ export class SchedulingService {
         if (busy.some((interval) => overlaps(conflictStart, conflictEnd, interval.start, interval.end))) throw new Error("External calendar conflict");
       }
     }
-
-    const [booking] = await db.insert(bookings).values({
-      organizationId: data.organizationId, meetingTypeId: data.meetingTypeId, assignedUserId: data.assignedUserId,
-      customerId: data.customerId, conversationId: data.conversationId,
-      guestEmail: data.guestEmail?.trim().toLowerCase().slice(0, 254), guestName: data.guestName?.trim().slice(0, 120),
-      startsAt: data.startsAt, endsAt, timezone: data.timezone,
-      idempotencyKey: data.idempotencyKey?.slice(0, 120), createdBy: data.createdBy?.slice(0, 40) || "system",
-    }).returning();
-
+    const [booking] = await db.insert(bookings).values({ organizationId: data.organizationId, meetingTypeId: data.meetingTypeId, assignedUserId: data.assignedUserId, customerId: data.customerId, conversationId: data.conversationId, guestEmail: data.guestEmail?.trim().toLowerCase().slice(0, 254), guestName: data.guestName?.trim().slice(0, 120), startsAt: data.startsAt, endsAt, timezone: data.timezone, idempotencyKey: data.idempotencyKey?.slice(0, 120), createdBy: data.createdBy?.slice(0, 40) || "system" }).returning();
     try {
       if (provider) {
-        const event = await provider.createEvent({
-          title: type.name,
-          description: type.description || undefined,
-          start: booking.startsAt,
-          end: booking.endsAt,
-          timezone: booking.timezone,
-          attendeeEmail: booking.guestEmail || undefined,
-          attendeeName: booking.guestName || undefined,
-        });
-        const [synced] = await db.update(bookings).set({ providerEventId: event.externalEventId, meetingUrl: event.meetingUrl, updatedAt: new Date() })
-          .where(and(eq(bookings.organizationId, data.organizationId), eq(bookings.id, booking.id))).returning();
+        const event = await provider.createEvent({ title: type.name, description: type.description || undefined, start: booking.startsAt, end: booking.endsAt, timezone: booking.timezone, attendeeEmail: booking.guestEmail || undefined, attendeeName: booking.guestName || undefined });
+        const [synced] = await db.update(bookings).set({ providerEventId: event.externalEventId, meetingUrl: event.meetingUrl, updatedAt: new Date() }).where(and(eq(bookings.organizationId, data.organizationId), eq(bookings.id, booking.id))).returning();
         await db.insert(bookingEvents).values({ organizationId: data.organizationId, bookingId: booking.id, type: "calendar.event_created", actorType: "system", metadata: { providerEventId: event.externalEventId } });
         await db.insert(bookingEvents).values({ organizationId: data.organizationId, bookingId: booking.id, type: "booking.created", actorType: data.createdBy || "system" });
         return synced || booking;
@@ -135,17 +173,42 @@ export class SchedulingService {
     }
   }
 
+  static async rescheduleBooking(data: { organizationId: string; bookingId: string; startsAt: Date; timezone: string; actorType: string; actorUserId?: string }) {
+    if (!validTimezone(data.timezone) || Number.isNaN(data.startsAt.getTime())) throw new Error("Invalid booking time");
+    const [existing] = await db.select().from(bookings).where(and(eq(bookings.organizationId, data.organizationId), eq(bookings.id, data.bookingId), ne(bookings.status, "cancelled"))).limit(1);
+    if (!existing) throw new Error("Booking not found");
+    const [type] = await db.select().from(meetingTypes).where(and(eq(meetingTypes.organizationId, data.organizationId), eq(meetingTypes.id, existing.meetingTypeId))).limit(1);
+    if (!type) throw new Error("Meeting type not found");
+    const now = new Date();
+    if (data.startsAt.getTime() < now.getTime() + type.minimumNoticeMinutes * 60_000) throw new Error("Booking violates minimum notice");
+    if (data.startsAt.getTime() > now.getTime() + type.maxFutureDays * 86_400_000) throw new Error("Booking exceeds allowed future range");
+    const endsAt = new Date(data.startsAt.getTime() + type.durationMinutes * 60_000);
+    const conflictStart = new Date(data.startsAt.getTime() - type.bufferBeforeMinutes * 60_000);
+    const conflictEnd = new Date(endsAt.getTime() + type.bufferAfterMinutes * 60_000);
+    const [conflict] = await db.select({ id: bookings.id }).from(bookings).where(and(eq(bookings.organizationId, data.organizationId), existing.assignedUserId ? eq(bookings.assignedUserId, existing.assignedUserId) : undefined, ne(bookings.id, existing.id), ne(bookings.status, "cancelled"), lt(bookings.startsAt, conflictEnd), gt(bookings.endsAt, conflictStart))).limit(1);
+    if (conflict) throw new Error("Booking conflict");
+    const provider = existing.assignedUserId ? await CalendarProviderFactory.forUser(data.organizationId, existing.assignedUserId) : undefined;
+    if (provider) {
+      const busy = await provider.listBusyIntervals({ from: conflictStart, to: conflictEnd });
+      const relevant = busy.filter((item) => !sameInterval(item.start, item.end, existing.startsAt, existing.endsAt));
+      if (relevant.some((item) => overlaps(conflictStart, conflictEnd, item.start, item.end))) throw new Error("External calendar conflict");
+      if (existing.providerEventId) {
+        await provider.updateEvent(existing.providerEventId, { title: type.name, description: type.description || undefined, start: data.startsAt, end: endsAt, timezone: data.timezone, attendeeEmail: existing.guestEmail || undefined, attendeeName: existing.guestName || undefined });
+      }
+    }
+    const [updated] = await db.update(bookings).set({ startsAt: data.startsAt, endsAt, timezone: data.timezone, updatedAt: new Date() }).where(and(eq(bookings.organizationId, data.organizationId), eq(bookings.id, existing.id))).returning();
+    await db.insert(bookingEvents).values({ organizationId: data.organizationId, bookingId: existing.id, type: "booking.rescheduled", actorType: data.actorType, actorUserId: data.actorUserId, metadata: { from: existing.startsAt.toISOString(), to: data.startsAt.toISOString() } });
+    return updated;
+  }
+
   static async cancelBooking(data: { organizationId: string; bookingId: string; actorType: string; actorUserId?: string }) {
     const [existing] = await db.select().from(bookings).where(and(eq(bookings.organizationId, data.organizationId), eq(bookings.id, data.bookingId))).limit(1);
     if (!existing || existing.status === "cancelled") throw new Error("Booking not found");
-
     if (existing.providerEventId && existing.assignedUserId) {
       const provider = await CalendarProviderFactory.forUser(data.organizationId, existing.assignedUserId);
       if (provider) await provider.deleteEvent(existing.providerEventId);
     }
-
-    const [booking] = await db.update(bookings).set({ status: "cancelled", updatedAt: new Date() })
-      .where(and(eq(bookings.organizationId, data.organizationId), eq(bookings.id, data.bookingId), ne(bookings.status, "cancelled"))).returning();
+    const [booking] = await db.update(bookings).set({ status: "cancelled", updatedAt: new Date() }).where(and(eq(bookings.organizationId, data.organizationId), eq(bookings.id, data.bookingId), ne(bookings.status, "cancelled"))).returning();
     if (!booking) throw new Error("Booking not found");
     await db.insert(bookingEvents).values({ organizationId: data.organizationId, bookingId: booking.id, type: "booking.cancelled", actorType: data.actorType, actorUserId: data.actorUserId });
     return booking;
