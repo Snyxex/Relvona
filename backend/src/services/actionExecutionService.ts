@@ -17,7 +17,14 @@ export class ActionExecutionService {
   static async request(data: { context: ToolExecutionContext; toolId: string; input: Record<string, unknown>; requestedByType?: "ai" | "user" | "system"; requestedByUserId?: string; idempotencyKey?: string }) {
     const tool = toolRegistry.get(data.toolId); if (!tool) throw new Error("Unknown tool");
     if (data.context.actorRole === "viewer" && tool.riskLevel !== "read") throw new Error("Tool not permitted for viewer role");
-    if (data.idempotencyKey) { const [existing] = await db.select().from(actionExecutions).where(and(eq(actionExecutions.organizationId, data.context.organizationId), eq(actionExecutions.idempotencyKey, data.idempotencyKey))).limit(1); if (existing) return existing; }
+    if (data.idempotencyKey) {
+      const [existing] = await db.select().from(actionExecutions).where(and(
+        eq(actionExecutions.organizationId, data.context.organizationId),
+        eq(actionExecutions.toolId, tool.id),
+        eq(actionExecutions.idempotencyKey, data.idempotencyKey),
+      )).limit(1);
+      if (existing) return existing;
+    }
     const status = tool.requiresApproval ? "pending" : "approved";
     const [execution] = await db.insert(actionExecutions).values({ organizationId: data.context.organizationId, conversationId: data.context.conversationId, customerId: data.context.customerId, toolId: tool.id, input: data.input, status, riskLevel: tool.riskLevel, requiresApproval: tool.requiresApproval, requestedByType: data.requestedByType || "ai", requestedByUserId: data.requestedByUserId, idempotencyKey: data.idempotencyKey, expiresAt: new Date(Date.now() + 30 * 60 * 1000), approvedAt: tool.requiresApproval ? undefined : new Date() }).returning();
     if (!tool.requiresApproval) return this.execute({ organizationId: data.context.organizationId, executionId: execution.id, context: data.context });
