@@ -2,6 +2,7 @@ import { db } from "../db/index.js";
 import { tickets, ticketComments, conversations, customers, users, organizationMembers } from "../db/schema.js";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { GitHubIssueService } from "./githubIssueService.js";
+import { domainEventBus } from "./domainEventBus.js";
 
 export class TicketService {
   private static async assertAssignableAgent(organizationId: string, userId: string | undefined) {
@@ -14,7 +15,14 @@ export class TicketService {
     if (!membership || !["owner", "admin", "agent"].includes(membership.role)) throw new Error("Assigned agent is not a support member");
   }
 
-  // Generate Next Sequential Ticket Number per Org
+  private static async emitCreated(ticket: typeof tickets.$inferSelect) {
+    await domainEventBus.emit({ type: "ticket.created", organizationId: ticket.organizationId, conversationId: ticket.conversationId || undefined, payload: ticket });
+  }
+
+  private static async emitUpdated(ticket: typeof tickets.$inferSelect) {
+    await domainEventBus.emit({ type: "ticket.updated", organizationId: ticket.organizationId, conversationId: ticket.conversationId || undefined, payload: ticket });
+  }
+
   private static async getNextTicketNumber(organizationId: string): Promise<number> {
     const [latest] = await db
       .select({ maxNumber: sql<number>`COALESCE(MAX(${tickets.ticketNumber}), 1000)` })
@@ -24,7 +32,6 @@ export class TicketService {
     return (latest?.maxNumber || 1000) + 1;
   }
 
-  // Create Ticket
   static async createTicket(data: {
     organizationId: string;
     customerId: string;
@@ -53,7 +60,6 @@ export class TicketService {
     }
 
     const ticketNumber = await this.getNextTicketNumber(data.organizationId);
-
     const [newTicket] = await db
       .insert(tickets)
       .values({
@@ -70,14 +76,10 @@ export class TicketService {
       })
       .returning();
 
+    await this.emitCreated(newTicket);
     return newTicket;
   }
 
-  /**
-   * Creates one actionable ticket for an AI escalation. A customer can send
-   * several follow-up messages while waiting for an agent; those messages must
-   * continue to belong to the same open ticket instead of flooding the queue.
-   */
   static async getOrCreateEscalationTicket(data: {
     organizationId: string;
     customerId: string;
@@ -126,15 +128,13 @@ export class TicketService {
       .returning();
 
     if (created) {
-      // The local ticket remains the system of record. A GitHub outage must not
-      // discard the customer handoff; the service records its error on the ticket.
       await GitHubIssueService.createForEscalation(created);
       const [synced] = await db.select().from(tickets).where(eq(tickets.id, created.id)).limit(1);
-      return { ticket: synced || created, created: true };
+      const finalTicket = synced || created;
+      await this.emitCreated(finalTicket);
+      return { ticket: finalTicket, created: true };
     }
 
-    // A simultaneous request inserted the ticket first. Read its committed row
-    // and use it rather than creating a duplicate.
     const [concurrentTicket] = await db
       .select()
       .from(tickets)
@@ -151,7 +151,6 @@ export class TicketService {
     return { ticket: concurrentTicket, created: false };
   }
 
-  // List Tickets with Customer and Agent relations
   static async listTickets(data: {
     organizationId: string;
     status?: string;
@@ -163,53 +162,29 @@ export class TicketService {
     const page = data.page || 1;
     const limit = data.limit || 20;
     const offset = (page - 1) * limit;
+    const conditions = [eq(tickets.organizationId, data.organizationId)];
 
-    let conditions = [eq(tickets.organizationId, data.organizationId)];
-
-    if (data.status) {
-      conditions.push(eq(tickets.status, data.status));
-    }
-    if (data.priority) {
-      conditions.push(eq(tickets.priority, data.priority));
-    }
-    if (data.assignedAgentId) {
-      conditions.push(eq(tickets.assignedAgentId, data.assignedAgentId));
-    }
-
-    const whereClause = and(...conditions);
+    if (data.status) conditions.push(eq(tickets.status, data.status));
+    if (data.priority) conditions.push(eq(tickets.priority, data.priority));
+    if (data.assignedAgentId) conditions.push(eq(tickets.assignedAgentId, data.assignedAgentId));
 
     const result = await db
-      .select({
-        ticket: tickets,
-        customer: customers,
-        agent: users,
-      })
+      .select({ ticket: tickets, customer: customers, agent: users })
       .from(tickets)
       .innerJoin(customers, eq(tickets.customerId, customers.id))
       .leftJoin(users, eq(tickets.assignedAgentId, users.id))
-      .where(whereClause)
+      .where(and(...conditions))
       .orderBy(desc(tickets.createdAt))
       .limit(limit)
       .offset(offset);
 
     return result.map((r) => ({
       ...r.ticket,
-      customer: {
-        id: r.customer.id,
-        name: r.customer.name,
-        email: r.customer.email,
-      },
-      assignedAgent: r.agent
-        ? {
-            id: r.agent.id,
-            name: r.agent.name,
-            email: r.agent.email,
-          }
-        : null,
+      customer: { id: r.customer.id, name: r.customer.name, email: r.customer.email },
+      assignedAgent: r.agent ? { id: r.agent.id, name: r.agent.name, email: r.agent.email } : null,
     }));
   }
 
-  // Update Ticket
   static async updateTicket(data: {
     organizationId: string;
     ticketId: string;
@@ -236,10 +211,10 @@ export class TicketService {
       .where(and(eq(tickets.id, data.ticketId), eq(tickets.organizationId, data.organizationId)))
       .returning();
 
+    if (updated) await this.emitUpdated(updated);
     return updated;
   }
 
-  // Add Comment to Ticket
   static async addComment(data: {
     organizationId: string;
     ticketId: string;
