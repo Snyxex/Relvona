@@ -14,8 +14,13 @@ const schedulingToolIds = [
 const integrationToolIds = [
   "hubspot.get_contact",
   "hubspot.create_contact",
+  "hubspot.update_contact",
+  "hubspot.search_companies",
+  "hubspot.create_company",
   "zendesk.get_ticket",
   "zendesk.create_ticket",
+  "zendesk.add_comment",
+  "zendesk.update_ticket",
 ];
 
 const supportTool = toolRegistry.get("support.get_ticket_case");
@@ -47,20 +52,21 @@ assert(!viewerSchedulingTools.some((tool) => ["scheduling.create_booking", "sche
 
 const agentIntegrationTools = toolRegistry.getAvailableTools({ actorRole: "agent" }, integrationToolIds);
 assert(agentIntegrationTools.length === integrationToolIds.length, "Agents must see all configured integration tools");
-for (const toolId of ["hubspot.get_contact", "zendesk.get_ticket"]) {
+for (const toolId of ["hubspot.get_contact", "hubspot.search_companies", "zendesk.get_ticket"]) {
   const tool = agentIntegrationTools.find((candidate) => candidate.id === toolId);
   assert(Boolean(tool), `${toolId} must be registered`);
   assert(tool?.riskLevel === "read", `${toolId} must remain read-only`);
   assert(tool?.requiresApproval === false, `${toolId} must not require approval`);
 }
-for (const toolId of ["hubspot.create_contact", "zendesk.create_ticket"]) {
+for (const toolId of ["hubspot.create_contact", "hubspot.update_contact", "hubspot.create_company", "zendesk.create_ticket", "zendesk.add_comment", "zendesk.update_ticket"]) {
   const tool = agentIntegrationTools.find((candidate) => candidate.id === toolId);
   assert(Boolean(tool), `${toolId} must be registered`);
   assert(tool?.riskLevel === "write", `${toolId} must remain a write action`);
   assert(tool?.requiresApproval === true, `${toolId} must require explicit approval`);
 }
 const viewerIntegrationTools = toolRegistry.getAvailableTools({ actorRole: "viewer" }, integrationToolIds);
-assert(viewerIntegrationTools.length === 2, "Viewers must only receive integration read tools");
+assert(viewerIntegrationTools.length === 3, "Viewers must only receive integration read tools");
 assert(viewerIntegrationTools.every((tool) => tool.riskLevel === "read"), "Viewer role must never receive integration write actions");
+assert(!viewerIntegrationTools.some((tool) => tool.requiresApproval), "Viewer integration tools must not include approval-gated writes");
 
 console.log("Tool registry tests passed");
