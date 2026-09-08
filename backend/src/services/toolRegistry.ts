@@ -1,4 +1,5 @@
 import { SchedulingService } from "./schedulingService.js";
+import { SchedulingAuthorizationService } from "./schedulingAuthorizationService.js";
 import { TicketCaseService } from "./ticketCaseService.js";
 
 export type ToolRiskLevel = "read" | "write" | "sensitive";
@@ -63,7 +64,9 @@ registry.register({
   async execute(context, input) {
     if (typeof input.meetingTypeId !== "string" || typeof input.from !== "string" || typeof input.to !== "string") return { success: false, error: "Invalid slot search input" };
     try {
-      const slots = await SchedulingService.findAvailableSlots({ organizationId: context.organizationId, meetingTypeId: input.meetingTypeId, assignedUserId: typeof input.assignedUserId === "string" ? input.assignedUserId : undefined, from: new Date(input.from), to: new Date(input.to), limit: typeof input.limit === "number" ? input.limit : undefined });
+      const assignedUserId = typeof input.assignedUserId === "string" ? input.assignedUserId : undefined;
+      await SchedulingAuthorizationService.assertSchedulableMember(context.organizationId, assignedUserId);
+      const slots = await SchedulingService.findAvailableSlots({ organizationId: context.organizationId, meetingTypeId: input.meetingTypeId, assignedUserId, from: new Date(input.from), to: new Date(input.to), limit: typeof input.limit === "number" ? input.limit : undefined });
       return { success: true, data: { slots } as unknown as Record<string, unknown> };
     } catch (error) { return { success: false, error: (error as Error).message }; }
   },
@@ -89,7 +92,9 @@ registry.register({
   async execute(context, input) {
     try {
       if (typeof input.meetingTypeId !== "string" || typeof input.startsAt !== "string" || typeof input.timezone !== "string" || typeof input.idempotencyKey !== "string") return { success: false, error: "Invalid booking input" };
-      const booking = await SchedulingService.createBooking({ organizationId: context.organizationId, meetingTypeId: input.meetingTypeId, assignedUserId: typeof input.assignedUserId === "string" ? input.assignedUserId : undefined, customerId: context.customerId, conversationId: context.conversationId, guestEmail: typeof input.guestEmail === "string" ? input.guestEmail : undefined, guestName: typeof input.guestName === "string" ? input.guestName : undefined, startsAt: new Date(input.startsAt), timezone: input.timezone, idempotencyKey: input.idempotencyKey, createdBy: "ai" });
+      const assignedUserId = typeof input.assignedUserId === "string" ? input.assignedUserId : undefined;
+      await SchedulingAuthorizationService.assertSchedulableMember(context.organizationId, assignedUserId);
+      const booking = await SchedulingService.createBooking({ organizationId: context.organizationId, meetingTypeId: input.meetingTypeId, assignedUserId, customerId: context.customerId, conversationId: context.conversationId, guestEmail: typeof input.guestEmail === "string" ? input.guestEmail : undefined, guestName: typeof input.guestName === "string" ? input.guestName : undefined, startsAt: new Date(input.startsAt), timezone: input.timezone, idempotencyKey: input.idempotencyKey, createdBy: "ai" });
       return { success: true, data: { booking } as unknown as Record<string, unknown> };
     } catch (error) { return { success: false, error: (error as Error).message }; }
   },
