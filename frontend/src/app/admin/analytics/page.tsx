@@ -33,6 +33,8 @@ export default function AdminAnalyticsPage() {
   const [summary, setSummary] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveryMessage, setDiscoveryMessage] = useState("");
 
   async function load() {
     setError("");
@@ -60,6 +62,17 @@ export default function AdminAnalyticsPage() {
     } finally { setLoading(false); }
   }
 
+  async function discoverGaps() {
+    setDiscovering(true); setError(""); setDiscoveryMessage("");
+    try {
+      const { data } = await api.post("/analytics/knowledge-gaps/discover", { limit: 200 });
+      setDiscoveryMessage(`${data.scanned ?? 0} negative Bewertungen geprüft, ${data.processed ?? 0} Knowledge-Gap-Signale verarbeitet.`);
+      await load();
+    } catch (e: any) {
+      setError(e.response?.data?.error || "Negatives Feedback konnte nicht analysiert werden.");
+    } finally { setDiscovering(false); }
+  }
+
   async function setStatus(id: string, status: "open" | "acknowledged" | "resolved" | "ignored") {
     setError("");
     try { await api.patch(`/analytics/knowledge-gaps/${id}`, { status }); await load(); }
@@ -67,8 +80,9 @@ export default function AdminAnalyticsPage() {
   }
 
   return <main className="mx-auto max-w-7xl space-y-6 p-4 sm:p-8">
-    <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-sm text-muted-foreground">Support Operations</p><h1 className="text-2xl font-semibold">Analytics & Knowledge Gaps</h1><p className="mt-2 text-sm text-muted-foreground">Supportqualität, Eskalationen und fehlendes Wissen im Blick behalten.</p></div><label className="text-sm">Zeitraum<select value={days} onChange={(e) => setDays(Number(e.target.value))} className="ml-2 rounded-lg border bg-background px-3 py-2"><option value={7}>7 Tage</option><option value={30}>30 Tage</option><option value={90}>90 Tage</option></select></label></div>
+    <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-sm text-muted-foreground">Support Operations</p><h1 className="text-2xl font-semibold">Analytics & Knowledge Gaps</h1><p className="mt-2 text-sm text-muted-foreground">Supportqualität, Eskalationen und fehlendes Wissen im Blick behalten.</p></div><div className="flex flex-wrap items-center gap-2"><button onClick={discoverGaps} disabled={discovering} className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50">{discovering ? "Analysiert…" : "Negatives Feedback analysieren"}</button><label className="text-sm">Zeitraum<select value={days} onChange={(e) => setDays(Number(e.target.value))} className="ml-2 rounded-lg border bg-background px-3 py-2"><option value={7}>7 Tage</option><option value={30}>30 Tage</option><option value={90}>90 Tage</option></select></label></div></div>
     {error && <div className="rounded-lg border border-destructive/40 p-3 text-sm text-destructive">{error}</div>}
+    {discoveryMessage && <div className="rounded-lg border p-3 text-sm text-muted-foreground">{discoveryMessage}</div>}
 
     {metrics && <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
       <Stat title="Conversations" value={metrics.conversations.total} subtitle={`${metrics.conversations.resolved} gelöst`} />
