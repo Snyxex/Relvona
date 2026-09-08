@@ -26,8 +26,20 @@ export class ActionExecutionService {
       if (existing) return existing;
     }
     const status = tool.requiresApproval ? "pending" : "approved";
-    const [execution] = await db.insert(actionExecutions).values({ organizationId: data.context.organizationId, conversationId: data.context.conversationId, customerId: data.context.customerId, toolId: tool.id, input: data.input, status, riskLevel: tool.riskLevel, requiresApproval: tool.requiresApproval, requestedByType: data.requestedByType || "ai", requestedByUserId: data.requestedByUserId, idempotencyKey: data.idempotencyKey, expiresAt: new Date(Date.now() + 30 * 60 * 1000), approvedAt: tool.requiresApproval ? undefined : new Date() }).returning();
-    if (!tool.requiresApproval) return this.execute({ organizationId: data.context.organizationId, executionId: execution.id, context: data.context });
+    const values = { organizationId: data.context.organizationId, conversationId: data.context.conversationId, customerId: data.context.customerId, toolId: tool.id, input: data.input, status, riskLevel: tool.riskLevel, requiresApproval: tool.requiresApproval, requestedByType: data.requestedByType || "ai", requestedByUserId: data.requestedByUserId, idempotencyKey: data.idempotencyKey, expiresAt: new Date(Date.now() + 30 * 60 * 1000), approvedAt: tool.requiresApproval ? undefined : new Date() };
+    const inserted = data.idempotencyKey
+      ? await db.insert(actionExecutions).values(values).onConflictDoNothing({ target: [actionExecutions.organizationId, actionExecutions.toolId, actionExecutions.idempotencyKey] }).returning()
+      : await db.insert(actionExecutions).values(values).returning();
+    let execution = inserted[0];
+    if (!execution && data.idempotencyKey) {
+      [execution] = await db.select().from(actionExecutions).where(and(
+        eq(actionExecutions.organizationId, data.context.organizationId),
+        eq(actionExecutions.toolId, tool.id),
+        eq(actionExecutions.idempotencyKey, data.idempotencyKey),
+      )).limit(1);
+    }
+    if (!execution) throw new Error("Unable to create action execution");
+    if (!tool.requiresApproval && inserted.length > 0) return this.execute({ organizationId: data.context.organizationId, executionId: execution.id, context: data.context });
     return execution;
   }
 
