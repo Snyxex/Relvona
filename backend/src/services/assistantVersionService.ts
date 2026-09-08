@@ -18,13 +18,13 @@ type AssistantSnapshot = {
   embeddingBaseUrl: string | null;
   temperature: number;
   handoffEnabled: boolean;
-  handoffKeywords: unknown;
+  handoffKeywords: any;
   primaryColor: string;
   welcomeMessage: string;
-  widgetAllowedOrigins: unknown;
+  widgetAllowedOrigins: any;
   chatPageEnabled: boolean;
-  widgetSettings: unknown;
-  modelProfiles: unknown;
+  widgetSettings: any;
+  modelProfiles: any;
   activeModelProfileId: string | null;
 };
 
@@ -184,5 +184,13 @@ export class AssistantVersionService {
       )).returning();
       return { version: publicVersion(activated), assistant: updatedAssistant };
     });
+  }
+
+  static async markLiveDraft(organizationId: string, assistantId: string) {
+    await db.update(assistantVersions).set({ status: "archived" }).where(and(
+      eq(assistantVersions.organizationId, organizationId),
+      eq(assistantVersions.assistantId, assistantId),
+      eq(assistantVersions.status, "active"),
+    ));
   }
 }
