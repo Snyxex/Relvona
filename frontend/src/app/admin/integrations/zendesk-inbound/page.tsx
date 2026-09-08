@@ -12,6 +12,23 @@ type Setup = {
   payloadTemplate: Record<string, unknown>;
 };
 
+const commentContract = {
+  eventType: "ticket.comment.created",
+  ticket: { id: "<Zendesk ticket id>" },
+  comment: {
+    id: "<stable Zendesk comment id>",
+    body: "<plain-text comment body>",
+    public: true,
+    createdAt: "<ISO-8601 timestamp, optional>",
+    author: {
+      id: "<stable Zendesk user id>",
+      name: "<display name, optional>",
+      email: "<email, optional>",
+      role: "end-user"
+    }
+  }
+};
+
 export default function ZendeskInboundSetupPage() {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [selected, setSelected] = useState("");
@@ -70,7 +87,7 @@ export default function ZendeskInboundSetupPage() {
     <div>
       <p className="text-sm text-muted-foreground">Integrationen · Zendesk</p>
       <h1 className="text-2xl font-semibold">Eingehende Zendesk-Updates</h1>
-      <p className="mt-2 text-sm text-muted-foreground">Status und Priorität eines bereits verknüpften Zendesk-Tickets sicher zurück in SupportAI synchronisieren. Signaturprüfung, Replay-Schutz und Deduplizierung sind serverseitig aktiv.</p>
+      <p className="mt-2 text-sm text-muted-foreground">Status, Priorität und öffentliche Endnutzer-Kommentare bereits verknüpfter Zendesk-Tickets sicher nach SupportAI synchronisieren. Signaturprüfung, Replay-Schutz und Deduplizierung sind serverseitig aktiv.</p>
     </div>
 
     {error && <div className="rounded-lg border border-destructive/40 p-3 text-sm text-destructive">{error}</div>}
@@ -101,9 +118,15 @@ export default function ZendeskInboundSetupPage() {
       </section>
 
       <section className="rounded-xl border bg-card p-5">
-        <h2 className="font-semibold">3. Request Body in Zendesk</h2>
-        <p className="mt-1 text-sm text-muted-foreground">V1 übernimmt ausschließlich Status und Priorität. Unbekannte oder nicht verknüpfte Ticket-IDs werden ignoriert und erzeugen kein lokales Ticket.</p>
+        <h2 className="font-semibold">3. Ticket-Status/Priorität</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Unbekannte oder nicht verknüpfte Ticket-IDs werden ignoriert und erzeugen kein lokales Ticket.</p>
         <pre className="mt-3 overflow-x-auto rounded-lg border bg-background p-3 text-xs">{JSON.stringify(setup.payloadTemplate, null, 2)}</pre>
+      </section>
+
+      <section className="rounded-xl border bg-card p-5">
+        <h2 className="font-semibold">4. Öffentliche Kundenkommentare</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Der Inbound-Endpunkt akzeptiert zusätzlich den folgenden Vertrag. Der Zendesk-Trigger muss nur echte Endnutzer-Kommentare senden und stabile Ticket-, Kommentar- und User-IDs einsetzen. Agent-/Admin-Kommentare werden serverseitig trotzdem ignoriert.</p>
+        <pre className="mt-3 overflow-x-auto rounded-lg border bg-background p-3 text-xs">{JSON.stringify(commentContract, null, 2)}</pre>
       </section>
 
       <section className="rounded-xl border bg-card p-5 text-sm">
@@ -112,8 +135,10 @@ export default function ZendeskInboundSetupPage() {
           <li>Zendesk HMAC-SHA256 Signatur wird gegen den unveränderten Raw Body geprüft.</li>
           <li>Requests außerhalb des konfigurierten Replay-Fensters werden abgelehnt.</li>
           <li>Die Zendesk Invocation-ID wird persistent dedupliziert.</li>
-          <li>Inbound-Änderungen werden mit Quelle „zendesk“ markiert und nicht wieder outbound gespiegelt.</li>
-          <li>Eingehende Kommentare werden noch nicht importiert, damit externe Autoren nicht mit internen Mitarbeitern vermischt werden.</li>
+          <li>Inbound-Statusänderungen werden mit Quelle „zendesk“ markiert und nicht wieder outbound gespiegelt.</li>
+          <li>Externe Autoren werden getrennt von internen SupportAI-Benutzern gespeichert.</li>
+          <li>Nur Zendesk-Endnutzer-Kommentare werden importiert; Agent-/Admin-Echos werden verworfen.</li>
+          <li>Die Zendesk-Kommentar-ID verhindert doppelte Timeline-Einträge bei wiederholten Zustellungen.</li>
         </ul>
       </section>
     </>}
