@@ -2,9 +2,16 @@ import { and, desc, eq, gt, isNull, or } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { actionExecutions } from "../db/actionExecutionSchema.js";
 import { conversationSchedulingStates } from "../db/conversationSchedulingSchema.js";
+import { conversationMessages, conversations } from "../db/schema.js";
+import { domainEventBus } from "./domainEventBus.js";
 import { toolRegistry, type ToolExecutionContext } from "./toolRegistry.js";
 
 const terminalStatuses = new Set(["rejected", "executed", "failed", "expired"]);
+
+function bookingConfirmation(startsAt: Date, timezone: string, meetingUrl?: string | null) {
+  const formatted = new Intl.DateTimeFormat("de-DE", { timeZone: timezone, weekday: "long", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(startsAt);
+  return `Der Termin ist bestätigt: ${formatted}.${meetingUrl ? `\nMeeting-Link: ${meetingUrl}` : ""}`;
+}
 
 export class ActionExecutionService {
   static async request(data: { context: ToolExecutionContext; toolId: string; input: Record<string, unknown>; requestedByType?: "ai" | "user" | "system"; requestedByUserId?: string; idempotencyKey?: string }) {
@@ -26,9 +33,7 @@ export class ActionExecutionService {
 
   static async reject(data: { organizationId: string; executionId: string; userId: string; reason?: string }) {
     const [updated] = await db.update(actionExecutions).set({ status: "rejected", rejectedByUserId: data.userId, rejectedAt: new Date(), decisionReason: data.reason?.slice(0, 1000), updatedAt: new Date() }).where(and(eq(actionExecutions.organizationId, data.organizationId), eq(actionExecutions.id, data.executionId), eq(actionExecutions.status, "pending"))).returning();
-    if (!updated) throw new Error("Action is not pending");
-    await db.update(conversationSchedulingStates).set({ state: "cancelled", updatedAt: new Date() }).where(and(eq(conversationSchedulingStates.organizationId, data.organizationId), eq(conversationSchedulingStates.actionExecutionId, data.executionId)));
-    return updated;
+    if (!updated) throw new Error("Action is not pending"); await db.update(conversationSchedulingStates).set({ state: "cancelled", updatedAt: new Date() }).where(and(eq(conversationSchedulingStates.organizationId, data.organizationId), eq(conversationSchedulingStates.actionExecutionId, data.executionId))); return updated;
   }
 
   static async execute(data: { organizationId: string; executionId: string; context: ToolExecutionContext }) {
@@ -43,12 +48,20 @@ export class ActionExecutionService {
       const [finished] = await db.update(actionExecutions).set({ status: result.success ? "executed" : "failed", result: result.data || null, error: result.success ? null : (result.error || "Tool execution failed").slice(0, 2000), executedAt: new Date(), updatedAt: new Date() }).where(and(eq(actionExecutions.organizationId, data.organizationId), eq(actionExecutions.id, execution.id))).returning();
       if (result.success && execution.toolId === "scheduling.create_booking") {
         const booking = (result.data as any)?.booking;
-        if (booking?.id) await db.update(conversationSchedulingStates).set({ state: "booked", bookingId: booking.id, updatedAt: new Date() }).where(and(eq(conversationSchedulingStates.organizationId, data.organizationId), eq(conversationSchedulingStates.actionExecutionId, execution.id)));
+        if (booking?.id) {
+          await db.update(conversationSchedulingStates).set({ state: "booked", bookingId: booking.id, updatedAt: new Date() }).where(and(eq(conversationSchedulingStates.organizationId, data.organizationId), eq(conversationSchedulingStates.actionExecutionId, execution.id)));
+          if (execution.conversationId) {
+            const [conversation] = await db.select({ assistantId: conversations.assistantId }).from(conversations).where(and(eq(conversations.organizationId, data.organizationId), eq(conversations.id, execution.conversationId))).limit(1);
+            if (conversation?.assistantId) {
+              const [message] = await db.insert(conversationMessages).values({ organizationId: data.organizationId, conversationId: execution.conversationId, senderType: "ai", senderId: conversation.assistantId, senderName: "AI Assistant", content: bookingConfirmation(new Date(booking.startsAt), booking.timezone, booking.meetingUrl) }).returning();
+              await domainEventBus.emit({ type: "message.created", organizationId: data.organizationId, conversationId: execution.conversationId, payload: message });
+            }
+          }
+        }
       }
       return finished;
     } catch (error) {
-      const [failed] = await db.update(actionExecutions).set({ status: "failed", error: (error as Error).message.slice(0, 2000), executedAt: new Date(), updatedAt: new Date() }).where(and(eq(actionExecutions.organizationId, data.organizationId), eq(actionExecutions.id, execution.id))).returning();
-      return failed;
+      const [failed] = await db.update(actionExecutions).set({ status: "failed", error: (error as Error).message.slice(0, 2000), executedAt: new Date(), updatedAt: new Date() }).where(and(eq(actionExecutions.organizationId, data.organizationId), eq(actionExecutions.id, execution.id))).returning(); return failed;
     }
   }
 }
