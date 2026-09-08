@@ -91,7 +91,7 @@ export class IntegrationConnectionService {
     const credentials = data.credentials === undefined ? undefined : normalizeCredentials(current.provider, data.credentials);
     let encryptedCredentials: string | undefined;
     if (credentials) {
-      if (current.provider === "zendesk") {
+      if (current.provider === "zendesk" && "apiToken" in credentials) {
         const existingPlaintext = decryptSecret(current.encryptedCredentials);
         let existing: ZendeskCredentials | undefined;
         try { existing = existingPlaintext ? JSON.parse(existingPlaintext) as ZendeskCredentials : undefined; } catch { existing = undefined; }
