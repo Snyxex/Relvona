@@ -1,4 +1,4 @@
-import { and, asc, eq, ne } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { withTenantTransaction } from "../db/index.js";
 import { setDatabaseTenant, withDatabaseTenantContext } from "../db/tenantContext.js";
 import { bookings, meetingTypes } from "../db/extendedCustomerExperienceSchema.js";
@@ -34,12 +34,12 @@ export class CustomerPortalSchedulingService {
   static async reschedule(session: CustomerPortalSessionContext, bookingId: string, startsAt: Date, timezone: string) {
     const booking = await this.ownedBooking(session, bookingId);
     if (booking.status === "cancelled") throw new Error("Booking not found");
-    return tenantCall(session.organizationId, () => SchedulingService.rescheduleBooking({ organizationId: session.organizationId, bookingId, startsAt, timezone, actorType: "customer" }));
+    return tenantCall(session.organizationId, () => SchedulingService.rescheduleBooking({ organizationId: session.organizationId, bookingId, startsAt, timezone, actorType: "customer", expectedCustomerId: session.customerId }));
   }
 
   static async cancel(session: CustomerPortalSessionContext, bookingId: string) {
     const booking = await this.ownedBooking(session, bookingId);
     if (booking.status === "cancelled") throw new Error("Booking not found");
-    return tenantCall(session.organizationId, () => SchedulingService.cancelBooking({ organizationId: session.organizationId, bookingId, actorType: "customer" }));
+    return tenantCall(session.organizationId, () => SchedulingService.cancelBooking({ organizationId: session.organizationId, bookingId, actorType: "customer", expectedCustomerId: session.customerId }));
   }
 }
