@@ -117,7 +117,12 @@ router.get("/:id/comments", async (req: AuthRequest, res) => {
         ...item.comment,
         source: "local" as const,
         authorType: "internal_user" as const,
-        author: item.user,
+        displayType: item.comment.isInternal ? "internal_note" as const : "public_reply" as const,
+        displayLabel: item.comment.isInternal ? "Interne Notiz" : "Öffentliche Antwort",
+        author: {
+          ...item.user,
+          name: `${item.comment.isInternal ? "Interne Notiz" : "Öffentliche Antwort"} · ${item.user.name || item.user.email}`,
+        },
       })),
       ...externalComments.map((item) => ({
         id: item.message.id,
@@ -128,14 +133,22 @@ router.get("/:id/comments", async (req: AuthRequest, res) => {
         createdAt: item.message.providerCreatedAt || item.message.createdAt,
         source: item.message.provider,
         authorType: "external" as const,
+        displayType: "external_customer" as const,
+        displayLabel: item.message.provider === "zendesk" ? "Zendesk-Kunde" : "Externer Kunde",
         externalMessageId: item.message.externalMessageId,
         author: item.actor ? {
           id: item.actor.externalId,
-          name: item.actor.displayName,
+          name: `${item.message.provider === "zendesk" ? "Zendesk-Kunde" : "Externer Kunde"} · ${item.actor.displayName || item.actor.email || item.actor.externalId}`,
           email: item.actor.email,
           role: item.actor.role,
           provider: item.actor.provider,
-        } : null,
+        } : {
+          id: item.message.externalMessageId,
+          name: item.message.provider === "zendesk" ? "Zendesk-Kunde" : "Externer Kunde",
+          email: null,
+          role: "end-user",
+          provider: item.message.provider,
+        },
       })),
     ].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
