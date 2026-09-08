@@ -28,6 +28,32 @@ router.post("/", async (req: AuthRequest, res) => {
   }
 });
 
+router.get("/:id/zendesk-webhook-setup", async (req: AuthRequest, res) => {
+  try {
+    const organizationId = req.organization!.id;
+    const connections = await IntegrationConnectionService.list(organizationId);
+    const connection = connections.find((item) => item.id === req.params.id && item.provider === "zendesk");
+    if (!connection) return res.status(404).json({ error: "Zendesk integration connection not found" });
+    let signingSecretConfigured = false;
+    try {
+      await IntegrationConnectionService.getZendeskWebhookSigningSecret(organizationId, connection.id);
+      signingSecretConfigured = true;
+    } catch (error) {
+      const message = (error as Error).message;
+      if (!["Zendesk webhook signing secret is not configured", "zendesk integration is not configured"].includes(message)) throw error;
+    }
+    return res.json({
+      connectionId: connection.id,
+      enabled: connection.enabled,
+      signingSecretConfigured,
+      callbackPath: `/api/v1/integrations/zendesk/inbound/${organizationId}/${connection.id}`,
+      payloadTemplate: { eventType: "ticket.updated", ticket: { id: "{{ticket.id}}", status: "{{ticket.status}}", priority: "{{ticket.priority}}" } },
+    });
+  } catch (error) {
+    return sendInternalError(req, res, error, { code: "ZENDESK_WEBHOOK_SETUP_LOAD_FAILED", message: "Unable to load Zendesk webhook setup" });
+  }
+});
+
 router.patch("/:id", async (req: AuthRequest, res) => {
   try {
     const { name, enabled, config, credentials } = req.body || {};
