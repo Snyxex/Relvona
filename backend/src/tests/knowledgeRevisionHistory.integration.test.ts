@@ -61,7 +61,7 @@ async function main() {
     await withDatabaseTenantContext(async () => {
       setDatabaseTenant(organizationId);
       const history = await KnowledgeRevisionService.list(organizationId, sourceId, 20);
-      assert.equal(history.items.every((row) => row.id !== foreignProcessedObjectId), true);
+      assert.equal(history.items.every((row) => row.processedTextObjectId !== foreignProcessedObjectId), true);
       await assert.rejects(() => KnowledgeRevisionService.list(organizationId, otherSourceId, 20), /not found/);
     });
 
