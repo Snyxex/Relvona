@@ -19,16 +19,11 @@ function nextCrawlTime(now: Date, intervalMinutes: number) {
 }
 
 export class KnowledgeRecrawlService {
-  /**
-   * Atomically claims due website sources by moving next_crawl_at forward before
-   * queue publication. This prevents duplicate scheduling across worker replicas.
-   */
   static async claimDueForOrganization(organizationId: string, now = new Date()): Promise<ClaimedRecrawl[]> {
     return withTenantTransaction(organizationId, async (tx) => {
       const candidates = await tx
         .select({
           sourceId: knowledgeSources.id,
-          sourceStatus: knowledgeSources.status,
           lastCrawledAt: knowledgeSources.lastCrawledAt,
           nextCrawlAt: knowledgeSourceIntelligence.nextCrawlAt,
           intervalMinutes: knowledgeSourceIntelligence.recrawlIntervalMinutes,
@@ -37,20 +32,15 @@ export class KnowledgeRecrawlService {
         .from(knowledgeSourceIntelligence)
         .innerJoin(
           knowledgeSources,
-          and(
-            eq(knowledgeSources.id, knowledgeSourceIntelligence.sourceId),
-            eq(knowledgeSources.organizationId, organizationId),
-          ),
+          and(eq(knowledgeSources.id, knowledgeSourceIntelligence.sourceId), eq(knowledgeSources.organizationId, organizationId)),
         )
         .where(and(
           eq(knowledgeSourceIntelligence.organizationId, organizationId),
           eq(knowledgeSourceIntelligence.recrawlEnabled, true),
+          or(eq(knowledgeSourceIntelligence.publicationStatus, "PUBLISHED"), eq(knowledgeSourceIntelligence.publicationStatus, "DRAFT")),
           eq(knowledgeSources.type, "website"),
           or(eq(knowledgeSources.status, "completed"), eq(knowledgeSources.status, "failed")),
-          or(
-            lte(knowledgeSourceIntelligence.nextCrawlAt, now),
-            isNull(knowledgeSourceIntelligence.nextCrawlAt),
-          ),
+          or(lte(knowledgeSourceIntelligence.nextCrawlAt, now), isNull(knowledgeSourceIntelligence.nextCrawlAt)),
         ))
         .limit(MAX_RECRAWLS_PER_SWEEP);
 
@@ -59,7 +49,6 @@ export class KnowledgeRecrawlService {
         const intervalMinutes = candidate.intervalMinutes;
         if (!intervalMinutes || intervalMinutes < 60) continue;
 
-        // For legacy/null schedules, respect the interval from the last successful crawl.
         if (!candidate.nextCrawlAt && candidate.lastCrawledAt) {
           const dueAt = nextCrawlTime(candidate.lastCrawledAt, intervalMinutes);
           if (dueAt.getTime() > now.getTime()) {
@@ -81,9 +70,7 @@ export class KnowledgeRecrawlService {
             eq(knowledgeSourceIntelligence.id, candidate.intelligenceId),
             eq(knowledgeSourceIntelligence.organizationId, organizationId),
             eq(knowledgeSourceIntelligence.recrawlEnabled, true),
-            candidate.nextCrawlAt
-              ? lte(knowledgeSourceIntelligence.nextCrawlAt, now)
-              : isNull(knowledgeSourceIntelligence.nextCrawlAt),
+            candidate.nextCrawlAt ? lte(knowledgeSourceIntelligence.nextCrawlAt, now) : isNull(knowledgeSourceIntelligence.nextCrawlAt),
           ))
           .returning({ id: knowledgeSourceIntelligence.id });
 
@@ -103,8 +90,6 @@ export class KnowledgeRecrawlService {
         const input = await IngestionJobService.inputFor(organizationId, item.sourceId);
         if (input.type !== "website") throw new Error("Recrawl source is not a website");
         const ref = await IngestionJobService.submit(organizationId, input, item.sourceId);
-        // PostgreSQL owns delivery/retry state. If Redis is temporarily down, the
-        // worker's normal dispatch sweep will republish the durable queued job.
         await publishIngestion(ref).catch(() => undefined);
         dispatched += 1;
       } catch {
@@ -112,17 +97,8 @@ export class KnowledgeRecrawlService {
         const retryAt = new Date(now.getTime() + MIN_RETRY_MINUTES * 60_000);
         await withTenantTransaction(organizationId, async (tx) => {
           await tx.update(knowledgeSourceIntelligence)
-            .set({
-              nextCrawlAt: retryAt,
-              lastFailureAt: now,
-              lastFailureCategory: "SCHEDULING_FAILED",
-              health: "CRAWL_FAILED",
-              updatedAt: now,
-            })
-            .where(and(
-              eq(knowledgeSourceIntelligence.organizationId, organizationId),
-              eq(knowledgeSourceIntelligence.sourceId, item.sourceId),
-            ));
+            .set({ nextCrawlAt: retryAt, lastFailureAt: now, lastFailureCategory: "SCHEDULING_FAILED", health: "CRAWL_FAILED", updatedAt: now })
+            .where(and(eq(knowledgeSourceIntelligence.organizationId, organizationId), eq(knowledgeSourceIntelligence.sourceId, item.sourceId)));
         });
       }
     }
