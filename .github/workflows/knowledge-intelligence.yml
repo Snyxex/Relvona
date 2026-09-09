@@ -119,6 +119,11 @@ jobs:
         env: *backend-test-env
         run: npm run test:knowledge-recrawl-change-detection
 
+      - name: Test knowledge collections
+        working-directory: backend
+        env: *backend-test-env
+        run: npm run test:knowledge-collections
+
       - name: Test tenant isolation
         working-directory: backend
         env: *backend-test-env
