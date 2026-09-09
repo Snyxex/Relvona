@@ -1,0 +1,106 @@
+name: Knowledge Intelligence
+
+on:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - '.github/workflows/knowledge-intelligence.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: ai_support_db
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d ai_support_db"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Prepare disposable database
+        working-directory: backend
+        env: &backend-env
+          NODE_ENV: test
+          DATABASE_ADMIN_URL: postgres://postgres:postgrespassword@localhost:5432/ai_support_db
+          DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/ai_support_db
+          DATABASE_APP_USER: supportai_app
+          DATABASE_APP_PASSWORD: ci-app-password
+          REDIS_URL: redis://localhost:6379
+          BETTER_AUTH_SECRET: ci-better-auth-secret-with-more-than-32-characters
+          BETTER_AUTH_URL: http://localhost:8080
+          APP_PUBLIC_URL: http://localhost:3000
+          CORS_ORIGIN: http://localhost:3000
+          ENCRYPTION_SECRET_CURRENT: ci-encryption-secret-not-for-production
+          WIDGET_SESSION_SECRET: ci-widget-session-secret-long-enough-for-tests
+        run: npm run db:migrate
+
+      - name: Build backend
+        working-directory: backend
+        env: *backend-env
+        run: npm run build
+
+      - name: Test knowledge gap discovery
+        working-directory: backend
+        env: *backend-env
+        run: npm run test:knowledge-gaps
+
+      - name: Test knowledge intelligence
+        working-directory: backend
+        env: *backend-env
+        run: npm run test:knowledge-intelligence
+
+      - name: Test tenant isolation
+        working-directory: backend
+        env: *backend-env
+        run: npm run test:tenant-isolation
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8080/api/v1
+          NEXT_PUBLIC_AUTH_URL: http://localhost:8080
+        run: npm run build
