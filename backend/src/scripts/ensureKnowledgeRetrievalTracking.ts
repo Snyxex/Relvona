@@ -28,7 +28,6 @@ async function main() {
           RETURN NEW;
         END IF;
 
-        -- Create intelligence rows only for chunk ids that belong to this tenant.
         INSERT INTO knowledge_source_intelligence (organization_id, source_id, publication_status, health, priority, created_at, updated_at)
         SELECT DISTINCT NEW.organization_id, dc.source_id, 'PUBLISHED', 'HEALTHY', 'NORMAL', now(), now()
         FROM jsonb_array_elements_text(NEW.retrieved_chunk_ids) AS ids(chunk_id)
@@ -45,14 +44,14 @@ async function main() {
           used_in_final_answer,
           created_at
         )
-        SELECT NEW.organization_id, NEW.conversation_id, dc.source_id, dc.id, true, NEW.created_at
+        SELECT DISTINCT NEW.organization_id, NEW.conversation_id, dc.source_id, dc.id, true, NEW.created_at
         FROM jsonb_array_elements_text(NEW.retrieved_chunk_ids) AS ids(chunk_id)
         JOIN document_chunks dc
           ON dc.id::text = ids.chunk_id
          AND dc.organization_id = NEW.organization_id;
 
         WITH per_source AS (
-          SELECT dc.source_id, count(*)::int AS retrieved_chunks
+          SELECT dc.source_id, count(DISTINCT dc.id)::int AS retrieved_chunks
           FROM jsonb_array_elements_text(NEW.retrieved_chunk_ids) AS ids(chunk_id)
           JOIN document_chunks dc
             ON dc.id::text = ids.chunk_id
