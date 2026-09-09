@@ -29,6 +29,28 @@ async function main() {
       await client.query(`DROP POLICY IF EXISTS supportai_tenant_isolation ON "${table}"`);
       await client.query(`CREATE POLICY supportai_tenant_isolation ON "${table}" USING (organization_id::text = current_setting('app.organization_id', true)) WITH CHECK (organization_id::text = current_setting('app.organization_id', true))`);
     }
+
+    // Customer-facing retrieval reads document_chunks through the restricted
+    // application role. Enforce publication at the database boundary as defense
+    // in depth: legacy sources without an intelligence record remain readable,
+    // while an explicit DRAFT/ARCHIVED state immediately hides their chunks.
+    const chunksExist = await client.query("SELECT to_regclass('public.document_chunks') AS table_name");
+    const intelligenceExists = await client.query("SELECT to_regclass('public.knowledge_source_intelligence') AS table_name");
+    if (chunksExist.rows[0]?.table_name && intelligenceExists.rows[0]?.table_name) {
+      await client.query(`DROP POLICY IF EXISTS supportai_tenant_isolation ON document_chunks`);
+      await client.query(`CREATE POLICY supportai_tenant_isolation ON document_chunks
+        USING (
+          organization_id::text = current_setting('app.organization_id', true)
+          AND NOT EXISTS (
+            SELECT 1 FROM knowledge_source_intelligence ksi
+            WHERE ksi.organization_id = document_chunks.organization_id
+              AND ksi.source_id = document_chunks.source_id
+              AND ksi.publication_status <> 'PUBLISHED'
+          )
+        )
+        WITH CHECK (organization_id::text = current_setting('app.organization_id', true))`);
+    }
+
     await client.query(`DROP FUNCTION IF EXISTS public.supportai_public_widget_assistant(uuid)`);
     await client.query(`CREATE OR REPLACE FUNCTION public.supportai_public_widget_assistant(target_id uuid, supplied_key text)
       RETURNS TABLE (id uuid, organization_id uuid, name text, welcome_message text, primary_color text, avatar_url text, handoff_enabled boolean, widget_allowed_origins jsonb, chat_page_enabled boolean, widget_settings jsonb)
@@ -38,7 +60,7 @@ async function main() {
     await client.query(`DROP FUNCTION IF EXISTS public.supportai_public_widget_assistant_for_org(uuid)`);
     await client.query("REVOKE ALL ON FUNCTION public.supportai_public_widget_assistant(uuid, text) FROM PUBLIC");
     await client.query(`GRANT EXECUTE ON FUNCTION public.supportai_public_widget_assistant(uuid, text) TO "${appRole}"`);
-    console.log("Enabled forced RLS policies for tenant-owned tables.");
+    console.log("Enabled forced RLS policies for tenant-owned tables and knowledge publication filtering.");
   } finally {
     await client.end();
   }
