@@ -4,7 +4,7 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 export default defineConfig({
-  schema: ["./src/db/schema.ts", "./src/db/platformRoles.ts", "./src/db/extendedCustomerExperienceSchema.ts", "./src/db/actionExecutionSchema.ts", "./src/db/calendarOAuthSchema.ts", "./src/db/conversationSchedulingSchema.ts", "./src/db/supportAnalyticsSchema.ts", "./src/db/webhookSchema.ts", "./src/db/assistantVersionSchema.ts", "./src/db/integrationConnectionSchema.ts", "./src/db/integrationSyncSchema.ts", "./src/db/integrationInboundSchema.ts", "./src/db/externalTicketMessageSchema.ts", "./src/db/bookingCalendarSyncSchema.ts"],
+  schema: ["./src/db/schema.ts", "./src/db/platformRoles.ts", "./src/db/extendedCustomerExperienceSchema.ts", "./src/db/actionExecutionSchema.ts", "./src/db/calendarOAuthSchema.ts", "./src/db/conversationSchedulingSchema.ts", "./src/db/supportAnalyticsSchema.ts", "./src/db/knowledgeCollectionsSchema.ts", "./src/db/webhookSchema.ts", "./src/db/assistantVersionSchema.ts", "./src/db/integrationConnectionSchema.ts", "./src/db/integrationSyncSchema.ts", "./src/db/integrationInboundSchema.ts", "./src/db/externalTicketMessageSchema.ts", "./src/db/bookingCalendarSyncSchema.ts"],
   out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {
