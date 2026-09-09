@@ -63,10 +63,21 @@ jobs:
 
       - name: Prepare disposable database
         working-directory: backend
-        env: &backend-env
+        env:
           NODE_ENV: test
           DATABASE_ADMIN_URL: postgres://postgres:postgrespassword@localhost:5432/ai_support_db
           DATABASE_URL: postgres://postgres:postgrespassword@localhost:5432/ai_support_db
+          DATABASE_APP_USER: supportai_app
+          DATABASE_APP_PASSWORD: ci-app-password
+          ENCRYPTION_SECRET_CURRENT: ci-encryption-secret-not-for-production
+        run: npm run db:migrate
+
+      - name: Build backend
+        working-directory: backend
+        env: &backend-test-env
+          NODE_ENV: test
+          DATABASE_ADMIN_URL: postgres://postgres:postgrespassword@localhost:5432/ai_support_db
+          DATABASE_URL: postgres://supportai_app:ci-app-password@localhost:5432/ai_support_db
           DATABASE_APP_USER: supportai_app
           DATABASE_APP_PASSWORD: ci-app-password
           REDIS_URL: redis://localhost:6379
@@ -76,26 +87,21 @@ jobs:
           CORS_ORIGIN: http://localhost:3000
           ENCRYPTION_SECRET_CURRENT: ci-encryption-secret-not-for-production
           WIDGET_SESSION_SECRET: ci-widget-session-secret-long-enough-for-tests
-        run: npm run db:migrate
-
-      - name: Build backend
-        working-directory: backend
-        env: *backend-env
         run: npm run build
 
       - name: Test knowledge gap discovery
         working-directory: backend
-        env: *backend-env
+        env: *backend-test-env
         run: npm run test:knowledge-gaps
 
       - name: Test knowledge intelligence
         working-directory: backend
-        env: *backend-env
+        env: *backend-test-env
         run: npm run test:knowledge-intelligence
 
       - name: Test tenant isolation
         working-directory: backend
-        env: *backend-env
+        env: *backend-test-env
         run: npm run test:tenant-isolation
 
       - name: Build frontend
