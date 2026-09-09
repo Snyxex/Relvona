@@ -129,6 +129,11 @@ jobs:
         env: *backend-test-env
         run: npm run test:assistant-knowledge-scope
 
+      - name: Test knowledge revision history
+        working-directory: backend
+        env: *backend-test-env
+        run: npm run test:knowledge-revisions
+
       - name: Test tenant isolation
         working-directory: backend
         env: *backend-test-env
