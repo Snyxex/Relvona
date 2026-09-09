@@ -31,11 +31,17 @@ export class KnowledgeCollectionService {
         .from(sourceKnowledgeCollections).where(eq(sourceKnowledgeCollections.organizationId, organizationId));
       const assistantLinks = await tx.select({ collectionId: assistantKnowledgeCollections.collectionId, assistantId: assistantKnowledgeCollections.assistantId })
         .from(assistantKnowledgeCollections).where(eq(assistantKnowledgeCollections.organizationId, organizationId));
-      return collections.map((collection) => ({
-        ...collection,
-        sourceCount: sourceLinks.filter((link) => link.collectionId === collection.id).length,
-        assistantCount: assistantLinks.filter((link) => link.collectionId === collection.id).length,
-      }));
+      return collections.map((collection) => {
+        const sourceIds = sourceLinks.filter((link) => link.collectionId === collection.id).map((link) => link.sourceId);
+        const assistantIds = assistantLinks.filter((link) => link.collectionId === collection.id).map((link) => link.assistantId);
+        return {
+          ...collection,
+          sourceCount: sourceIds.length,
+          assistantCount: assistantIds.length,
+          sourceIds,
+          assistantIds,
+        };
+      });
     });
   }
 
