@@ -1,5 +1,5 @@
-import { and, count, desc, eq, ilike, inArray, isNull, lt, or, sql } from "drizzle-orm";
-import { db } from "../db/index.js";
+import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
+import { db, withTenantTransaction } from "../db/index.js";
 import { knowledgeBases, knowledgeSources } from "../db/schema.js";
 import { knowledgeFaqDrafts, knowledgeGaps, knowledgeRetrievalEvents, knowledgeSourceIntelligence } from "../db/supportAnalyticsSchema.js";
 
@@ -168,7 +168,7 @@ export class KnowledgeIntelligenceService {
   }
 
   static async publishFaqDraft(organizationId: string, id: string, reviewerUserId: string) {
-    return db.transaction(async (tx) => {
+    return withTenantTransaction(organizationId, async (tx) => {
       const [draft] = await tx.select().from(knowledgeFaqDrafts).where(and(eq(knowledgeFaqDrafts.organizationId, organizationId), eq(knowledgeFaqDrafts.id, id))).limit(1);
       if (!draft) throw new Error("FAQ draft not found");
       if (draft.reviewStatus === "PUBLISHED" && draft.publishedSourceId) return draft;
