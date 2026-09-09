@@ -109,6 +109,11 @@ jobs:
         env: *backend-test-env
         run: npm run test:knowledge-retrieval-tracking
 
+      - name: Test knowledge recrawl scheduling
+        working-directory: backend
+        env: *backend-test-env
+        run: npm run test:knowledge-recrawl
+
       - name: Test tenant isolation
         working-directory: backend
         env: *backend-test-env
