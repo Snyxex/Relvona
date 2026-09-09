@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, inArray, lt, lte, or, sql } from "drizzle-orm";
 import { withTenantTransaction } from "../db/index.js";
 import { documentChunks, knowledgeBases, knowledgeIngestionJobs as jobs, knowledgeSources, knowledgeSourceRevisions, fileObjects, websites, websitePages, organizationSettings } from "../db/schema.js";
+import { knowledgeSourceIntelligence } from "../db/supportAnalyticsSchema.js";
 import { IngestionService, type PreparedSource } from "./ingestionService.js";
 import { FileObjectService } from "./fileObjectService.js";
 import { canCommitIngestion, INGESTION_LEASE_MS, MAX_INGESTION_ATTEMPTS, type IngestionInput, type IngestionReference } from "./ingestionTypes.js";
@@ -91,10 +92,17 @@ export class IngestionJobService {
     try {
       const input = claimed.payload as IngestionInput;
       const prepared = prepare ? await prepare(input) : await this.prepareForOrganization(ref.organizationId, input);
+      if (input.type === "website") {
+        const unchanged = await withTenantTransaction(ref.organizationId, async (tx) => {
+          const [source] = await tx.select({ contentHash: knowledgeSources.contentHash }).from(knowledgeSources)
+            .where(and(eq(knowledgeSources.id, claimed.sourceId), eq(knowledgeSources.organizationId, ref.organizationId))).limit(1);
+          return Boolean(source?.contentHash && prepared.contentHash && source.contentHash === prepared.contentHash);
+        });
+        if (unchanged) return this.completeUnchangedWebsite(ref, token, prepared);
+      }
       const processed = await FileObjectService.storeProcessedText({ organizationId: ref.organizationId, sourceId: claimed.sourceId, revision: ref.revision, text: prepared.normalizedText });
       return await this.complete(ref, token, prepared, processed.id);
     } catch {
-      // Provider error bodies can include credentials or internal URLs. Store only a public error.
       await withTenantTransaction(ref.organizationId, async (tx) => {
         const [job] = await tx.select().from(jobs).where(and(eq(jobs.id, ref.jobId), eq(jobs.organizationId, ref.organizationId))).for("update");
         if (!canCommitIngestion(job, ref.revision, token)) return;
@@ -102,9 +110,27 @@ export class IngestionJobService {
         const errorMessage = "Processing failed. Check the source and embedding provider configuration, then retry.";
         await tx.update(jobs).set({ status, errorMessage, leaseToken: null, leaseUntil: null, nextAttemptAt: new Date(Date.now() + job.attempts * 5_000), finishedAt: status === "failed" ? new Date() : null, updatedAt: new Date() }).where(eq(jobs.id, job.id));
         await tx.update(knowledgeSources).set({ status, errorMessage, updatedAt: new Date() }).where(and(eq(knowledgeSources.id, job.sourceId), eq(knowledgeSources.organizationId, ref.organizationId)));
+        if (status === "failed") await tx.update(knowledgeSourceIntelligence).set({ health: "CRAWL_FAILED", lastFailureAt: new Date(), lastFailureCategory: "CRAWL_FAILED", updatedAt: new Date() }).where(and(eq(knowledgeSourceIntelligence.organizationId, ref.organizationId), eq(knowledgeSourceIntelligence.sourceId, job.sourceId)));
       });
       return { failed: true };
     }
+  }
+
+  private static async completeUnchangedWebsite(ref: IngestionReference, token: string, result: PreparedSource) {
+    return withTenantTransaction(ref.organizationId, async (tx) => {
+      const [job] = await tx.select().from(jobs).where(and(eq(jobs.id, ref.jobId), eq(jobs.organizationId, ref.organizationId))).for("update");
+      if (!canCommitIngestion(job, ref.revision, token)) return { skipped: true };
+      const [source] = await tx.select().from(knowledgeSources).where(and(eq(knowledgeSources.id, job.sourceId), eq(knowledgeSources.organizationId, ref.organizationId))).limit(1);
+      if (!source || source.type !== "website") return { skipped: true };
+      const crawledAt = new Date();
+      const previousRevision = Math.max(0, ref.revision - 1);
+      await tx.update(knowledgeSources).set({ status: "completed", errorMessage: null, securityStatus: result.securityStatus, lastCrawledAt: crawledAt, currentRevision: previousRevision, updatedAt: crawledAt }).where(eq(knowledgeSources.id, source.id));
+      const websiteId = (source.metadata as { websiteId?: string } | null)?.websiteId;
+      if (websiteId) await tx.update(websites).set({ crawlStatus: "completed", lastCrawledAt: crawledAt }).where(and(eq(websites.id, websiteId), eq(websites.organizationId, ref.organizationId)));
+      await tx.update(knowledgeSourceIntelligence).set({ health: "HEALTHY", lastSuccessfulCrawlAt: crawledAt, lastFailureAt: null, lastFailureCategory: null, updatedAt: crawledAt }).where(and(eq(knowledgeSourceIntelligence.organizationId, ref.organizationId), eq(knowledgeSourceIntelligence.sourceId, source.id)));
+      await tx.update(jobs).set({ status: "completed", errorMessage: null, leaseToken: null, leaseUntil: null, finishedAt: crawledAt, updatedAt: crawledAt }).where(eq(jobs.id, job.id));
+      return { sourceId: source.id, chunkCount: source.chunkCount, unchanged: true };
+    });
   }
 
   private static async complete(ref: IngestionReference, token: string, result: PreparedSource, processedTextObjectId: string) {
@@ -113,7 +139,6 @@ export class IngestionJobService {
       if (!canCommitIngestion(job, ref.revision, token)) return { skipped: true };
       const [source] = await tx.select().from(knowledgeSources).where(and(eq(knowledgeSources.id, job.sourceId), eq(knowledgeSources.organizationId, ref.organizationId))).limit(1);
       if (!source) return { skipped: true };
-      // Replacing chunks and publishing completion is atomic. Old/deleted workers cannot restore data.
       await tx.delete(documentChunks).where(and(eq(documentChunks.sourceId, source.id), eq(documentChunks.organizationId, ref.organizationId)));
       for (let offset = 0; offset < result.chunks.length; offset += 32) {
         await tx.insert(documentChunks).values(result.chunks.slice(offset, offset + 32).map((chunk, index) => ({ organizationId: ref.organizationId, knowledgeBaseId: source.knowledgeBaseId, sourceId: source.id, chunkIndex: offset + index, content: chunk.content, embedding: chunk.embedding, metadata: { ...chunk.metadata, documentId: source.id, version: ref.revision } })));
@@ -129,6 +154,7 @@ export class IngestionJobService {
           if (result.pages.length) await tx.insert(websitePages).values(result.pages.map((page) => ({ ...page, websiteId: website.id, organizationId: ref.organizationId })));
           await tx.update(websites).set({ crawlStatus: "completed", lastCrawledAt: crawledAt }).where(eq(websites.id, website.id));
         }
+        await tx.update(knowledgeSourceIntelligence).set({ health: "HEALTHY", lastSuccessfulCrawlAt: crawledAt, lastFailureAt: null, lastFailureCategory: null, updatedAt: new Date() }).where(and(eq(knowledgeSourceIntelligence.organizationId, ref.organizationId), eq(knowledgeSourceIntelligence.sourceId, source.id)));
       }
       await tx.update(jobs).set({ status: "completed", errorMessage: null, leaseToken: null, leaseUntil: null, finishedAt: new Date(), updatedAt: new Date() }).where(eq(jobs.id, job.id));
       return { sourceId: source.id, chunkCount: result.chunks.length };
