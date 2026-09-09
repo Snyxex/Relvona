@@ -43,6 +43,14 @@ async function main() {
       assert.equal(scope.unrestricted, false);
       assert.deepEqual(scope.collections.map((row) => row.collectionId), [created.id]);
 
+      const listed = await KnowledgeCollectionService.list(organizationId);
+      const listedBilling = listed.find((collection) => collection.id === created.id);
+      assert.ok(listedBilling, "created collection must be listed");
+      assert.deepEqual(listedBilling.sourceIds, [sourceId], "list response must expose tenant-local source assignments for the admin UI");
+      assert.deepEqual(listedBilling.assistantIds, [assistantId], "list response must expose tenant-local assistant assignments for the admin UI");
+      assert.equal(listedBilling.sourceCount, 1);
+      assert.equal(listedBilling.assistantCount, 1);
+
       await assert.rejects(() => KnowledgeCollectionService.setSourceCollections(organizationId, sourceId, [foreignCollectionId]), /not found/);
       await assert.rejects(() => KnowledgeCollectionService.setAssistantCollections(organizationId, assistantId, [foreignCollectionId]), /not found/);
 
