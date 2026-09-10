@@ -77,6 +77,8 @@ Conversation and ticket attachments use the same `file_objects` lifecycle. The a
 
 Attachment upload intents are immutable bindings to organization, parent type, parent ID, visibility and uploader. Finalization rejects any attempt to rebind a previously uploaded object to another ticket or conversation.
 
+Authenticated attachment operations are rate limited independently for upload-intent creation, finalization, signed-download URL creation and deletion. Limits are scoped through the existing distributed Redis-backed limiter using organization, user and request context.
+
 ## Profile avatars
 
 Profile images are stored outside PostgreSQL under user-scoped RustFS keys. `users.avatar_url` contains only an internal `storage://users/<user-id>/avatar/<object-id>/original` reference; API responses resolve that reference to a short-lived presigned download URL.
@@ -90,6 +92,12 @@ npm run storage:migrate-avatars
 ```
 
 This data migration is intentionally separate from `db:migrate` so a temporary RustFS outage cannot block a database deployment.
+
+## Retention
+
+Binary content is deleted from RustFS when an attachment or file object enters the deletion lifecycle. Database rows are retained as tombstones where they may still be required for auditability, parent history, immutable knowledge revisions or foreign-key integrity.
+
+Do not aggressively purge `DELETED` `file_objects` or attachment metadata with a generic time-based job. A future policy-driven retention feature should first classify references by resource type and legal/compliance requirements, then remove dependent metadata transactionally. This avoids breaking historical ticket timelines or immutable knowledge revision records simply to reclaim negligible relational metadata.
 
 ## Docker deployments
 
@@ -105,4 +113,21 @@ The bundled single-node Compose setup uses the configured RustFS credentials for
 
 The tenant storage sweep paginates organizations instead of loading a fixed global tenant list, so cleanup continues to work beyond 10,000 organizations. Individual tenant cleanup failures are isolated and do not abort the remaining sweep.
 
-PostgreSQL and RustFS backups form one logical data set and should be retained/restored to the same recovery point. PostgreSQL contains object metadata and references while RustFS contains the bytes. After a restore, validate active `file_objects.storage_key` entries against RustFS with a bounded HEAD sweep before declaring the restore healthy.
+PostgreSQL and RustFS backups form one logical data set and should be retained/restored to the same recovery point. PostgreSQL contains object metadata and references while RustFS contains the bytes.
+
+After restoring both systems, run:
+
+```bash
+npm run storage:verify
+```
+
+The verifier performs bounded, paginated `HEAD` checks for every active `UPLOADED`/`READY` `file_object` and every storage-backed user avatar. It does not download object bodies. Missing RustFS objects or malformed avatar references are reported and produce a non-zero exit status, so the check can be used as a deployment/restore gate.
+
+Recommended restore sequence:
+
+1. Restore PostgreSQL and RustFS snapshots from the same recovery point.
+2. Start RustFS but keep application traffic disabled.
+3. Run database migrations if required for the restored application version.
+4. Run `npm run storage:verify` with admin/read access to PostgreSQL and the normal RustFS application credentials.
+5. Resolve missing or invalid references before enabling backend/worker traffic.
+6. Only then expose the application to users.
