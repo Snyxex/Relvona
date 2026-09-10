@@ -50,6 +50,9 @@ services:
     env_file: .env.local
     environment:
       DATABASE_URL: postgresql://supportai_app:${DATABASE_APP_PASSWORD}@postgres:5432/ai_support_db
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
+      DATABASE_REQUEST_POOL_MAX: ${DATABASE_REQUEST_POOL_MAX:-20}
+      DATABASE_SCHEDULING_LOCK_POOL_MAX: ${DATABASE_SCHEDULING_LOCK_POOL_MAX:-2}
       REDIS_URL: redis://redis:6379
       OBJECT_STORAGE_PROVIDER: s3
       OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
@@ -71,6 +74,9 @@ services:
     env_file: .env.local
     environment:
       DATABASE_URL: postgresql://supportai_app:${DATABASE_APP_PASSWORD}@postgres:5432/ai_support_db
+      DATABASE_POOL_MAX: ${DATABASE_WORKER_POOL_MAX:-10}
+      DATABASE_REQUEST_POOL_MAX: ${DATABASE_WORKER_REQUEST_POOL_MAX:-1}
+      DATABASE_SCHEDULING_LOCK_POOL_MAX: ${DATABASE_SCHEDULING_LOCK_POOL_MAX:-2}
       REDIS_URL: redis://redis:6379
       OBJECT_STORAGE_PROVIDER: s3
       OBJECT_STORAGE_ENDPOINT: http://rustfs:9000

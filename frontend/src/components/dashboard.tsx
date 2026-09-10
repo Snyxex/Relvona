@@ -6,33 +6,30 @@ import {
   Bot,
   FileText,
   Globe,
-  HelpCircle,
   MessageSquare,
   Ticket,
   BarChart3,
   Settings,
   Upload,
-  Send,
   UserCheck,
   Sparkles,
   Plus,
   Trash2,
-  ExternalLink,
   CheckCircle,
-  Clock,
   AlertCircle,
   Users,
-  Code,
-  Key,
   LogOut,
   RefreshCw,
-  Search,
   Sliders,
-  ChevronRight,
-  Shield,
   BookOpen,
 } from "lucide-react";
 import KnowledgeSources from "@/components/knowledge-sources";
+import {
+  LazyAgentsTab,
+  LazyAnalyticsTab,
+  LazyCustomersTab,
+  LazyOverviewTab,
+} from "@/components/dashboard-tabs/lazy-tabs";
 import { api, API_BASE_URL } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 import {
@@ -129,7 +126,6 @@ export default function Dashboard({
 
   const [knowledgeBases, setKnowledgeBases] = useState<any[]>([]);
   const [knowledgeSources, setKnowledgeSources] = useState<any[]>([]);
-  const [websitesList, setWebsitesList] = useState<any[]>([]);
   const [assistantsList, setAssistantsList] = useState<any[]>([]);
   const [activeAssistant, setActiveAssistant] = useState<any>(null);
   const [agentsList, setAgentsList] = useState<any[]>([]);
@@ -326,12 +322,28 @@ export default function Dashboard({
       }
 
       if (activeTab === "conversations") {
-        const res = await api.get("/conversations", { params: { state: inboxState || undefined, priority: inboxPriority || undefined, agentId: inboxAgentId || undefined, tagId: inboxTagId || undefined, from: inboxFrom || undefined, to: inboxTo || undefined, q: inboxSearch || undefined, sort: inboxSort } });
+        const res = await api.get("/conversations", {
+          params: {
+            state: inboxState || undefined,
+            priority: inboxPriority || undefined,
+            agentId: inboxAgentId || undefined,
+            tagId: inboxTagId || undefined,
+            from: inboxFrom || undefined,
+            to: inboxTo || undefined,
+            q: inboxSearch || undefined,
+            sort: inboxSort,
+          },
+        });
         setConversationsList(res.data);
-        const [tags, agents] = await Promise.all([api.get("/conversations/meta/tags"), api.get("/conversations/meta/agents")]);
+        const [tags, agents] = await Promise.all([
+          api.get("/conversations/meta/tags"),
+          api.get("/conversations/meta/agents"),
+        ]);
         setInboxTags(tags.data);
         setInboxAgents(agents.data);
-        const ownPresence = agents.data.find((agent: any) => agent.id === auth?.user?.id)?.presence;
+        const ownPresence = agents.data.find(
+          (agent: any) => agent.id === auth?.user?.id,
+        )?.presence;
         if (ownPresence) setAgentPresence(ownPresence);
       }
 
@@ -341,14 +353,12 @@ export default function Dashboard({
       }
 
       if (activeTab === "knowledge" || activeTab === "websites") {
-        const [kbRes, srcRes, webRes] = await Promise.all([
+        const [kbRes, srcRes] = await Promise.all([
           api.get("/knowledge/bases"),
           api.get("/knowledge/sources"),
-          api.get("/knowledge/websites"),
         ]);
         setKnowledgeBases(kbRes.data);
         setKnowledgeSources(srcRes.data);
-        setWebsitesList(webRes.data);
         if (kbRes.data.length > 0 && !selectedKbId) {
           setSelectedKbId(kbRes.data[0].id);
         }
@@ -372,7 +382,19 @@ export default function Dashboard({
     } catch (err: any) {
       console.error("Failed to load tenant data", err);
     }
-  }, [activeTab, selectedKbId, inboxState, inboxPriority, inboxAgentId, inboxFrom, inboxTo, inboxSearch, inboxSort, inboxTagId, auth?.user?.id]);
+  }, [
+    activeTab,
+    selectedKbId,
+    inboxState,
+    inboxPriority,
+    inboxAgentId,
+    inboxFrom,
+    inboxTo,
+    inboxSearch,
+    inboxSort,
+    inboxTagId,
+    auth?.user?.id,
+  ]);
 
   useEffect(() => {
     if (auth && activeOrg) void fetchTenantData();
@@ -432,7 +454,7 @@ export default function Dashboard({
       setDocTitle("");
       setDocContent("");
       showNotify("Dokument gespeichert. Verarbeitung wurde vorgemerkt.");
-      fetchTenantData();
+      void fetchTenantData();
     } catch (err: any) {
       showNotify(err.response?.data?.error || "Ingestion failed");
     } finally {
@@ -456,7 +478,7 @@ export default function Dashboard({
       setPdfFile(null);
       setDocTitle("");
       showNotify("PDF gespeichert. Verarbeitung wurde vorgemerkt.");
-      fetchTenantData();
+      void fetchTenantData();
     } catch (err: any) {
       showNotify(err.response?.data?.error || "PDF Upload failed");
     } finally {
@@ -479,7 +501,7 @@ export default function Dashboard({
       });
       setCrawlUrl("");
       showNotify("Website-Crawl wurde vorgemerkt.");
-      fetchTenantData();
+      void fetchTenantData();
     } catch (err: any) {
       showNotify(err.response?.data?.error || "Crawl request failed");
     } finally {
@@ -491,7 +513,11 @@ export default function Dashboard({
     setSelectedConv(conv);
     setInboxHandoff(null);
     try {
-      const [messages, timeline, handoff] = await Promise.all([api.get(`/conversations/${conv.id}/messages`), api.get(`/conversations/${conv.id}/timeline`), api.get(`/conversations/${conv.id}/handoff`).catch(() => null)]);
+      const [messages, timeline, handoff] = await Promise.all([
+        api.get(`/conversations/${conv.id}/messages`),
+        api.get(`/conversations/${conv.id}/timeline`),
+        api.get(`/conversations/${conv.id}/handoff`).catch(() => null),
+      ]);
       setConvMessages(messages.data);
       setInboxTimeline(timeline.data);
       setInboxHandoff(handoff?.data || null);
@@ -501,23 +527,42 @@ export default function Dashboard({
   const handleInboxAction = async (path: string, body?: any) => {
     if (!selectedConv) return;
     try {
-      const result = await api.put(`/conversations/${selectedConv.id}/${path}`, body);
-      if (result.data?.id) setSelectedConv((current: any) => ({ ...current, ...result.data }));
-      await handleSelectConversation({ ...selectedConv, ...(result.data || {}) });
+      const result = await api.put(
+        `/conversations/${selectedConv.id}/${path}`,
+        body,
+      );
+      if (result.data?.id)
+        setSelectedConv((current: any) => ({ ...current, ...result.data }));
+      await handleSelectConversation({
+        ...selectedConv,
+        ...(result.data || {}),
+      });
       void fetchTenantData();
-    } catch (err: any) { showNotify(err.response?.data?.error || "Aktion konnte nicht ausgeführt werden."); }
+    } catch (err: any) {
+      showNotify(
+        err.response?.data?.error || "Aktion konnte nicht ausgeführt werden.",
+      );
+    }
   };
 
   const handleToggleConversationTag = async (tag: any) => {
     if (!selectedConv) return;
     const existing = selectedConv.tags || [];
-    const nextTags = existing.some((item: any) => item.id === tag.id) ? existing.filter((item: any) => item.id !== tag.id) : [...existing, tag];
+    const nextTags = existing.some((item: any) => item.id === tag.id)
+      ? existing.filter((item: any) => item.id !== tag.id)
+      : [...existing, tag];
     try {
-      await api.put(`/conversations/${selectedConv.id}/tags`, { tagIds: nextTags.map((item: any) => item.id) });
+      await api.put(`/conversations/${selectedConv.id}/tags`, {
+        tagIds: nextTags.map((item: any) => item.id),
+      });
       setSelectedConv((current: any) => ({ ...current, tags: nextTags }));
       await handleSelectConversation({ ...selectedConv, tags: nextTags });
       void fetchTenantData();
-    } catch (err: any) { showNotify(err.response?.data?.error || "Tags konnten nicht aktualisiert werden."); }
+    } catch (err: any) {
+      showNotify(
+        err.response?.data?.error || "Tags konnten nicht aktualisiert werden.",
+      );
+    }
   };
 
   const handlePresenceChange = async (status: string) => {
@@ -525,28 +570,26 @@ export default function Dashboard({
       await api.put("/conversations/meta/presence", { status });
       setAgentPresence(status);
       showNotify(`Presence: ${status}`);
-    } catch (err: any) { showNotify(err.response?.data?.error || "Presence konnte nicht gespeichert werden."); }
+    } catch (err: any) {
+      showNotify(
+        err.response?.data?.error || "Presence konnte nicht gespeichert werden.",
+      );
+    }
   };
 
   const handleAddInternalNote = async () => {
     if (!selectedConv || !internalNoteInput.trim()) return;
-    try { const res = await api.post(`/conversations/${selectedConv.id}/internal-notes`, { content: internalNoteInput }); setConvMessages((current) => [...current, res.data]); setInternalNoteInput(""); showNotify("Interne Notiz gespeichert."); }
-    catch (err: any) { showNotify(err.response?.data?.error || "Notiz konnte nicht gespeichert werden."); }
-  };
-
-  const handlePreferredLanguageChange = async (language: string) => {
     try {
-      await api.patch("/auth/me/preferences", { preferredLanguage: language });
-      setPreferredLanguage(language);
-      if (auth) {
-        const user = { ...auth.user, preferredLanguage: language };
-        const nextAuth = { ...auth, user };
-        setAuth(nextAuth);
-      }
-      showNotify("Dashboard language saved");
+      const res = await api.post(
+        `/conversations/${selectedConv.id}/internal-notes`,
+        { content: internalNoteInput },
+      );
+      setConvMessages((current) => [...current, res.data]);
+      setInternalNoteInput("");
+      showNotify("Interne Notiz gespeichert.");
     } catch (err: any) {
       showNotify(
-        err.response?.data?.error || "Could not save dashboard language",
+        err.response?.data?.error || "Notiz konnte nicht gespeichert werden.",
       );
     }
   };
@@ -627,7 +670,7 @@ export default function Dashboard({
     try {
       await api.post(`/conversations/${convId}/resolve`);
       showNotify("Conversation resolved");
-      fetchTenantData();
+      void fetchTenantData();
     } catch (err) {}
   };
 
@@ -918,7 +961,6 @@ export default function Dashboard({
   // --- Main SaaS Dashboard Layout ---
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">
-      {/* Toast Notification */}
       {notification && (
         <div className="fixed top-4 right-4 z-50 bg-blue-600 text-white px-4 py-2.5 rounded-lg shadow-xl text-sm flex items-center gap-2 animate-bounce">
           <CheckCircle className="w-4 h-4" />
@@ -926,10 +968,8 @@ export default function Dashboard({
         </div>
       )}
 
-      {/* Sidebar Navigation */}
       <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between shrink-0">
         <div>
-          {/* Logo & Tenant Header */}
           <div className="p-4 border-b border-slate-800 flex items-center justify-between">
             <div className="flex items-center gap-2.5 overflow-hidden">
               <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-white shrink-0">
@@ -946,7 +986,6 @@ export default function Dashboard({
             </div>
           </div>
 
-          {/* Org Selector if multiple */}
           {!administration && auth.organizations.length > 1 && (
             <div className="px-3 py-2 border-b border-slate-800">
               <select
@@ -971,7 +1010,6 @@ export default function Dashboard({
             </div>
           )}
 
-          {/* Nav Items */}
           <nav className="p-3 space-y-1">
             {administration && (
               <a href="/admin" className="block p-3 text-sm text-blue-400">
@@ -1044,7 +1082,6 @@ export default function Dashboard({
           </nav>
         </div>
 
-        {/* User Profile & Logout */}
         <div className="p-3 border-t border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2 overflow-hidden">
             <div className="w-7 h-7 overflow-hidden rounded-full bg-slate-700 flex items-center justify-center font-bold text-xs">
@@ -1078,7 +1115,6 @@ export default function Dashboard({
         </div>
       </aside>
 
-      {/* Main Content Area */}
       <main className="flex-1 bg-slate-950 overflow-y-auto p-6">
         {activeTab === "profile" && (
           <div className="mx-auto max-w-2xl space-y-6">
@@ -1177,481 +1213,132 @@ export default function Dashboard({
             </form>
           </div>
         )}
-        {/* TAB 1: OVERVIEW */}
+
         {activeTab === "overview" && (
-          <div className="space-y-6 max-w-7xl mx-auto">
-            <div>
-              <h1 className="text-xl font-bold text-white">
-                Platform Dashboard Overview
-              </h1>
-              <p className="text-xs text-slate-400">
-                Multi-tenant AI support agent performance and live status
-              </p>
-            </div>
-
-            {/* Stat Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
-                <span className="text-xs text-slate-400 font-medium">
-                  Total Conversations
-                </span>
-                <p className="text-2xl font-bold text-white mt-1">
-                  {overviewMetrics?.totalConversations || 0}
-                </p>
-                <div className="mt-2 text-[10px] text-emerald-400 flex items-center gap-1">
-                  <CheckCircle className="w-3 h-3" /> 100% tenant isolated
-                </div>
-              </div>
-
-              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
-                <span className="text-xs text-slate-400 font-medium">
-                  AI Resolution Rate
-                </span>
-                <p className="text-2xl font-bold text-emerald-400 mt-1">
-                  {overviewMetrics?.resolutionRate || 100}%
-                </p>
-                <span className="text-[10px] text-slate-500">
-                  Autonomous resolution without handoff
-                </span>
-              </div>
-
-              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
-                <span className="text-xs text-slate-400 font-medium">
-                  Human Handoffs
-                </span>
-                <p className="text-2xl font-bold text-amber-400 mt-1">
-                  {overviewMetrics?.handoffs || 0}
-                </p>
-                <span className="text-[10px] text-slate-500">
-                  Escalated to human support
-                </span>
-              </div>
-
-              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
-                <span className="text-xs text-slate-400 font-medium">
-                  Open Support Tickets
-                </span>
-                <p className="text-2xl font-bold text-blue-400 mt-1">
-                  {overviewMetrics?.openTickets || 0}
-                </p>
-                <span className="text-[10px] text-slate-500">
-                  Active customer tickets
-                </span>
-              </div>
-            </div>
-
-            {/* Content stats & Unanswered queries */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl">
-                <h3 className="text-sm font-semibold text-white mb-3">
-                  Knowledge Base Coverage
-                </h3>
-                <div className="flex justify-around text-center py-4 border-y border-slate-800">
-                  <div>
-                    <span className="text-xs text-slate-400">Sources</span>
-                    <p className="text-xl font-bold text-white">
-                      {overviewMetrics?.totalKnowledgeSources || 0}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-xs text-slate-400">
-                      pgvector Chunks
-                    </span>
-                    <p className="text-xl font-bold text-blue-400">
-                      {overviewMetrics?.totalDocumentChunks || 0}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl">
-                <h3 className="text-sm font-semibold text-white mb-3">
-                  Recent Unanswered Queries
-                </h3>
-                <div className="space-y-2">
-                  {overviewMetrics?.unansweredQuestions?.length > 0 ? (
-                    overviewMetrics.unansweredQuestions.map((q: any) => (
-                      <div
-                        key={q.id}
-                        className="p-2.5 bg-slate-800/60 rounded text-xs text-slate-300"
-                      >
-                        "{q.question}"
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-xs text-slate-500 italic py-4">
-                      No recent unanswered queries detected.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
+          <LazyOverviewTab overviewMetrics={overviewMetrics} />
         )}
 
-        {/* ANALYTICS & INSIGHTS */}
         {activeTab === "analytics" && (
-          <div className="space-y-6 max-w-7xl mx-auto">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <h1 className="text-xl font-bold text-white">
-                  Analytics & Insights
-                </h1>
-                <p className="text-xs text-slate-400">
-                  Measure support workload, AI resolution, handoffs, and
-                  knowledge-base coverage.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={fetchTenantData}
-                className="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800"
-              >
-                Refresh data
-              </button>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              {[
-                [
-                  "Conversations",
-                  overviewMetrics?.totalConversations || 0,
-                  "text-blue-400",
-                ],
-                [
-                  "AI Resolution Rate",
-                  `${overviewMetrics?.resolutionRate ?? 0}%`,
-                  "text-emerald-400",
-                ],
-                [
-                  "Human Handoffs",
-                  overviewMetrics?.handoffs || 0,
-                  "text-amber-400",
-                ],
-                [
-                  "Open Tickets",
-                  overviewMetrics?.openTickets || 0,
-                  "text-purple-400",
-                ],
-              ].map(([label, value, color]) => (
-                <div
-                  key={label as string}
-                  className="rounded-xl border border-slate-800 bg-slate-900 p-5"
-                >
-                  <p className="text-xs text-slate-400">{label}</p>
-                  <p className={`mt-2 text-3xl font-bold ${color}`}>{value}</p>
-                </div>
-              ))}
-            </div>
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-              <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
-                <p className="text-xs font-medium text-slate-400">
-                  AI resolution
-                </p>
-                <div className="mt-4 flex items-center gap-5">
-                  <div
-                    className="grid h-24 w-24 place-items-center rounded-full"
-                    style={{
-                      background: `conic-gradient(#10b981 ${(overviewMetrics?.resolutionRate ?? 0) * 3.6}deg, #1e293b 0deg)`,
-                    }}
-                  >
-                    <div className="grid h-16 w-16 place-items-center rounded-full bg-slate-900 text-center">
-                      <span className="text-lg font-bold text-white">
-                        {overviewMetrics?.resolutionRate ?? 0}%
-                      </span>
-                    </div>
-                  </div>
-                  <p className="max-w-[160px] text-xs leading-relaxed text-slate-400">
-                    Share of conversations resolved without waiting for a human
-                    agent.
-                  </p>
-                </div>
-              </div>
-              <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
-                <p className="text-xs font-medium text-slate-400">
-                  Human workload
-                </p>
-                <p className="mt-3 text-3xl font-bold text-amber-400">
-                  {overviewMetrics?.handoffs || 0}
-                </p>
-                <p className="mt-1 text-xs text-slate-500">
-                  conversations currently requiring agent attention
-                </p>
-                <div className="mt-4 h-2 overflow-hidden rounded bg-slate-800">
-                  <div
-                    className="h-full rounded bg-amber-400"
-                    style={{
-                      width: `${Math.min(100, ((overviewMetrics?.handoffs || 0) / Math.max(overviewMetrics?.totalConversations || 1, 1)) * 100)}%`,
-                    }}
-                  />
-                </div>
-              </div>
-              <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
-                <p className="text-xs font-medium text-slate-400">
-                  Knowledge readiness
-                </p>
-                <p className="mt-3 text-3xl font-bold text-blue-400">
-                  {overviewMetrics?.totalKnowledgeSources || 0}
-                </p>
-                <p className="mt-1 text-xs text-slate-500">
-                  sources indexed into{" "}
-                  {overviewMetrics?.totalDocumentChunks || 0} searchable chunks
-                </p>
-                <div className="mt-4 flex gap-1">
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((level) => (
-                    <span
-                      key={level}
-                      className={`h-2 flex-1 rounded ${level <= Math.min(10, overviewMetrics?.totalKnowledgeSources || 0) ? "bg-blue-400" : "bg-slate-800"}`}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
-                <h2 className="text-sm font-semibold text-white">
-                  Conversation states
-                </h2>
-                <div className="mt-4 space-y-3">
-                  {Object.entries(overviewMetrics?.stateBreakdown || {}).map(
-                    ([state, count]) => {
-                      const total = overviewMetrics?.totalConversations || 1;
-                      const width = Math.max(3, (Number(count) / total) * 100);
-                      const stateLabels: Record<string, string> = {
-                        AI_ACTIVE: "AI active",
-                        WAITING_FOR_AGENT: "Waiting for agent",
-                        AGENT_ACTIVE: "Agent active",
-                        RESOLVED: "Resolved",
-                      };
-                      const colors: Record<string, string> = {
-                        AI_ACTIVE: "bg-blue-500",
-                        WAITING_FOR_AGENT: "bg-amber-400",
-                        AGENT_ACTIVE: "bg-violet-500",
-                        RESOLVED: "bg-emerald-500",
-                      };
-                      return (
-                        <div key={state}>
-                          <div className="mb-1 flex justify-between text-xs text-slate-400">
-                            <span>
-                              {stateLabels[state] || state.replaceAll("_", " ")}
-                            </span>
-                            <span>
-                              {String(count)} ·{" "}
-                              {Math.round((Number(count) / total) * 100)}%
-                            </span>
-                          </div>
-                          <div className="h-2 overflow-hidden rounded bg-slate-800">
-                            <div
-                              className={`h-full rounded ${colors[state] || "bg-slate-500"}`}
-                              style={{ width: `${width}%` }}
-                            />
-                          </div>
-                        </div>
-                      );
-                    },
-                  )}
-                </div>
-              </div>
-              <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
-                <h2 className="text-sm font-semibold text-white">
-                  Detected languages
-                </h2>
-                <div className="mt-4 space-y-3">
-                  {overviewMetrics?.languageBreakdown?.length ? (
-                    overviewMetrics.languageBreakdown.map((entry: any) => {
-                      const total = overviewMetrics?.totalConversations || 1;
-                      const share = Math.round((entry.count / total) * 100);
-                      return (
-                        <div
-                          key={entry.language}
-                          className="rounded bg-slate-800/60 px-3 py-2 text-xs"
-                        >
-                          <div className="flex justify-between">
-                            <span className="uppercase text-slate-300">
-                              {entry.language}
-                            </span>
-                            <span className="font-semibold text-white">
-                              {entry.count} · {share}%
-                            </span>
-                          </div>
-                          <div className="mt-2 h-1.5 overflow-hidden rounded bg-slate-700">
-                            <div
-                              className="h-full rounded bg-cyan-400"
-                              style={{ width: `${share}%` }}
-                            />
-                          </div>
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <p className="text-xs text-slate-500">
-                      No conversation data yet.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-            <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-white">
-                  Questions needing attention
-                </h2>
-                <span className="rounded bg-amber-950 px-2 py-1 text-[10px] font-semibold text-amber-300">
-                  {overviewMetrics?.unansweredQuestions?.length || 0} open
-                </span>
-              </div>
-              <div className="mt-3 space-y-2">
-                {overviewMetrics?.unansweredQuestions?.length ? (
-                  overviewMetrics.unansweredQuestions.map((question: any) => (
-                    <div
-                      key={question.id}
-                      className="flex items-start justify-between gap-4 rounded border border-amber-900/50 bg-amber-950/30 px-3 py-3 text-xs text-amber-100"
-                    >
-                      <span>{question.question}</span>
-                      <span className="shrink-0 text-[10px] text-amber-400">
-                        {question.timestamp
-                          ? new Date(question.timestamp).toLocaleString()
-                          : ""}
-                      </span>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-xs text-slate-500">
-                    No unanswered questions or pending handoffs.
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
+          <LazyAnalyticsTab
+            overviewMetrics={overviewMetrics}
+            onRefresh={() => void fetchTenantData()}
+          />
         )}
 
-        {/* SUPPORT AGENTS */}
-        {activeTab === "agents" && (
-          <div className="space-y-6 max-w-5xl mx-auto">
-            <div>
-              <h1 className="text-xl font-bold text-white">Support Agents</h1>
-              <p className="text-xs text-slate-400">
-                Team members who can handle escalated customer conversations.
-              </p>
-            </div>
-            <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-800/80 text-slate-400">
-                  <tr>
-                    <th className="p-3">Agent</th>
-                    <th className="p-3">Email</th>
-                    <th className="p-3">Role</th>
-                    <th className="p-3">Access</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800">
-                  {agentsList.length ? (
-                    agentsList.map((agent) => (
-                      <tr key={agent.id} className="text-slate-300">
-                        <td className="p-3 font-medium text-white">
-                          {agent.name}
-                        </td>
-                        <td className="p-3">{agent.email}</td>
-                        <td className="p-3 uppercase">{agent.role}</td>
-                        <td className="p-3">
-                          <span className="rounded bg-emerald-950 px-2 py-1 text-[10px] text-emerald-300">
-                            ACTIVE
-                          </span>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td
-                        colSpan={4}
-                        className="p-8 text-center text-slate-500"
-                      >
-                        No support agents have been added to this organization.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            <p className="rounded-lg border border-blue-900 bg-blue-950/30 p-3 text-xs text-blue-200">
-              Agents can claim and reply to conversations from the Conversations
-              Inbox. Add users to the organization with an <code>agent</code>,{" "}
-              <code>admin</code>, or <code>owner</code> membership role.
-            </p>
-          </div>
-        )}
+        {activeTab === "agents" && <LazyAgentsTab agents={agentsList} />}
 
-        {/* CUSTOMER DIRECTORY */}
         {activeTab === "customers" && (
-          <div className="space-y-6 max-w-6xl mx-auto">
-            <div>
-              <h1 className="text-xl font-bold text-white">
-                Customer Directory
-              </h1>
-              <p className="text-xs text-slate-400">
-                Customers are created automatically when they start a widget
-                session.
-              </p>
-            </div>
-            <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-800/80 text-slate-400">
-                  <tr>
-                    <th className="p-3">Customer</th>
-                    <th className="p-3">Email</th>
-                    <th className="p-3">External ID</th>
-                    <th className="p-3">Joined</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800">
-                  {customersList.length ? (
-                    customersList.map((customer) => (
-                      <tr key={customer.id} className="text-slate-300">
-                        <td className="p-3 font-medium text-white">
-                          {customer.name || "Website visitor"}
-                        </td>
-                        <td className="p-3">{customer.email || "—"}</td>
-                        <td className="p-3 font-mono text-slate-500">
-                          {customer.externalId || "—"}
-                        </td>
-                        <td className="p-3 text-slate-500">
-                          {new Date(customer.createdAt).toLocaleDateString()}
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td
-                        colSpan={4}
-                        className="p-8 text-center text-slate-500"
-                      >
-                        No customers yet. Embed the widget or create a test
-                        session to see customers here.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <LazyCustomersTab customers={customersList} />
         )}
 
-        {/* TAB 2: CONVERSATIONS INBOX */}
         {activeTab === "conversations" && (
           <div className="h-full flex gap-4 max-w-7xl mx-auto">
-            {/* Conversation List */}
             <div className="w-1/3 bg-slate-900 border border-slate-800 rounded-xl overflow-hidden flex flex-col">
               <div className="p-3 border-b border-slate-800 space-y-2">
                 <div className="font-semibold text-sm">Agent Inbox</div>
-                <input value={inboxSearch} onChange={(event) => setInboxSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void fetchTenantData(); }} placeholder="Kunde, E-Mail, ID oder Nachricht" className="w-full rounded bg-slate-800 px-2 py-1.5 text-xs" />
-                <div className="flex items-center justify-between gap-2 text-[10px] text-slate-400"><span>Meine Presence</span><select value={agentPresence} onChange={(event) => void handlePresenceChange(event.target.value)} className="rounded bg-slate-800 p-1 text-[10px] text-slate-200"><option>ONLINE</option><option>AWAY</option><option>OFFLINE</option></select></div>
+                <input
+                  value={inboxSearch}
+                  onChange={(event) => setInboxSearch(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") void fetchTenantData();
+                  }}
+                  placeholder="Kunde, E-Mail, ID oder Nachricht"
+                  className="w-full rounded bg-slate-800 px-2 py-1.5 text-xs"
+                />
+                <div className="flex items-center justify-between gap-2 text-[10px] text-slate-400">
+                  <span>Meine Presence</span>
+                  <select
+                    value={agentPresence}
+                    onChange={(event) =>
+                      void handlePresenceChange(event.target.value)
+                    }
+                    className="rounded bg-slate-800 p-1 text-[10px] text-slate-200"
+                  >
+                    <option>ONLINE</option>
+                    <option>AWAY</option>
+                    <option>OFFLINE</option>
+                  </select>
+                </div>
                 <div className="grid grid-cols-2 gap-1">
-                  <select value={inboxState} onChange={(event) => setInboxState(event.target.value)} className="rounded bg-slate-800 p-1 text-[10px]"><option value="">Alle Status</option>{["AI_ACTIVE","NEEDS_HUMAN","WAITING_FOR_AGENT","AGENT_ACTIVE","WAITING_FOR_CUSTOMER","RESOLVED","CLOSED"].map((state) => <option key={state}>{state}</option>)}</select>
-                  <select value={inboxAgentId} onChange={(event) => setInboxAgentId(event.target.value)} className="rounded bg-slate-800 p-1 text-[10px]"><option value="">Alle Agenten</option><option value="unassigned">Nicht zugewiesen</option>{inboxAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name || agent.email}</option>)}</select>
-                  <select value={inboxTagId} onChange={(event) => setInboxTagId(event.target.value)} className="rounded bg-slate-800 p-1 text-[10px]"><option value="">Alle Tags</option>{inboxTags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}</select>
-                  <input type="date" value={inboxFrom} onChange={(event) => setInboxFrom(event.target.value)} aria-label="Von Datum" className="rounded bg-slate-800 p-1 text-[10px]" />
-                  <input type="date" value={inboxTo} onChange={(event) => setInboxTo(event.target.value)} aria-label="Bis Datum" className="rounded bg-slate-800 p-1 text-[10px]" />
-                  <select value={inboxPriority} onChange={(event) => setInboxPriority(event.target.value)} className="rounded bg-slate-800 p-1 text-[10px]"><option value="">Alle Prioritäten</option>{["LOW","NORMAL","HIGH","URGENT"].map((priority) => <option key={priority}>{priority}</option>)}</select>
-                  <select value={inboxSort} onChange={(event) => setInboxSort(event.target.value)} className="col-span-2 rounded bg-slate-800 p-1 text-[10px]"><option value="newest">Neueste Aktivität</option><option value="oldest_waiting">Älteste wartende Anfrage</option><option value="priority">Höchste Priorität</option><option value="sla_risk">SLA-Risiko</option></select>
+                  <select
+                    value={inboxState}
+                    onChange={(event) => setInboxState(event.target.value)}
+                    className="rounded bg-slate-800 p-1 text-[10px]"
+                  >
+                    <option value="">Alle Status</option>
+                    {[
+                      "AI_ACTIVE",
+                      "NEEDS_HUMAN",
+                      "WAITING_FOR_AGENT",
+                      "AGENT_ACTIVE",
+                      "WAITING_FOR_CUSTOMER",
+                      "RESOLVED",
+                      "CLOSED",
+                    ].map((state) => (
+                      <option key={state}>{state}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={inboxAgentId}
+                    onChange={(event) => setInboxAgentId(event.target.value)}
+                    className="rounded bg-slate-800 p-1 text-[10px]"
+                  >
+                    <option value="">Alle Agenten</option>
+                    <option value="unassigned">Nicht zugewiesen</option>
+                    {inboxAgents.map((agent) => (
+                      <option key={agent.id} value={agent.id}>
+                        {agent.name || agent.email}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={inboxTagId}
+                    onChange={(event) => setInboxTagId(event.target.value)}
+                    className="rounded bg-slate-800 p-1 text-[10px]"
+                  >
+                    <option value="">Alle Tags</option>
+                    {inboxTags.map((tag) => (
+                      <option key={tag.id} value={tag.id}>
+                        {tag.name}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="date"
+                    value={inboxFrom}
+                    onChange={(event) => setInboxFrom(event.target.value)}
+                    aria-label="Von Datum"
+                    className="rounded bg-slate-800 p-1 text-[10px]"
+                  />
+                  <input
+                    type="date"
+                    value={inboxTo}
+                    onChange={(event) => setInboxTo(event.target.value)}
+                    aria-label="Bis Datum"
+                    className="rounded bg-slate-800 p-1 text-[10px]"
+                  />
+                  <select
+                    value={inboxPriority}
+                    onChange={(event) => setInboxPriority(event.target.value)}
+                    className="rounded bg-slate-800 p-1 text-[10px]"
+                  >
+                    <option value="">Alle Prioritäten</option>
+                    {["LOW", "NORMAL", "HIGH", "URGENT"].map((priority) => (
+                      <option key={priority}>{priority}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={inboxSort}
+                    onChange={(event) => setInboxSort(event.target.value)}
+                    className="col-span-2 rounded bg-slate-800 p-1 text-[10px]"
+                  >
+                    <option value="newest">Neueste Aktivität</option>
+                    <option value="oldest_waiting">
+                      Älteste wartende Anfrage
+                    </option>
+                    <option value="priority">Höchste Priorität</option>
+                    <option value="sla_risk">SLA-Risiko</option>
+                  </select>
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto divide-y divide-slate-800/60">
@@ -1670,7 +1357,17 @@ export default function Dashboard({
                       <span className="text-xs font-semibold text-slate-200">
                         {conv.customer?.name || "Visitor"}
                       </span>
-                      <span className={`text-[10px] font-semibold ${conv.priority === "URGENT" ? "text-red-400" : conv.priority === "HIGH" ? "text-amber-400" : "text-slate-400"}`}>{conv.priority || "NORMAL"}</span>
+                      <span
+                        className={`text-[10px] font-semibold ${
+                          conv.priority === "URGENT"
+                            ? "text-red-400"
+                            : conv.priority === "HIGH"
+                              ? "text-amber-400"
+                              : "text-slate-400"
+                        }`}
+                      >
+                        {conv.priority || "NORMAL"}
+                      </span>
                       <span
                         className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
                           conv.state === "WAITING_FOR_AGENT"
@@ -1706,11 +1403,10 @@ export default function Dashboard({
               </div>
             </div>
 
-            {/* Conversation Detail & Live Agent Handoff Chat */}
             <div className="w-2/3 bg-slate-900 border border-slate-800 rounded-xl flex flex-col overflow-hidden">
               {selectedConv ? (
                 <>
-                    <div className="p-3 border-b border-slate-800 flex justify-between items-center bg-slate-900">
+                  <div className="p-3 border-b border-slate-800 flex justify-between items-center bg-slate-900">
                     <div>
                       <h3 className="text-sm font-semibold text-slate-200">
                         {selectedConv.customer?.name}
@@ -1719,23 +1415,118 @@ export default function Dashboard({
                         {selectedConv.customer?.email}
                       </p>
                     </div>
-                    <div className="flex gap-2"><select value={selectedConv.priority || "NORMAL"} onChange={(event) => void handleInboxAction("priority", { priority: event.target.value })} className="rounded bg-slate-800 px-2 text-[10px]">{["LOW","NORMAL","HIGH","URGENT"].map((priority) => <option key={priority}>{priority}</option>)}</select><select value={selectedConv.assignedAgentId || ""} onChange={(event) => void handleInboxAction("assignment", { agentId: event.target.value || null })} className="max-w-32 rounded bg-slate-800 px-2 text-[10px]"><option value="">Unassign</option>{inboxAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name || agent.email}</option>)}</select><button type="button" onClick={() => void handleInboxAction("assignment", { agentId: auth?.user?.id })} className="rounded bg-violet-700 px-2 py-1 text-xs">Assign to me</button><button type="button" onClick={() => handleResolveConversation(selectedConv.id)} className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded">Mark Resolved</button></div>
+                    <div className="flex gap-2">
+                      <select
+                        value={selectedConv.priority || "NORMAL"}
+                        onChange={(event) =>
+                          void handleInboxAction("priority", {
+                            priority: event.target.value,
+                          })
+                        }
+                        className="rounded bg-slate-800 px-2 text-[10px]"
+                      >
+                        {["LOW", "NORMAL", "HIGH", "URGENT"].map(
+                          (priority) => (
+                            <option key={priority}>{priority}</option>
+                          ),
+                        )}
+                      </select>
+                      <select
+                        value={selectedConv.assignedAgentId || ""}
+                        onChange={(event) =>
+                          void handleInboxAction("assignment", {
+                            agentId: event.target.value || null,
+                          })
+                        }
+                        className="max-w-32 rounded bg-slate-800 px-2 text-[10px]"
+                      >
+                        <option value="">Unassign</option>
+                        {inboxAgents.map((agent) => (
+                          <option key={agent.id} value={agent.id}>
+                            {agent.name || agent.email}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void handleInboxAction("assignment", {
+                            agentId: auth?.user?.id,
+                          })
+                        }
+                        className="rounded bg-violet-700 px-2 py-1 text-xs"
+                      >
+                        Assign to me
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleResolveConversation(selectedConv.id)
+                        }
+                        className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded"
+                      >
+                        Mark Resolved
+                      </button>
+                    </div>
                   </div>
 
-                  {inboxTags.length > 0 && <div className="flex flex-wrap gap-1 border-b border-slate-800 bg-slate-900 px-3 py-2">{inboxTags.map((tag) => { const active = (selectedConv.tags || []).some((item: any) => item.id === tag.id); return <button type="button" key={tag.id} onClick={() => void handleToggleConversationTag(tag)} className={`rounded px-2 py-1 text-[10px] ${active ? "bg-blue-700 text-white" : "bg-slate-800 text-slate-400 hover:text-white"}`}>{active ? "✓ " : "+ "}{tag.name}</button>; })}</div>}
+                  {inboxTags.length > 0 && (
+                    <div className="flex flex-wrap gap-1 border-b border-slate-800 bg-slate-900 px-3 py-2">
+                      {inboxTags.map((tag) => {
+                        const active = (selectedConv.tags || []).some(
+                          (item: any) => item.id === tag.id,
+                        );
+                        return (
+                          <button
+                            type="button"
+                            key={tag.id}
+                            onClick={() => void handleToggleConversationTag(tag)}
+                            className={`rounded px-2 py-1 text-[10px] ${
+                              active
+                                ? "bg-blue-700 text-white"
+                                : "bg-slate-800 text-slate-400 hover:text-white"
+                            }`}
+                          >
+                            {active ? "✓ " : "+ "}
+                            {tag.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                   <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-950/40">
                     {inboxHandoff && (
                       <section className="rounded-lg border border-amber-800/80 bg-amber-950/35 p-3 text-xs text-amber-100">
-                        <div className="flex items-center justify-between gap-2"><strong>Human Handoff</strong><span className="rounded bg-amber-900/70 px-1.5 py-0.5 font-mono text-[10px]">{inboxHandoff.requestedPriority}</span></div>
+                        <div className="flex items-center justify-between gap-2">
+                          <strong>Human Handoff</strong>
+                          <span className="rounded bg-amber-900/70 px-1.5 py-0.5 font-mono text-[10px]">
+                            {inboxHandoff.requestedPriority}
+                          </span>
+                        </div>
                         <p className="mt-1">Grund: {inboxHandoff.reason}</p>
-                        {inboxHandoff.aiConfidence !== null && <p className="mt-1">AI Confidence: {Math.round(Number(inboxHandoff.aiConfidence) * 100)}%</p>}
-                        {inboxHandoff.lastAiAttempt && <p className="mt-2 rounded bg-slate-950/50 p-2 text-slate-300">Letzter AI-Versuch: {inboxHandoff.lastAiAttempt}</p>}
-                        <p className="mt-2 text-[10px] text-amber-300">{inboxHandoff.claimedAt ? `Übernommen am ${new Date(inboxHandoff.claimedAt).toLocaleString()}` : `Eskaliert am ${new Date(inboxHandoff.createdAt).toLocaleString()}`}</p>
+                        {inboxHandoff.aiConfidence !== null && (
+                          <p className="mt-1">
+                            AI Confidence:{" "}
+                            {Math.round(Number(inboxHandoff.aiConfidence) * 100)}%
+                          </p>
+                        )}
+                        {inboxHandoff.lastAiAttempt && (
+                          <p className="mt-2 rounded bg-slate-950/50 p-2 text-slate-300">
+                            Letzter AI-Versuch: {inboxHandoff.lastAiAttempt}
+                          </p>
+                        )}
+                        <p className="mt-2 text-[10px] text-amber-300">
+                          {inboxHandoff.claimedAt
+                            ? `Übernommen am ${new Date(inboxHandoff.claimedAt).toLocaleString()}`
+                            : `Eskaliert am ${new Date(inboxHandoff.createdAt).toLocaleString()}`}
+                        </p>
                       </section>
                     )}
                     {inboxTimeline.length > 0 && (
                       <section className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-xs">
-                        <h4 className="font-semibold text-slate-200">Activity Timeline</h4>
+                        <h4 className="font-semibold text-slate-200">
+                          Activity Timeline
+                        </h4>
                         <ol className="mt-2 space-y-2 border-l border-slate-700 pl-3">
                           {inboxTimeline.slice(-8).map((event) => {
                             const labels: Record<string, string> = {
@@ -1748,7 +1539,24 @@ export default function Dashboard({
                               status_changed: "Status changed",
                               auto_closed: "Automatically closed",
                             };
-                            return <li key={event.id} className="relative text-slate-400 before:absolute before:-left-[17px] before:top-1.5 before:size-1.5 before:rounded-full before:bg-blue-400"><span className="text-slate-200">{labels[event.eventType] || event.eventType}</span>{event.payload?.to && <span className="ml-1 text-slate-500">→ {event.payload.to}</span>}<time className="ml-2 text-[10px] text-slate-500">{new Date(event.createdAt).toLocaleString()}</time></li>;
+                            return (
+                              <li
+                                key={event.id}
+                                className="relative text-slate-400 before:absolute before:-left-[17px] before:top-1.5 before:size-1.5 before:rounded-full before:bg-blue-400"
+                              >
+                                <span className="text-slate-200">
+                                  {labels[event.eventType] || event.eventType}
+                                </span>
+                                {event.payload?.to && (
+                                  <span className="ml-1 text-slate-500">
+                                    → {event.payload.to}
+                                  </span>
+                                )}
+                                <time className="ml-2 text-[10px] text-slate-500">
+                                  {new Date(event.createdAt).toLocaleString()}
+                                </time>
+                              </li>
+                            );
                           })}
                         </ol>
                       </section>
@@ -1760,10 +1568,10 @@ export default function Dashboard({
                           m.senderType === "internal_note"
                             ? "bg-amber-950/60 text-amber-100 mr-auto rounded border border-amber-800"
                             : m.senderType === "customer"
-                            ? "bg-blue-600 text-white ml-auto rounded-br-none"
-                            : m.senderType === "agent"
-                              ? "bg-purple-700 text-white ml-auto rounded-br-none"
-                              : "bg-slate-800 text-slate-200 mr-auto rounded-bl-none border border-slate-700"
+                              ? "bg-blue-600 text-white ml-auto rounded-br-none"
+                              : m.senderType === "agent"
+                                ? "bg-purple-700 text-white ml-auto rounded-br-none"
+                                : "bg-slate-800 text-slate-200 mr-auto rounded-bl-none border border-slate-700"
                         }`}
                       >
                         <div className="font-semibold text-[10px] opacity-75 mb-1">
@@ -1852,8 +1660,26 @@ export default function Dashboard({
                       )}
                   </div>
                   <div className="border-t border-amber-900/70 bg-amber-950/20 p-3">
-                    <p className="mb-2 text-[10px] font-semibold uppercase text-amber-300">Interne Notiz — wird niemals an den Kunden gesendet</p>
-                    <div className="flex gap-2"><input value={internalNoteInput} onChange={(event) => setInternalNoteInput(event.target.value)} className="flex-1 rounded border border-amber-800 bg-slate-900 px-3 py-2 text-xs" placeholder="Notiz für das Support-Team" /><button type="button" onClick={handleAddInternalNote} className="rounded bg-amber-700 px-3 text-xs font-semibold">Notiz speichern</button></div>
+                    <p className="mb-2 text-[10px] font-semibold uppercase text-amber-300">
+                      Interne Notiz — wird niemals an den Kunden gesendet
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        value={internalNoteInput}
+                        onChange={(event) =>
+                          setInternalNoteInput(event.target.value)
+                        }
+                        className="flex-1 rounded border border-amber-800 bg-slate-900 px-3 py-2 text-xs"
+                        placeholder="Notiz für das Support-Team"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddInternalNote}
+                        className="rounded bg-amber-700 px-3 text-xs font-semibold"
+                      >
+                        Notiz speichern
+                      </button>
+                    </div>
                   </div>
                   <form
                     onSubmit={handleSendAgentMessage}
@@ -1883,7 +1709,6 @@ export default function Dashboard({
           </div>
         )}
 
-        {/* TAB 3: TICKETS */}
         {activeTab === "tickets" && (
           <div className="space-y-4 max-w-7xl mx-auto">
             <div>
@@ -1925,7 +1750,9 @@ export default function Dashboard({
                       <tr
                         key={tk.id}
                         onClick={() => handleSelectTicket(tk)}
-                        className={`cursor-pointer hover:bg-slate-800/40 ${selectedTicket?.id === tk.id ? "bg-blue-950/20" : ""}`}
+                        className={`cursor-pointer hover:bg-slate-800/40 ${
+                          selectedTicket?.id === tk.id ? "bg-blue-950/20" : ""
+                        }`}
                       >
                         <td className="p-3 font-mono font-bold text-blue-400">
                           #{tk.ticketNumber}
@@ -2084,7 +1911,6 @@ export default function Dashboard({
           </div>
         )}
 
-        {/* TAB 4: KNOWLEDGE BASES & DOCUMENTS */}
         {activeTab === "knowledge" && (
           <div className="space-y-6 max-w-7xl mx-auto">
             <div className="flex justify-between items-center">
@@ -2098,7 +1924,6 @@ export default function Dashboard({
                 </p>
               </div>
 
-              {/* Create KB form */}
               <form onSubmit={handleCreateKnowledgeBase} className="flex gap-2">
                 <input
                   type="text"
@@ -2116,7 +1941,6 @@ export default function Dashboard({
               </form>
             </div>
 
-            {/* Active KB Selector */}
             {knowledgeBases.length > 0 && (
               <div className="flex gap-2 border-b border-slate-800 pb-2">
                 {knowledgeBases.map((kb) => (
@@ -2137,7 +1961,6 @@ export default function Dashboard({
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Manual Document / FAQ Ingestion */}
               <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-4">
                 <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                   <FileText className="w-4 h-4 text-blue-400" /> Manual Text /
@@ -2224,7 +2047,6 @@ export default function Dashboard({
                 </form>
               </div>
 
-              {/* PDF Ingestion Pipeline */}
               <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-4">
                 <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                   <Upload className="w-4 h-4 text-emerald-400" /> PDF Document
@@ -2270,7 +2092,6 @@ export default function Dashboard({
           </div>
         )}
 
-        {/* TAB 5: WEBSITE CRAWLER */}
         {activeTab === "websites" && (
           <div className="space-y-6 max-w-7xl mx-auto">
             <div>
@@ -2353,22 +2174,19 @@ export default function Dashboard({
                 </button>
               </form>
             </div>
+
+            <KnowledgeSources
+              key={activeOrg?.id}
+              sources={knowledgeSources.filter(
+                (source) => source.type === "website",
+              )}
+              canManage={["owner", "admin"].includes(activeOrg?.role)}
+              onRefresh={fetchTenantData}
+              notify={showNotify}
+            />
           </div>
         )}
 
-        {activeTab === "websites" && (
-          <KnowledgeSources
-            key={activeOrg?.id}
-            sources={knowledgeSources.filter(
-              (source) => source.type === "website",
-            )}
-            canManage={["owner", "admin"].includes(activeOrg?.role)}
-            onRefresh={fetchTenantData}
-            notify={showNotify}
-          />
-        )}
-
-        {/* TAB 6: AI ASSISTANT SETTINGS */}
         {activeTab === "assistant" && activeAssistant && (
           <div className="space-y-6 max-w-4xl mx-auto">
             <div>
@@ -2456,7 +2274,11 @@ export default function Dashboard({
                 (profile: any, index: number) => (
                   <div
                     key={profile.id}
-                    className={`rounded-lg border p-4 ${activeAssistant.activeModelProfileId === profile.id ? "border-blue-600 bg-blue-950/20" : "border-slate-700 bg-slate-800/50"}`}
+                    className={`rounded-lg border p-4 ${
+                      activeAssistant.activeModelProfileId === profile.id
+                        ? "border-blue-600 bg-blue-950/20"
+                        : "border-slate-700 bg-slate-800/50"
+                    }`}
                   >
                     <div className="mb-3 flex items-center justify-between gap-2">
                       <label className="flex items-center gap-2 text-xs font-semibold text-slate-200">
@@ -2836,7 +2658,6 @@ export default function Dashboard({
           </div>
         )}
 
-        {/* TAB 7: EMBEDDABLE WIDGET */}
         {activeTab === "widget" && activeOrg && activeAssistant && (
           <div className="space-y-6 max-w-4xl mx-auto">
             <div>
@@ -3041,7 +2862,11 @@ export default function Dashboard({
                 >
                   <div className="absolute inset-5 rounded-md border border-white/60 bg-white/30" />
                   <div
-                    className={`absolute bottom-4 ${widgetSettings.position === "bottom-left" ? "left-4" : "right-4"}`}
+                    className={`absolute bottom-4 ${
+                      widgetSettings.position === "bottom-left"
+                        ? "left-4"
+                        : "right-4"
+                    }`}
                   >
                     <div
                       className="mb-3 w-[280px] overflow-hidden shadow-2xl"
@@ -3230,7 +3055,6 @@ export default function Dashboard({
           </div>
         )}
 
-        {/* TAB 8: SETTINGS */}
         {activeTab === "settings" && activeOrg && (
           <div className="space-y-6 max-w-4xl mx-auto">
             <div>

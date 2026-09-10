@@ -31,6 +31,9 @@ services:
     environment:
       NODE_ENV: production
       PORT: 8080
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
+      DATABASE_REQUEST_POOL_MAX: ${DATABASE_REQUEST_POOL_MAX:-20}
+      DATABASE_SCHEDULING_LOCK_POOL_MAX: ${DATABASE_SCHEDULING_LOCK_POOL_MAX:-2}
       INFISICAL_TOKEN: ${INFISICAL_TOKEN:?authenticate with Infisical before deployment}
       INFISICAL_PROJECT_ID: ${INFISICAL_PROJECT_ID:?set the Infisical project id}
       INFISICAL_ENVIRONMENT: ${INFISICAL_ENVIRONMENT:-production}
@@ -69,6 +72,9 @@ services:
       migrate: { condition: service_completed_successfully }
     environment:
       NODE_ENV: production
+      DATABASE_POOL_MAX: ${DATABASE_WORKER_POOL_MAX:-10}
+      DATABASE_REQUEST_POOL_MAX: ${DATABASE_WORKER_REQUEST_POOL_MAX:-1}
+      DATABASE_SCHEDULING_LOCK_POOL_MAX: ${DATABASE_SCHEDULING_LOCK_POOL_MAX:-2}
       INFISICAL_TOKEN: ${INFISICAL_TOKEN:?authenticate with Infisical before deployment}
       INFISICAL_PROJECT_ID: ${INFISICAL_PROJECT_ID:?set the Infisical project id}
       INFISICAL_ENVIRONMENT: ${INFISICAL_ENVIRONMENT:-production}

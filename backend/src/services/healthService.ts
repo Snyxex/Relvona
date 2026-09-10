@@ -1,5 +1,5 @@
 import Redis from "ioredis";
-import { pool } from "../db/index.js";
+import { databasePoolStats, pool } from "../db/index.js";
 import { objectStorage } from "./objectStorage.js";
 import { objectStorageConfig } from "../config/objectStorage.js";
 
@@ -16,7 +16,11 @@ export async function readiness() {
   if (objectStorageConfig().enabled) {
     try { checks.storage = await objectStorage().healthCheck() === "HEALTHY" ? "ok" : "failed"; } catch { checks.storage = "failed"; }
   }
-  return { ready: Object.values(checks).every((check) => check === "ok"), checks };
+  return {
+    ready: Object.values(checks).every((check) => check === "ok"),
+    checks,
+    databasePools: databasePoolStats(),
+  };
 }
 
 export async function closeHealthDependencies() {

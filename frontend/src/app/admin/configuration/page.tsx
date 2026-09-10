@@ -1,2 +1,5 @@
-import Dashboard from "@/components/dashboard";
-export default function Page() { return <Dashboard administration />; }
+import DashboardLoader from "@/components/dashboard-loader";
+
+export default function Page() {
+  return <DashboardLoader administration />;
+}

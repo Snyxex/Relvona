@@ -1,20 +1,54 @@
 import { Router } from "express";
 import { and, eq } from "drizzle-orm";
 import { authenticate, tenantContext, requireRole, type AuthRequest } from "../middleware/auth.js";
+import { auditSchedulingMutation } from "../middleware/schedulingAudit.js";
 import { SchedulingService } from "../services/schedulingService.js";
 import { SchedulingAuthorizationService } from "../services/schedulingAuthorizationService.js";
 import { BookingCalendarSyncService } from "../services/bookingCalendarSyncService.js";
+import { BookingAdminService } from "../services/bookingAdminService.js";
+import { BookingAccessService, type SchedulingRole } from "../services/bookingAccessService.js";
+import { SchedulingAuditService } from "../services/schedulingAuditService.js";
+import { MeetingTypeAdminService } from "../services/meetingTypeAdminService.js";
+import { AvailabilityAdminService } from "../services/availabilityAdminService.js";
 import { sendInternalError } from "../utils/httpErrors.js";
 import { db } from "../db/index.js";
 import { bookingCalendarSync } from "../db/bookingCalendarSyncSchema.js";
-import { calendarConnections, bookings } from "../db/extendedCustomerExperienceSchema.js";
+import { calendarConnections } from "../db/extendedCustomerExperienceSchema.js";
 
 const router = Router();
 router.use(authenticate);
 router.use(tenantContext);
 router.use(requireRole(["owner", "admin", "agent"]));
+router.use(auditSchedulingMutation);
 
 const schedulableMemberError = "Assigned user is not a schedulable organization member";
+
+function role(req: AuthRequest): SchedulingRole {
+  return req.organization!.role as SchedulingRole;
+}
+
+function effectiveAssignedUserId(req: AuthRequest, requested?: string) {
+  return req.organization!.role === "agent" ? req.user!.id : requested;
+}
+
+router.get("/capabilities", (req: AuthRequest, res) => {
+  const canManageConfiguration = req.organization!.role === "owner" || req.organization!.role === "admin";
+  return res.json({
+    role: req.organization!.role,
+    canManageConfiguration,
+    canRetryCalendarSync: canManageConfiguration,
+    canViewAudit: canManageConfiguration,
+  });
+});
+
+router.get("/audit", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
+  try {
+    const limit = req.query.limit ? Number(req.query.limit) : 50;
+    return res.json(await SchedulingAuditService.list(req.organization!.id, limit));
+  } catch (error) {
+    return sendInternalError(req, res, error, { code: "SCHEDULING_AUDIT_LOAD_FAILED", message: "Unable to load scheduling audit trail" });
+  }
+});
 
 router.get("/connections", async (req: AuthRequest, res) => {
   try {
@@ -48,8 +82,21 @@ router.post("/meeting-types", requireRole(["owner", "admin"]), async (req: AuthR
   }
 });
 
+router.patch("/meeting-types/:id", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
+  try { return res.json(await MeetingTypeAdminService.update(req.organization!.id, req.params.id, req.body || {})); }
+  catch (error) {
+    const message = (error as Error).message;
+    if (message === "Meeting type not found") return res.status(404).json({ error: message });
+    if (message === "Invalid meeting type") return res.status(400).json({ error: message });
+    return sendInternalError(req, res, error, { code: "MEETING_TYPE_UPDATE_FAILED", message: "Unable to update meeting type" });
+  }
+});
+
 router.get("/availability", async (req: AuthRequest, res) => {
-  try { return res.json(await SchedulingService.listAvailabilityRules(req.organization!.id, typeof req.query.meetingTypeId === "string" ? req.query.meetingTypeId : undefined)); }
+  try {
+    const rows = await SchedulingService.listAvailabilityRules(req.organization!.id, typeof req.query.meetingTypeId === "string" ? req.query.meetingTypeId : undefined);
+    return res.json(req.organization!.role === "agent" ? rows.filter((item) => !item.userId || item.userId === req.user!.id) : rows);
+  }
   catch (error) { return sendInternalError(req, res, error, { code: "AVAILABILITY_LOAD_FAILED", message: "Unable to load availability" }); }
 });
 
@@ -65,10 +112,32 @@ router.post("/availability", requireRole(["owner", "admin"]), async (req: AuthRe
   }
 });
 
+router.patch("/availability/:id", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
+  try {
+    const userId = req.body?.userId === null ? undefined : typeof req.body?.userId === "string" ? req.body.userId : undefined;
+    if (req.body?.userId !== undefined) await SchedulingAuthorizationService.assertSchedulableMember(req.organization!.id, userId);
+    return res.json(await AvailabilityAdminService.update(req.organization!.id, req.params.id, req.body || {}));
+  } catch (error) {
+    const message = (error as Error).message;
+    if (message === "Availability rule not found") return res.status(404).json({ error: message });
+    if (["Invalid availability rule", "User not found", "Meeting type not found", schedulableMemberError].includes(message)) return res.status(400).json({ error: message });
+    return sendInternalError(req, res, error, { code: "AVAILABILITY_UPDATE_FAILED", message: "Unable to update availability" });
+  }
+});
+
+router.delete("/availability/:id", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
+  try { await AvailabilityAdminService.remove(req.organization!.id, req.params.id); return res.status(204).end(); }
+  catch (error) {
+    if ((error as Error).message === "Availability rule not found") return res.status(404).json({ error: "Availability rule not found" });
+    return sendInternalError(req, res, error, { code: "AVAILABILITY_DELETE_FAILED", message: "Unable to delete availability" });
+  }
+});
+
 router.get("/slots", async (req: AuthRequest, res) => {
   try {
     const meetingTypeId = String(req.query.meetingTypeId || "");
-    const assignedUserId = typeof req.query.assignedUserId === "string" ? req.query.assignedUserId : undefined;
+    const requestedAssignedUserId = typeof req.query.assignedUserId === "string" ? req.query.assignedUserId : undefined;
+    const assignedUserId = effectiveAssignedUserId(req, requestedAssignedUserId);
     await SchedulingAuthorizationService.assertSchedulableMember(req.organization!.id, assignedUserId);
     const from = new Date(String(req.query.from || ""));
     const to = new Date(String(req.query.to || ""));
@@ -82,18 +151,52 @@ router.get("/slots", async (req: AuthRequest, res) => {
 });
 
 router.get("/bookings", async (req: AuthRequest, res) => {
-  try { return res.json(await SchedulingService.listBookings(req.organization!.id)); }
-  catch (error) { return sendInternalError(req, res, error, { code: "BOOKINGS_LOAD_FAILED", message: "Unable to load bookings" }); }
+  try {
+    if (req.organization!.role === "agent") {
+      const result = await BookingAdminService.search({ organizationId: req.organization!.id, assignedUserId: req.user!.id, limit: 100, offset: 0 });
+      return res.json(result.items);
+    }
+    return res.json(await SchedulingService.listBookings(req.organization!.id));
+  } catch (error) { return sendInternalError(req, res, error, { code: "BOOKINGS_LOAD_FAILED", message: "Unable to load bookings" }); }
+});
+
+router.get("/bookings-search", async (req: AuthRequest, res) => {
+  try {
+    const from = typeof req.query.from === "string" ? new Date(req.query.from) : undefined;
+    const to = typeof req.query.to === "string" ? new Date(req.query.to) : undefined;
+    return res.json(await BookingAdminService.search({
+      organizationId: req.organization!.id,
+      assignedUserId: BookingAccessService.assignedUserIdForRole(role(req), req.user!.id),
+      status: typeof req.query.status === "string" ? req.query.status : undefined,
+      from,
+      to,
+      query: typeof req.query.query === "string" ? req.query.query : undefined,
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+      offset: req.query.offset ? Number(req.query.offset) : undefined,
+    }));
+  } catch (error) {
+    return sendInternalError(req, res, error, { code: "BOOKINGS_SEARCH_FAILED", message: "Unable to search bookings" });
+  }
+});
+
+router.get("/bookings/:id/events", async (req: AuthRequest, res) => {
+  try {
+    await BookingAccessService.assertAccessible({ organizationId: req.organization!.id, bookingId: req.params.id, role: role(req), userId: req.user!.id });
+    return res.json(await BookingAdminService.history(req.organization!.id, req.params.id));
+  } catch (error) {
+    if ((error as Error).message === "Booking not found") return res.status(404).json({ error: "Booking not found" });
+    return sendInternalError(req, res, error, { code: "BOOKING_HISTORY_LOAD_FAILED", message: "Unable to load booking history" });
+  }
 });
 
 router.get("/bookings/:id/calendar-sync", async (req: AuthRequest, res) => {
   try {
     const organizationId = req.organization!.id;
-    const [booking] = await db.select({ id: bookings.id }).from(bookings).where(and(eq(bookings.organizationId, organizationId), eq(bookings.id, req.params.id))).limit(1);
-    if (!booking) return res.status(404).json({ error: "Booking not found" });
+    const booking = await BookingAccessService.assertAccessible({ organizationId, bookingId: req.params.id, role: role(req), userId: req.user!.id });
     const [sync] = await db.select().from(bookingCalendarSync).where(and(eq(bookingCalendarSync.organizationId, organizationId), eq(bookingCalendarSync.bookingId, booking.id))).limit(1);
-    return res.json(sync || { bookingId: booking.id, status: "not_required", action: null, attempts: 0, lastError: null, nextAttemptAt: null });
+    return res.json({ ...(sync || { bookingId: booking.id, status: "not_required", action: null, attempts: 0, lastError: null, nextAttemptAt: null }), canRetry: req.organization!.role === "owner" || req.organization!.role === "admin" });
   } catch (error) {
+    if ((error as Error).message === "Booking not found") return res.status(404).json({ error: "Booking not found" });
     return sendInternalError(req, res, error, { code: "BOOKING_CALENDAR_SYNC_LOAD_FAILED", message: "Unable to load calendar sync status" });
   }
 });
@@ -101,21 +204,22 @@ router.get("/bookings/:id/calendar-sync", async (req: AuthRequest, res) => {
 router.post("/bookings/:id/calendar-sync/retry", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
   try {
     const organizationId = req.organization!.id;
-    const [booking] = await db.select({ id: bookings.id }).from(bookings).where(and(eq(bookings.organizationId, organizationId), eq(bookings.id, req.params.id))).limit(1);
-    if (!booking) return res.status(404).json({ error: "Booking not found" });
+    const booking = await BookingAccessService.assertAccessible({ organizationId, bookingId: req.params.id, role: role(req), userId: req.user!.id });
     const retried = await BookingCalendarSyncService.retry(organizationId, booking.id);
     if (!retried) return res.status(409).json({ error: "Calendar sync is not retryable" });
     const result = await BookingCalendarSyncService.processOne(organizationId, booking.id);
     const [sync] = await db.select().from(bookingCalendarSync).where(and(eq(bookingCalendarSync.organizationId, organizationId), eq(bookingCalendarSync.bookingId, booking.id))).limit(1);
     return res.json({ sync, result });
   } catch (error) {
+    if ((error as Error).message === "Booking not found") return res.status(404).json({ error: "Booking not found" });
     return sendInternalError(req, res, error, { code: "BOOKING_CALENDAR_SYNC_RETRY_FAILED", message: "Unable to retry calendar sync" });
   }
 });
 
 router.post("/bookings", async (req: AuthRequest, res) => {
   try {
-    const assignedUserId = typeof req.body?.assignedUserId === "string" ? req.body.assignedUserId : undefined;
+    const requestedAssignedUserId = typeof req.body?.assignedUserId === "string" ? req.body.assignedUserId : undefined;
+    const assignedUserId = effectiveAssignedUserId(req, requestedAssignedUserId);
     await SchedulingAuthorizationService.assertSchedulableMember(req.organization!.id, assignedUserId);
     const booking = await SchedulingService.createBooking({ organizationId: req.organization!.id, ...req.body, assignedUserId, startsAt: new Date(req.body?.startsAt), createdBy: "agent" });
     return res.status(201).json(booking);
@@ -128,6 +232,7 @@ router.post("/bookings", async (req: AuthRequest, res) => {
 
 router.post("/bookings/:id/reschedule", async (req: AuthRequest, res) => {
   try {
+    await BookingAccessService.assertAccessible({ organizationId: req.organization!.id, bookingId: req.params.id, role: role(req), userId: req.user!.id });
     const booking = await SchedulingService.rescheduleBooking({ organizationId: req.organization!.id, bookingId: req.params.id, startsAt: new Date(req.body?.startsAt), timezone: req.body?.timezone, actorType: "agent", actorUserId: req.user!.id });
     return res.json(booking);
   } catch (error) {
@@ -139,8 +244,10 @@ router.post("/bookings/:id/reschedule", async (req: AuthRequest, res) => {
 });
 
 router.post("/bookings/:id/cancel", async (req: AuthRequest, res) => {
-  try { return res.json(await SchedulingService.cancelBooking({ organizationId: req.organization!.id, bookingId: req.params.id, actorType: "agent", actorUserId: req.user!.id })); }
-  catch (error) {
+  try {
+    await BookingAccessService.assertAccessible({ organizationId: req.organization!.id, bookingId: req.params.id, role: role(req), userId: req.user!.id });
+    return res.json(await SchedulingService.cancelBooking({ organizationId: req.organization!.id, bookingId: req.params.id, actorType: "agent", actorUserId: req.user!.id }));
+  } catch (error) {
     if ((error as Error).message === "Booking not found") return res.status(404).json({ error: "Booking not found" });
     return sendInternalError(req, res, error, { code: "BOOKING_CANCEL_FAILED", message: "Unable to cancel booking" });
   }

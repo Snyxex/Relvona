@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { pool } from "../db/index.js";
+import { setDatabaseTenant } from "../db/tenantContext.js";
 import { createRateLimiter } from "../middleware/security.js";
 import { VisitorIdentityService } from "../services/visitorIdentityService.js";
 
@@ -27,7 +28,9 @@ async function authenticateWidget(req: any) {
   const widgetKey = req.body?.widgetKey ?? req.query?.widgetKey;
   if (typeof assistantId !== "string" || typeof widgetKey !== "string") return undefined;
   const assistant = await publicWidgetAssistant(assistantId, widgetKey);
-  return assistant && allowsRequestOrigin(req, assistant) ? assistant : undefined;
+  if (!assistant || !allowsRequestOrigin(req, assistant)) return undefined;
+  setDatabaseTenant(assistant.organization_id);
+  return assistant;
 }
 
 router.get("/state", createRateLimiter({ keyPrefix: "widget-privacy-state", limit: 30, windowMs: 60_000 }), async (req, res) => {

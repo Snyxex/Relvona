@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { db, pool } from "../db/index.js";
+import { setDatabaseTenant } from "../db/tenantContext.js";
 import { conversationMessages, messageFeedback } from "../db/schema.js";
 import { conversations } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
@@ -25,7 +26,10 @@ function allowsRequestOrigin(req: { get(name: string): string | undefined }, ass
 async function authenticateWidget(req: { body?: any; query?: any; get(name: string): string | undefined }) {
   const assistantId = req.body?.assistantId ?? req.query?.assistantId; const widgetKey = req.body?.widgetKey ?? req.query?.widgetKey;
   if (typeof assistantId !== "string" || typeof widgetKey !== "string") return undefined;
-  const assistant = await publicWidgetAssistant(assistantId, widgetKey); return assistant && allowsRequestOrigin(req, assistant) ? assistant : undefined;
+  const assistant = await publicWidgetAssistant(assistantId, widgetKey);
+  if (!assistant || !allowsRequestOrigin(req, assistant)) return undefined;
+  setDatabaseTenant(assistant.organization_id);
+  return assistant;
 }
 function publicConfig(assistant: PublicAssistant) { return { assistantId: assistant.id, organizationId: assistant.organization_id, name: assistant.name, welcomeMessage: assistant.welcome_message, primaryColor: assistant.primary_color, avatarUrl: assistant.avatar_url, handoffEnabled: assistant.handoff_enabled, widgetSettings: assistant.widget_settings || {} }; }
 function publicApiBase(req: { protocol: string; get(name: string): string | undefined }) { return `${req.protocol}://${req.get("host")}`; }

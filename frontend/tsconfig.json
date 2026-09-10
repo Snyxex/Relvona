@@ -19,7 +19,8 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "socket.io-client-real": ["./node_modules/socket.io-client/build/esm/index.js"]
     }
   },
   "include": [
