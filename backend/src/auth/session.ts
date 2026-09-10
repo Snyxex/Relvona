@@ -5,6 +5,7 @@ import { db } from "../db/index.js";
 import { users, organizationMembers, organizations } from "../db/schema.js";
 import { platformRoles, PLATFORM_ADMIN_ROLE } from "../db/platformRoles.js";
 import { and, eq } from "drizzle-orm";
+import { ProfileAvatarService } from "../services/profileAvatarService.js";
 
 export type AuthenticatedUser = { id: string; email: string; name: string; avatarUrl: string | null; preferredLanguage: string; isPlatformAdmin: boolean; systemRole: "superadmin" | "user"; status: string };
 export const ORGANIZATION_ROLES = ["owner", "admin", "agent", "viewer"] as const;
@@ -30,12 +31,15 @@ export async function getCurrentUser(request: Pick<Request, "headers">): Promise
   if (!session?.user?.id) return null;
   const [user] = await db.select().from(users).where(eq(users.id, session.user.id)).limit(1);
   if (!user || user.status !== "active") return null;
-  const platformAdmin = await isPlatformAdmin(user.id);
+  const [platformAdmin, avatarUrl] = await Promise.all([
+    isPlatformAdmin(user.id),
+    ProfileAvatarService.resolvePublicUrl(user.avatarUrl),
+  ]);
   return {
     id: user.id,
     email: user.email,
     name: user.name,
-    avatarUrl: user.avatarUrl,
+    avatarUrl,
     preferredLanguage: user.preferredLanguage,
     isPlatformAdmin: platformAdmin,
     // Temporary response compatibility only. Authorization never reads users.system_role.
@@ -53,7 +57,7 @@ export async function getOrganizationMembership(userId: string, organizationId: 
     organizationStatus: organizations.status,
     membershipStatus: organizationMembers.status,
   }).from(organizationMembers)
-    .innerJoin(organizations, eq(organizationMembers.organizationId, organizations.id))
+    .innerJoin(organizations, eq(organizations.id, organizationMembers.organizationId))
     .where(and(eq(organizationMembers.organizationId, organizationId), eq(organizationMembers.userId, userId)))
     .limit(1);
   if (!membership || membership.organizationStatus !== "active" || membership.membershipStatus !== "active" || !ORGANIZATION_ROLES.includes(membership.role as OrganizationRole)) return null;
