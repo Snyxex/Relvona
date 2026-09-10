@@ -1,0 +1,56 @@
+import assert from "node:assert/strict";
+import { objectStorageConfig } from "../config/objectStorage.js";
+
+const names = [
+  "NODE_ENV",
+  "OBJECT_STORAGE_ENABLED",
+  "OBJECT_STORAGE_PROVIDER",
+  "OBJECT_STORAGE_ENDPOINT",
+  "OBJECT_STORAGE_BUCKET",
+  "OBJECT_STORAGE_ACCESS_KEY",
+  "OBJECT_STORAGE_SECRET_KEY",
+  "OBJECT_STORAGE_REGION",
+  "OBJECT_STORAGE_FORCE_PATH_STYLE",
+  "OBJECT_STORAGE_AUTO_CREATE_BUCKET",
+  "OBJECT_STORAGE_ALLOW_INSECURE_HTTP",
+] as const;
+
+const original = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+
+function restore() {
+  for (const name of names) {
+    const value = original[name];
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
+}
+
+try {
+  process.env.NODE_ENV = "development";
+  process.env.OBJECT_STORAGE_PROVIDER = "rustfs";
+  process.env.OBJECT_STORAGE_ENDPOINT = "http://127.0.0.1:9000";
+  process.env.OBJECT_STORAGE_BUCKET = "supportai";
+  process.env.OBJECT_STORAGE_ACCESS_KEY = "SUPPORTAITEST";
+  process.env.OBJECT_STORAGE_SECRET_KEY = "test-secret-with-sufficient-entropy";
+  process.env.OBJECT_STORAGE_AUTO_CREATE_BUCKET = "true";
+
+  const rustfs = objectStorageConfig();
+  assert.equal(rustfs.provider, "rustfs");
+  assert.equal(rustfs.autoCreateBucket, true);
+  assert.equal(rustfs.forcePathStyle, true);
+
+  process.env.NODE_ENV = "production";
+  process.env.OBJECT_STORAGE_ALLOW_INSECURE_HTTP = "true";
+  assert.equal(objectStorageConfig().provider, "rustfs");
+
+  delete process.env.OBJECT_STORAGE_ALLOW_INSECURE_HTTP;
+  assert.throws(() => objectStorageConfig(), /must use HTTPS in production/);
+
+  process.env.NODE_ENV = "development";
+  process.env.OBJECT_STORAGE_PROVIDER = "invalid";
+  assert.throws(() => objectStorageConfig(), /filesystem, s3 or rustfs/);
+
+  console.log("Object storage configuration tests passed.");
+} finally {
+  restore();
+}
