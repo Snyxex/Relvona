@@ -7,6 +7,11 @@ import { SchedulingService } from "./schedulingService.js";
 
 const meetingIntent = /\b(termin|meeting|besprechung|gespräch|telefonieren|anruf|call|appointment|schedule|meet|demo)\b/i;
 const cancelIntent = /\b(abbrechen|vergiss|doch nicht|cancel|nevermind)\b/i;
+const approvalFollowupIntent = /\b(freigabe|freigegeben|genehmigt|bestätigt|bestaetigt|bestätigung|bestaetigung|status|wartet|ausstehend|pending|approval|approved|confirm|confirmed|confirmation|gebucht|booking|booked)\b/i;
+
+function isApprovalPendingFollowup(text: string) {
+  return meetingIntent.test(text) || cancelIntent.test(text) || approvalFollowupIntent.test(text);
+}
 
 function dateWindow(text: string) {
   const now = new Date(); const start = new Date(now); const end = new Date(now);
@@ -28,14 +33,20 @@ export class ConversationSchedulingService {
   static async canHandle(organizationId: string, conversationId: string, text: string) {
     if (meetingIntent.test(text)) return true;
     const [state] = await db.select({ state: conversationSchedulingStates.state }).from(conversationSchedulingStates).where(and(eq(conversationSchedulingStates.organizationId, organizationId), eq(conversationSchedulingStates.conversationId, conversationId))).limit(1);
-    return Boolean(state && ["offered", "approval_pending"].includes(state.state));
+    if (!state) return false;
+    if (state.state === "offered") return true;
+    if (state.state === "approval_pending") return isApprovalPendingFollowup(text);
+    return false;
   }
 
   static async handle(data: { organizationId: string; conversationId: string; customerId?: string; text: string }) {
     let [state] = await db.select().from(conversationSchedulingStates).where(and(eq(conversationSchedulingStates.organizationId, data.organizationId), eq(conversationSchedulingStates.conversationId, data.conversationId))).limit(1);
     if (state?.expiresAt && state.expiresAt <= new Date() && state.state === "offered") { await db.update(conversationSchedulingStates).set({ state: "idle", offeredSlots: [], updatedAt: new Date() }).where(eq(conversationSchedulingStates.id, state.id)); state = { ...state, state: "idle", offeredSlots: [] }; }
     if (cancelIntent.test(data.text) && state && state.state !== "booked") { await db.update(conversationSchedulingStates).set({ state: "cancelled", offeredSlots: [], updatedAt: new Date() }).where(eq(conversationSchedulingStates.id, state.id)); return { handled: true, reply: "Die Terminplanung wurde abgebrochen." }; }
-    if (state?.state === "approval_pending") return { handled: true, reply: "Der ausgewählte Termin wartet noch auf Freigabe. Sobald die Aktion ausgeführt wurde, steht der endgültige Termin fest.", actionExecutionId: state.actionExecutionId || undefined };
+    if (state?.state === "approval_pending") {
+      if (!isApprovalPendingFollowup(data.text)) return { handled: false };
+      return { handled: true, reply: "Der ausgewählte Termin wartet noch auf Freigabe. Sobald die Aktion ausgeführt wurde, steht der endgültige Termin fest.", actionExecutionId: state.actionExecutionId || undefined };
+    }
     if (state?.state === "offered") {
       const slots = Array.isArray(state.offeredSlots) ? state.offeredSlots as Array<{ startsAt: string; timezone: string }> : []; const index = selectedIndex(data.text, slots);
       if (index >= 0) {
