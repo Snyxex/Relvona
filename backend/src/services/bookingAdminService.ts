@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, gte, ilike, lte, or, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
+import { bookingCalendarSync } from "../db/bookingCalendarSyncSchema.js";
 import { bookingEvents, bookings } from "../db/extendedCustomerExperienceSchema.js";
 
 function safeInteger(value: number | undefined, fallback: number, min: number, max: number) {
@@ -35,10 +36,47 @@ export class BookingAdminService {
       )!);
     }
     const where = and(...conditions)!;
-    const [items, [countRow]] = await Promise.all([
-      db.select().from(bookings).where(where).orderBy(asc(bookings.startsAt)).limit(limit).offset(offset),
+    const [rows, [countRow]] = await Promise.all([
+      db.select({
+        booking: bookings,
+        syncId: bookingCalendarSync.id,
+        syncAction: bookingCalendarSync.action,
+        syncStatus: bookingCalendarSync.status,
+        syncAttempts: bookingCalendarSync.attempts,
+        syncLastError: bookingCalendarSync.lastError,
+        syncNextAttemptAt: bookingCalendarSync.nextAttemptAt,
+      })
+        .from(bookings)
+        .leftJoin(bookingCalendarSync, and(
+          eq(bookingCalendarSync.organizationId, bookings.organizationId),
+          eq(bookingCalendarSync.bookingId, bookings.id),
+        ))
+        .where(where)
+        .orderBy(asc(bookings.startsAt))
+        .limit(limit)
+        .offset(offset),
       db.select({ count: sql<number>`count(*)::int` }).from(bookings).where(where),
     ]);
+
+    const items = rows.map((row) => ({
+      ...row.booking,
+      calendarSync: row.syncId ? {
+        bookingId: row.booking.id,
+        action: row.syncAction,
+        status: row.syncStatus,
+        attempts: row.syncAttempts ?? 0,
+        lastError: row.syncLastError,
+        nextAttemptAt: row.syncNextAttemptAt,
+      } : {
+        bookingId: row.booking.id,
+        action: null,
+        status: "not_required",
+        attempts: 0,
+        lastError: null,
+        nextAttemptAt: null,
+      },
+    }));
+
     return { items, total: Number(countRow?.count || 0), limit, offset };
   }
 
