@@ -5,6 +5,7 @@ import { bookingEvents, bookings } from "../db/extendedCustomerExperienceSchema.
 export class BookingAdminService {
   static async search(data: {
     organizationId: string;
+    assignedUserId?: string;
     status?: string;
     from?: Date;
     to?: Date;
@@ -15,6 +16,7 @@ export class BookingAdminService {
     const limit = Math.max(1, Math.min(data.limit ?? 25, 100));
     const offset = Math.max(0, data.offset ?? 0);
     const conditions = [eq(bookings.organizationId, data.organizationId)];
+    if (data.assignedUserId) conditions.push(eq(bookings.assignedUserId, data.assignedUserId));
     if (data.status && data.status !== "all") conditions.push(eq(bookings.status, data.status));
     if (data.from && !Number.isNaN(data.from.getTime())) conditions.push(gte(bookings.startsAt, data.from));
     if (data.to && !Number.isNaN(data.to.getTime())) conditions.push(lte(bookings.startsAt, data.to));
@@ -36,9 +38,6 @@ export class BookingAdminService {
   }
 
   static async history(organizationId: string, bookingId: string) {
-    const [booking] = await db.select({ id: bookings.id }).from(bookings)
-      .where(and(eq(bookings.organizationId, organizationId), eq(bookings.id, bookingId))).limit(1);
-    if (!booking) throw new Error("Booking not found");
     return db.select().from(bookingEvents)
       .where(and(eq(bookingEvents.organizationId, organizationId), eq(bookingEvents.bookingId, bookingId)))
       .orderBy(desc(bookingEvents.createdAt));
