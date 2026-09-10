@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 const DEFAULT_QUOTA_BYTES = 10 * 1024 * 1024 * 1024; // 10 GiB
 
 type QueryExecutor = {
-  execute(query: unknown): Promise<unknown>;
+  execute: (...args: any[]) => Promise<any>;
 };
 
 type UsageRow = {
