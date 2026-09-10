@@ -23,6 +23,7 @@ export type CalendarSync = {
   attempts: number;
   lastError?: string | null;
   nextAttemptAt?: string | null;
+  canRetry?: boolean;
 };
 
 type Slot = { startsAt: string; endsAt: string; timezone: string };
@@ -72,7 +73,7 @@ export function BookingManager({ onError }: Props) {
       setBookings(items); setTotal(Number(data.total || 0)); setPage(targetPage);
       const statuses = await Promise.all(items.map(async (booking) => {
         try { const result = await api.get(`/scheduling/bookings/${booking.id}/calendar-sync`); return [booking.id, result.data] as const; }
-        catch { return [booking.id, { bookingId: booking.id, status: "unknown", attempts: 0 }] as const; }
+        catch { return [booking.id, { bookingId: booking.id, status: "unknown", attempts: 0, canRetry: false }] as const; }
       }));
       setSyncByBooking(Object.fromEntries(statuses));
     } catch (e: any) {
@@ -175,7 +176,7 @@ export function BookingManager({ onError }: Props) {
 
     <div className="mt-4 space-y-3">{loading ? <p className="text-sm text-muted-foreground">Buchungen werden geladen…</p> : bookings.length ? bookings.map((booking) => {
       const sync = syncByBooking[booking.id];
-      const retryable = sync?.status === "failed" || sync?.status === "exhausted";
+      const retryable = Boolean(sync?.canRetry) && (sync?.status === "failed" || sync?.status === "exhausted");
       const slots = slotsByBooking[booking.id];
       const history = historyByBooking[booking.id];
       const active = booking.status !== "cancelled";
