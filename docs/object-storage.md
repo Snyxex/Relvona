@@ -15,7 +15,19 @@ Two endpoint concepts are intentionally separated:
 - `OBJECT_STORAGE_ENDPOINT` is the private endpoint used by backend and worker processes, for example `http://rustfs:9000` inside the isolated Docker `data` network.
 - `OBJECT_STORAGE_PUBLIC_ENDPOINT` is used only when generating presigned URLs returned to browsers. In production it must be an HTTPS address that resolves for the end user, for example `https://objects.example.com`.
 
-Never return the internal Docker hostname in a browser URL. The public endpoint must route to the same RustFS S3 API and preserve the signed request host/path. If browsers upload directly, configure the reverse proxy/RustFS CORS policy to permit the dashboard origin and the required `PUT`, `GET`, `HEAD` methods and `Content-Type` header.
+Never return the internal Docker hostname in a browser URL. The public endpoint must route to the same RustFS S3 API and preserve the signed request host/path.
+
+## Browser CORS
+
+Direct PDF, attachment and profile-image uploads require browser CORS access to the RustFS bucket. Set `OBJECT_STORAGE_CORS_ALLOWED_ORIGINS` to an explicit comma-separated list of frontend origins, for example:
+
+```env
+OBJECT_STORAGE_CORS_ALLOWED_ORIGINS=https://support.example.com,https://portal.example.com
+```
+
+When this variable is set, the S3-compatible adapter configures the bucket during readiness with `GET`, `PUT` and `HEAD`, wildcard request headers and `ETag` exposure. No CORS policy is changed when the variable is empty. Production values must be exact HTTPS origins and wildcard `*` is not accepted by the application configuration.
+
+The application credentials therefore need permission to configure bucket CORS when this feature is enabled. If infrastructure manages CORS separately, leave `OBJECT_STORAGE_CORS_ALLOWED_ORIGINS` empty and provision the equivalent bucket policy outside the application.
 
 ## Configuration
 
@@ -32,6 +44,7 @@ OBJECT_STORAGE_SECRET_KEY=replace-with-a-long-random-secret
 OBJECT_STORAGE_REGION=us-east-1
 OBJECT_STORAGE_FORCE_PATH_STYLE=true
 OBJECT_STORAGE_AUTO_CREATE_BUCKET=true
+OBJECT_STORAGE_CORS_ALLOWED_ORIGINS=https://support.example.com
 OBJECT_STORAGE_SIGNED_URL_TTL_SECONDS=300
 OBJECT_STORAGE_CONNECT_TIMEOUT_MS=5000
 OBJECT_STORAGE_REQUEST_TIMEOUT_MS=30000
@@ -62,16 +75,34 @@ Legacy PDF queue payloads containing old file paths are rejected and must be upl
 
 Conversation and ticket attachments use the same `file_objects` lifecycle. The attachment row stores parent relation, uploader, visibility, original filename, MIME type and size while the bytes remain in RustFS. Tenant authorization is checked before finalization and before download.
 
+Attachment upload intents are immutable bindings to organization, parent type, parent ID, visibility and uploader. Finalization rejects any attempt to rebind a previously uploaded object to another ticket or conversation.
+
+## Profile avatars
+
+Profile images are stored outside PostgreSQL under user-scoped RustFS keys. `users.avatar_url` contains only an internal `storage://users/<user-id>/avatar/<object-id>/original` reference; API responses resolve that reference to a short-lived presigned download URL.
+
+Presigned avatar uploads are registered in `profile_avatar_uploads` with user ID, expected MIME type, exact expected size and expiry. Finalization accepts only the matching authenticated user and validates `HEAD` metadata plus image magic bytes before replacing the active avatar reference.
+
+Abandoned, failed and expired avatar uploads are reclaimed by the same worker storage sweep. This prevents a browser that uploads an image but never calls `finalize` from leaving permanent RustFS objects. Legacy Base64 avatars can be migrated explicitly with:
+
+```bash
+npm run storage:migrate-avatars
+```
+
+This data migration is intentionally separate from `db:migrate` so a temporary RustFS outage cannot block a database deployment.
+
 ## Docker deployments
 
-`docker-compose.local.yml` runs RustFS with its S3 API on `127.0.0.1:9000` and console on `127.0.0.1:9001`. Data persists in `supportai-local-rustfs`. The backend talks to `http://rustfs:9000`, while generated browser URLs use `http://localhost:9000`.
+`docker-compose.local.yml` runs RustFS with its S3 API on `127.0.0.1:9000` and console on `127.0.0.1:9001`. Data persists in `supportai-local-rustfs`. The backend talks to `http://rustfs:9000`, while generated browser URLs use `http://localhost:9000`. Local bucket CORS defaults to `http://localhost:3000`.
 
-`docker-compose.prod.yml` keeps RustFS exclusively on the internal `data` network, persists `/data` in `rustfsdata`, and disables the console. A separate HTTPS reverse-proxy route must expose the S3 API at the configured `OBJECT_STORAGE_PUBLIC_ENDPOINT` when browser-direct uploads/downloads are enabled.
+`docker-compose.prod.yml` keeps RustFS exclusively on the internal `data` network, persists `/data` in `rustfsdata`, and disables the console. A separate HTTPS reverse-proxy route must expose the S3 API at the configured `OBJECT_STORAGE_PUBLIC_ENDPOINT` when browser-direct uploads/downloads are enabled. Production Compose requires explicit HTTPS values in `OBJECT_STORAGE_CORS_ALLOWED_ORIGINS`.
 
 The bundled single-node Compose setup uses the configured RustFS credentials for the application. Hardened deployments should provision a dedicated least-privilege RustFS identity and manage root/admin credentials independently outside the application configuration.
 
 ## Operations and backups
 
-`/health/ready` includes the object-storage health result. Storage metrics include operation counts, failures, duration, uploaded bytes, cleanup activity and signed URL creation.
+`/health/ready` includes the object-storage health result. Storage metrics include operation counts, failures, duration, uploaded bytes, tenant cleanup activity, avatar cleanup activity and signed URL creation.
+
+The tenant storage sweep paginates organizations instead of loading a fixed global tenant list, so cleanup continues to work beyond 10,000 organizations. Individual tenant cleanup failures are isolated and do not abort the remaining sweep.
 
 PostgreSQL and RustFS backups form one logical data set and should be retained/restored to the same recovery point. PostgreSQL contains object metadata and references while RustFS contains the bytes. After a restore, validate active `file_objects.storage_key` entries against RustFS with a bounded HEAD sweep before declaring the restore healthy.
