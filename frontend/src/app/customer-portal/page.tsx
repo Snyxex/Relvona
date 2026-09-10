@@ -15,11 +15,19 @@ type PortalMeeting = {
   meetingType: { name: string; durationMinutes: number };
 };
 type MeetingSlot = { startsAt: string; endsAt: string; timezone: string };
+type PortalAttachment = { id: string; originalFilename: string; mimeType: string; fileSize: number; createdAt: string };
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 export default function CustomerPortalPage() {
   const [organizationId, setOrganizationId] = useState(""); const [email, setEmail] = useState(""); const [sent, setSent] = useState(false); const [loading, setLoading] = useState(false);
   const [dashboard, setDashboard] = useState<PortalDashboard | null>(null); const [meetings, setMeetings] = useState<PortalMeeting[]>([]); const [error, setError] = useState("");
   const [slots, setSlots] = useState<Record<string, MeetingSlot[]>>({}); const [selectedSlot, setSelectedSlot] = useState<Record<string, string>>({}); const [slotLoading, setSlotLoading] = useState<Record<string, boolean>>({});
+  const [expandedTicketId, setExpandedTicketId] = useState<string | null>(null); const [ticketAttachments, setTicketAttachments] = useState<Record<string, PortalAttachment[]>>({}); const [attachmentLoading, setAttachmentLoading] = useState<Record<string, boolean>>({});
 
   async function portalFetch(path: string, init: RequestInit = {}) {
     const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -92,9 +100,39 @@ export default function CustomerPortalPage() {
     await loadPortal();
   }
 
+  async function toggleTicketAttachments(ticketId: string) {
+    if (expandedTicketId === ticketId) { setExpandedTicketId(null); return; }
+    setExpandedTicketId(ticketId);
+    if (ticketAttachments[ticketId]) return;
+    setAttachmentLoading((current) => ({ ...current, [ticketId]: true }));
+    setError("");
+    try {
+      const response = await portalFetch(`/customer-portal/tickets/${ticketId}/attachments`);
+      if (!response.ok) throw new Error("Anhänge konnten nicht geladen werden.");
+      setTicketAttachments((current) => ({ ...current, [ticketId]: await response.json() as PortalAttachment[] }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Anhänge konnten nicht geladen werden.");
+    } finally {
+      setAttachmentLoading((current) => ({ ...current, [ticketId]: false }));
+    }
+  }
+
+  async function downloadTicketAttachment(ticketId: string, attachmentId: string) {
+    setError("");
+    try {
+      const response = await portalFetch(`/customer-portal/tickets/${ticketId}/attachments/${attachmentId}/download`);
+      if (!response.ok) throw new Error("Anhang ist nicht verfügbar.");
+      const data = await response.json() as { downloadUrl?: string };
+      if (!data.downloadUrl) throw new Error("Anhang ist nicht verfügbar.");
+      window.location.assign(data.downloadUrl);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Anhang ist nicht verfügbar.");
+    }
+  }
+
   async function logout() {
     await portalFetch("/customer-portal/logout", { method: "POST", body: "{}" }).catch(() => undefined);
-    setDashboard(null); setMeetings([]); setSlots({}); setSelectedSlot({});
+    setDashboard(null); setMeetings([]); setSlots({}); setSelectedSlot({}); setTicketAttachments({}); setExpandedTicketId(null);
   }
 
   if (dashboard) {
@@ -109,7 +147,11 @@ export default function CustomerPortalPage() {
       }) : <p className="text-sm text-muted-foreground">Noch keine Termine.</p>}</div></section>
 
       <section className="rounded-xl border bg-card p-5"><h2 className="mb-4 font-semibold">Support-Verlauf</h2><div className="space-y-3">{dashboard.conversations.length ? dashboard.conversations.map((item) => <div key={item.id} className="rounded-lg border p-4"><div className="flex justify-between gap-3"><span className="font-medium">{item.summary || "Support-Unterhaltung"}</span><span className="text-xs text-muted-foreground">{item.state}</span></div><p className="mt-2 text-xs text-muted-foreground">{new Date(item.updatedAt).toLocaleString("de-DE")}</p></div>) : <p className="text-sm text-muted-foreground">Noch keine Unterhaltungen.</p>}</div></section>
-      <section className="rounded-xl border bg-card p-5"><h2 className="mb-4 font-semibold">Tickets</h2><div className="space-y-3">{dashboard.tickets.length ? dashboard.tickets.map((ticket) => <div key={ticket.id} className="rounded-lg border p-4"><div className="flex justify-between gap-3"><span className="font-medium">#{ticket.ticketNumber} {ticket.subject}</span><span className="text-xs text-muted-foreground">{ticket.status}</span></div><p className="mt-2 text-xs text-muted-foreground">Priorität: {ticket.priority}</p></div>) : <p className="text-sm text-muted-foreground">Keine offenen Tickets.</p>}</div></section>
+      <section className="rounded-xl border bg-card p-5"><h2 className="mb-4 font-semibold">Tickets</h2><div className="space-y-3">{dashboard.tickets.length ? dashboard.tickets.map((ticket) => {
+        const attachments = ticketAttachments[ticket.id];
+        const expanded = expandedTicketId === ticket.id;
+        return <div key={ticket.id} className="rounded-lg border p-4"><div className="flex flex-wrap justify-between gap-3"><div><span className="font-medium">#{ticket.ticketNumber} {ticket.subject}</span><p className="mt-2 text-xs text-muted-foreground">Priorität: {ticket.priority}</p></div><span className="text-xs text-muted-foreground">{ticket.status}</span></div><button type="button" onClick={() => void toggleTicketAttachments(ticket.id)} className="mt-3 rounded-lg border px-3 py-1.5 text-xs hover:bg-muted/50">{expanded ? "Anhänge ausblenden" : "Anhänge anzeigen"}</button>{expanded && <div className="mt-3 rounded-lg border bg-muted/20 p-3">{attachmentLoading[ticket.id] ? <p className="text-xs text-muted-foreground">Anhänge werden geladen…</p> : attachments?.length ? <div className="space-y-2">{attachments.map((attachment) => <button type="button" key={attachment.id} onClick={() => void downloadTicketAttachment(ticket.id, attachment.id)} className="flex w-full items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2 text-left text-sm hover:bg-muted/50"><span className="min-w-0 truncate font-medium">{attachment.originalFilename}</span><span className="shrink-0 text-xs text-muted-foreground">{formatBytes(attachment.fileSize)}</span></button>)}</div> : <p className="text-xs text-muted-foreground">Keine für Kunden freigegebenen Anhänge.</p>}</div>}</div>;
+      }) : <p className="text-sm text-muted-foreground">Keine offenen Tickets.</p>}</div></section>
       <section className="rounded-xl border bg-card p-5"><h2 className="mb-2 font-semibold">KI-Memory</h2><p className="mb-4 text-sm text-muted-foreground">Hier erscheinen nur Erinnerungen aus ausdrücklich mit dem Portal verknüpften anonymen Browser-Sitzungen.</p><div className="space-y-2">{dashboard.memories.length ? dashboard.memories.map((memory) => <div key={memory.id} className="rounded-lg border p-3 text-sm"><span className="mr-2 text-xs text-muted-foreground">{memory.type}</span>{memory.summary}</div>) : <p className="text-sm text-muted-foreground">Keine verknüpften Erinnerungen.</p>}</div></section>
     </div></main>;
   }
