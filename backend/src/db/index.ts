@@ -11,26 +11,32 @@ if (process.env.NODE_ENV === "production" && !databaseUrl) {
   throw new Error("DATABASE_URL must be injected in production");
 }
 
+function envInteger(name: string, fallback: number, min: number, max: number) {
+  const parsed = Number(process.env[name]);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(Math.trunc(parsed), max));
+}
+
 const connectionString = databaseUrl || "postgres://postgres:postgrespassword@localhost:5432/ai_support_db";
 const commonPoolOptions = {
   connectionString,
-  idleTimeoutMillis: Number(process.env.DATABASE_IDLE_TIMEOUT_MS || 30_000),
-  connectionTimeoutMillis: Number(process.env.DATABASE_CONNECTION_TIMEOUT_MS || 5_000),
-  maxLifetimeSeconds: Number(process.env.DATABASE_MAX_LIFETIME_SECONDS || 1_800),
+  idleTimeoutMillis: envInteger("DATABASE_IDLE_TIMEOUT_MS", 30_000, 1_000, 300_000),
+  connectionTimeoutMillis: envInteger("DATABASE_CONNECTION_TIMEOUT_MS", 5_000, 500, 60_000),
+  maxLifetimeSeconds: envInteger("DATABASE_MAX_LIFETIME_SECONDS", 1_800, 60, 86_400),
 };
 
 /** Core pool for workers, explicit transactions and non-request workloads. */
 export const pool = new pg.Pool({
   ...commonPoolOptions,
-  max: Number(process.env.DATABASE_POOL_MAX || 10),
-  min: Number(process.env.DATABASE_POOL_MIN || 0),
+  max: envInteger("DATABASE_POOL_MAX", 10, 1, 200),
+  min: envInteger("DATABASE_POOL_MIN", 0, 0, 50),
 });
 
 /** Dedicated pool for HTTP requests so slow external calls cannot starve workers. */
 export const requestPool = new pg.Pool({
   ...commonPoolOptions,
-  max: Number(process.env.DATABASE_REQUEST_POOL_MAX || 20),
-  min: Number(process.env.DATABASE_REQUEST_POOL_MIN || 0),
+  max: envInteger("DATABASE_REQUEST_POOL_MAX", 20, 1, 500),
+  min: envInteger("DATABASE_REQUEST_POOL_MIN", 0, 0, 100),
 });
 
 pool.on("error", (error) => console.error(JSON.stringify({ level: "error", event: "database.core_pool_error", message: error.message })));
@@ -101,6 +107,13 @@ export async function withTenantTransaction<T>(organizationId: string, work: (tx
     await client.query("ROLLBACK").catch(() => undefined);
     throw error;
   } finally { client.release(); }
+}
+
+export function databasePoolStats() {
+  return {
+    core: { total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount },
+    request: { total: requestPool.totalCount, idle: requestPool.idleCount, waiting: requestPool.waitingCount },
+  };
 }
 
 export async function closeDatabasePool() {
