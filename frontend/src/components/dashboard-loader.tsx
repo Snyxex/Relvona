@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Paperclip, X } from "lucide-react";
 import AttachmentPanel from "@/components/attachment-panel";
 import {
@@ -21,17 +21,19 @@ const Dashboard = dynamic(() => import("@/components/dashboard"), {
 export default function DashboardLoader({ administration = false }: { administration?: boolean }) {
   const [attachmentContext, setAttachmentContext] = useState<ActiveAttachmentContext | null>(null);
   const [attachmentOpen, setAttachmentOpen] = useState(false);
+  const attachmentContextRef = useRef<ActiveAttachmentContext | null>(null);
 
   useEffect(() => {
     const onContext = (event: Event) => {
       const detail = (event as CustomEvent<ActiveAttachmentContext>).detail;
       if (!detail || !["conversation", "ticket"].includes(detail.parentType)) return;
       if (!/^[0-9a-f-]{36}$/i.test(detail.parentId)) return;
-      setAttachmentContext((current) => {
-        const changed = !current || current.parentType !== detail.parentType || current.parentId !== detail.parentId;
-        if (changed) setAttachmentOpen(false);
-        return changed ? detail : current;
-      });
+      const current = attachmentContextRef.current;
+      const changed = !current || current.parentType !== detail.parentType || current.parentId !== detail.parentId;
+      if (!changed) return;
+      attachmentContextRef.current = detail;
+      setAttachmentContext(detail);
+      setAttachmentOpen(false);
     };
     window.addEventListener(ATTACHMENT_CONTEXT_EVENT, onContext);
     return () => window.removeEventListener(ATTACHMENT_CONTEXT_EVENT, onContext);
