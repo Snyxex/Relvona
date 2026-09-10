@@ -1,7 +1,18 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { NextFunction, Request, Response } from "express";
 
-type TenantContext = { organizationId?: string };
+export type RequestDatabaseClient = {
+  query: (...args: any[]) => Promise<any>;
+  release: () => void;
+};
+
+type TenantContext = {
+  organizationId?: string;
+  requestClient?: RequestDatabaseClient;
+  requestClientPromise?: Promise<RequestDatabaseClient>;
+  appliedTenantId?: string;
+  releaseRegistered?: boolean;
+};
 const storage = new AsyncLocalStorage<TenantContext>();
 
 export function tenantContextMiddleware(_req: Request, _res: Response, next: NextFunction) {
@@ -24,4 +35,8 @@ export function setDatabaseTenant(organizationId: string) {
 
 export function currentDatabaseTenant() {
   return storage.getStore()?.organizationId;
+}
+
+export function currentDatabaseContext() {
+  return storage.getStore();
 }
