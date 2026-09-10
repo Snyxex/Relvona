@@ -1,11 +1,13 @@
 import { Router } from "express";
 import { and, eq } from "drizzle-orm";
 import { authenticate, tenantContext, requireRole, type AuthRequest } from "../middleware/auth.js";
+import { auditSchedulingMutation } from "../middleware/schedulingAudit.js";
 import { SchedulingService } from "../services/schedulingService.js";
 import { SchedulingAuthorizationService } from "../services/schedulingAuthorizationService.js";
 import { BookingCalendarSyncService } from "../services/bookingCalendarSyncService.js";
 import { BookingAdminService } from "../services/bookingAdminService.js";
 import { BookingAccessService, type SchedulingRole } from "../services/bookingAccessService.js";
+import { SchedulingAuditService } from "../services/schedulingAuditService.js";
 import { MeetingTypeAdminService } from "../services/meetingTypeAdminService.js";
 import { AvailabilityAdminService } from "../services/availabilityAdminService.js";
 import { sendInternalError } from "../utils/httpErrors.js";
@@ -17,6 +19,7 @@ const router = Router();
 router.use(authenticate);
 router.use(tenantContext);
 router.use(requireRole(["owner", "admin", "agent"]));
+router.use(auditSchedulingMutation);
 
 const schedulableMemberError = "Assigned user is not a schedulable organization member";
 
@@ -27,6 +30,15 @@ function role(req: AuthRequest): SchedulingRole {
 function effectiveAssignedUserId(req: AuthRequest, requested?: string) {
   return req.organization!.role === "agent" ? req.user!.id : requested;
 }
+
+router.get("/audit", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
+  try {
+    const limit = req.query.limit ? Number(req.query.limit) : 50;
+    return res.json(await SchedulingAuditService.list(req.organization!.id, limit));
+  } catch (error) {
+    return sendInternalError(req, res, error, { code: "SCHEDULING_AUDIT_LOAD_FAILED", message: "Unable to load scheduling audit trail" });
+  }
+});
 
 router.get("/connections", async (req: AuthRequest, res) => {
   try {
