@@ -7,8 +7,34 @@ export const api = axios.create({
   withCredentials: true,
 });
 
+export const ATTACHMENT_CONTEXT_EVENT = "supportai:attachment-context";
+export type ActiveAttachmentContext = {
+  parentType: "conversation" | "ticket";
+  parentId: string;
+};
+
 const AVATAR_DATA_URL = /^data:image\/(png|jpe?g|webp);base64,/i;
 const MAX_AVATAR_SIZE = 1024 * 1024;
+const UUID = "([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})";
+const CONVERSATION_DETAIL = new RegExp(`^/conversations/${UUID}/(?:messages|timeline|handoff)$`, "i");
+const TICKET_DETAIL = new RegExp(`^/tickets/${UUID}/comments$`, "i");
+
+function publishAttachmentContext(url: string | undefined, method: string | undefined) {
+  if (typeof window === "undefined" || method?.toLowerCase() !== "get" || !url) return;
+  const conversation = url.match(CONVERSATION_DETAIL);
+  if (conversation?.[1]) {
+    window.dispatchEvent(new CustomEvent<ActiveAttachmentContext>(ATTACHMENT_CONTEXT_EVENT, {
+      detail: { parentType: "conversation", parentId: conversation[1] },
+    }));
+    return;
+  }
+  const ticket = url.match(TICKET_DETAIL);
+  if (ticket?.[1]) {
+    window.dispatchEvent(new CustomEvent<ActiveAttachmentContext>(ATTACHMENT_CONTEXT_EVENT, {
+      detail: { parentType: "ticket", parentId: ticket[1] },
+    }));
+  }
+}
 
 async function uploadAvatarDataUrl(dataUrl: string) {
   if (!AVATAR_DATA_URL.test(dataUrl)) throw new Error("Invalid profile image");
@@ -49,6 +75,7 @@ api.interceptors.request.use(async (config) => {
     if (activeOrgId) {
       config.headers["X-Organization-Id"] = activeOrgId;
     }
+    publishAttachmentContext(config.url, config.method);
   }
 
   // Keep the legacy profile form compatible while moving image bytes out of
