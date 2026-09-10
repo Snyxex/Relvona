@@ -13,6 +13,7 @@
     "test:security": "tsx src/tests/security.test.ts",
     "test:error-responses": "tsx src/tests/errorResponses.test.ts",
     "test:tenant-isolation": "tsx src/tests/tenantIsolation.integration.test.ts",
+    "test:database-tenant-context": "tsx src/tests/databaseTenantContext.test.ts",
     "test:customer-tool-isolation": "tsx src/tests/customerToolIsolation.integration.test.ts",
     "test:scheduling-concurrency": "tsx src/tests/schedulingConcurrency.integration.test.ts",
     "test:scheduling-language": "tsx src/tests/schedulingLanguage.test.ts",
@@ -45,7 +46,7 @@
     "test:active-directory": "tsx src/tests/activeDirectoryService.test.ts",
     "test:authorization": "tsx src/tests/authorizationMiddleware.test.ts",
     "test:ingestion-integration": "tsx src/tests/ingestion.integration.test.ts",
-    "test:ci-auth": "npm run build && npm run test:security && npm run test:error-responses && npm run test:authorization && npm run test:tenant-isolation && npm run test:customer-tool-isolation && npm run test:scheduling-concurrency && npm run test:scheduling-language && npm run test:scheduling-access && npm run test:scheduling-audit && npm run test:rag-context-security && npm run test:calendar-reconciliation && npm run test:portal-magic-link && npm run test:action-approval && npm run test:knowledge-gaps && npm run test:knowledge-intelligence && npm run test:knowledge-publication && npm run test:knowledge-retrieval-tracking && npm run test:knowledge-recrawl && npm run test:knowledge-recrawl-change-detection && npm run test:knowledge-collections && npm run test:assistant-knowledge-scope && npm run test:knowledge-revisions && npm run test:webhook-outbox && npm run test:assistant-versions && npm run test:integration-connections && npm run test:integration-sync && npm run test:integration-inbound && npm run test:auth-regression",
+    "test:ci-auth": "npm run build && npm run test:security && npm run test:error-responses && npm run test:authorization && npm run test:database-tenant-context && npm run test:tenant-isolation && npm run test:customer-tool-isolation && npm run test:scheduling-concurrency && npm run test:scheduling-language && npm run test:scheduling-access && npm run test:scheduling-audit && npm run test:rag-context-security && npm run test:calendar-reconciliation && npm run test:portal-magic-link && npm run test:action-approval && npm run test:knowledge-gaps && npm run test:knowledge-intelligence && npm run test:knowledge-publication && npm run test:knowledge-retrieval-tracking && npm run test:knowledge-recrawl && npm run test:knowledge-recrawl-change-detection && npm run test:knowledge-collections && npm run test:assistant-knowledge-scope && npm run test:knowledge-revisions && npm run test:webhook-outbox && npm run test:assistant-versions && npm run test:integration-connections && npm run test:integration-sync && npm run test:integration-inbound && npm run test:auth-regression",
     "secrets:rotate": "tsx src/scripts/rotateEncryptionKey.ts",
     "worker": "node dist/worker.js"
   },
