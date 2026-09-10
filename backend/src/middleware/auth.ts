@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-import { db } from "../db/index.js";
+import { db, pool } from "../db/index.js";
 import { setDatabaseTenant } from "../db/tenantContext.js";
 import { organizationMembers, organizations, apiKeys, platformSupportSessions } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
@@ -171,14 +171,19 @@ export async function authenticateApiKey(req: AuthRequest, res: Response, next: 
 
   const keyPrefix = apiKeyHeader.slice(0, 17);
   const keyHash = crypto.createHash("sha256").update(apiKeyHeader).digest("hex");
-  const [key] = await db.select().from(apiKeys).where(and(eq(apiKeys.keyPrefix, keyPrefix), eq(apiKeys.keyHash, keyHash))).limit(1);
-  if (!key || key.revokedAt || (key.expiresAt && key.expiresAt <= new Date())) return res.status(401).json({ error: "Invalid API Key" });
-  const [org] = await db.select().from(organizations).where(eq(organizations.id, key.organizationId)).limit(1);
+  const resolved = await pool.query<{ id: string; organization_id: string; revoked_at: Date | null; expires_at: Date | null }>(
+    "SELECT * FROM public.supportai_resolve_api_key($1, $2)",
+    [keyPrefix, keyHash],
+  );
+  const key = resolved.rows[0];
+  if (!key || key.revoked_at || (key.expires_at && key.expires_at <= new Date())) return res.status(401).json({ error: "Invalid API Key" });
+
+  setDatabaseTenant(key.organization_id);
+  const [org] = await db.select().from(organizations).where(eq(organizations.id, key.organization_id)).limit(1);
   if (!org || org.status !== "active") return res.status(401).json({ error: "Invalid API Key" });
   await db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, key.id));
 
   req.organization = { id: org.id, name: org.name, slug: org.slug, role: "admin" };
-  setDatabaseTenant(org.id);
   setLogContext({ organizationId: org.id });
   next();
 }
