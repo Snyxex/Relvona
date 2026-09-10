@@ -31,6 +31,16 @@ function effectiveAssignedUserId(req: AuthRequest, requested?: string) {
   return req.organization!.role === "agent" ? req.user!.id : requested;
 }
 
+router.get("/capabilities", (req: AuthRequest, res) => {
+  const canManageConfiguration = req.organization!.role === "owner" || req.organization!.role === "admin";
+  return res.json({
+    role: req.organization!.role,
+    canManageConfiguration,
+    canRetryCalendarSync: canManageConfiguration,
+    canViewAudit: canManageConfiguration,
+  });
+});
+
 router.get("/audit", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
   try {
     const limit = req.query.limit ? Number(req.query.limit) : 50;
@@ -83,7 +93,10 @@ router.patch("/meeting-types/:id", requireRole(["owner", "admin"]), async (req: 
 });
 
 router.get("/availability", async (req: AuthRequest, res) => {
-  try { return res.json(await SchedulingService.listAvailabilityRules(req.organization!.id, typeof req.query.meetingTypeId === "string" ? req.query.meetingTypeId : undefined)); }
+  try {
+    const rows = await SchedulingService.listAvailabilityRules(req.organization!.id, typeof req.query.meetingTypeId === "string" ? req.query.meetingTypeId : undefined);
+    return res.json(req.organization!.role === "agent" ? rows.filter((item) => !item.userId || item.userId === req.user!.id) : rows);
+  }
   catch (error) { return sendInternalError(req, res, error, { code: "AVAILABILITY_LOAD_FAILED", message: "Unable to load availability" }); }
 });
 
@@ -181,7 +194,7 @@ router.get("/bookings/:id/calendar-sync", async (req: AuthRequest, res) => {
     const organizationId = req.organization!.id;
     const booking = await BookingAccessService.assertAccessible({ organizationId, bookingId: req.params.id, role: role(req), userId: req.user!.id });
     const [sync] = await db.select().from(bookingCalendarSync).where(and(eq(bookingCalendarSync.organizationId, organizationId), eq(bookingCalendarSync.bookingId, booking.id))).limit(1);
-    return res.json(sync || { bookingId: booking.id, status: "not_required", action: null, attempts: 0, lastError: null, nextAttemptAt: null });
+    return res.json({ ...(sync || { bookingId: booking.id, status: "not_required", action: null, attempts: 0, lastError: null, nextAttemptAt: null }), canRetry: req.organization!.role === "owner" || req.organization!.role === "admin" });
   } catch (error) {
     if ((error as Error).message === "Booking not found") return res.status(404).json({ error: "Booking not found" });
     return sendInternalError(req, res, error, { code: "BOOKING_CALENDAR_SYNC_LOAD_FAILED", message: "Unable to load calendar sync status" });
