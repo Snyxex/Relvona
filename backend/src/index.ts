@@ -16,7 +16,7 @@ import { verifiedDashboardOrigins } from "./services/dashboardDomainService.js";
 import { dashboardDomainFromRequest, organizationForVerifiedDashboardDomain } from "./services/dashboardDomainService.js";
 import { db } from "./db/index.js";
 import { conversations, organizationMembers, organizations } from "./db/schema.js";
-import { setDatabaseTenant } from "./db/tenantContext.js";
+import { setDatabaseTenant, tenantContextMiddleware } from "./db/tenantContext.js";
 import { domainEventBus } from "./services/domainEventBus.js";
 import { eq, and } from "drizzle-orm";
 import { getCurrentUser } from "./auth/session.js";
@@ -64,6 +64,7 @@ if (socketRedisUrl) {
 
 const allowedOrigins = (process.env.CORS_ORIGIN || "http://localhost:3000").split(",").map((value) => value.trim()).filter(Boolean);
 app.set("trust proxy", 1);
+app.use(tenantContextMiddleware);
 app.use(applySecurityHeaders);
 app.use(requestLogging);
 app.use(httpMetrics);
