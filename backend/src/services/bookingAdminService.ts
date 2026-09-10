@@ -2,6 +2,11 @@ import { and, asc, desc, eq, gte, ilike, lte, or, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { bookingEvents, bookings } from "../db/extendedCustomerExperienceSchema.js";
 
+function safeInteger(value: number | undefined, fallback: number, min: number, max: number) {
+  if (value === undefined || !Number.isFinite(value)) return fallback;
+  return Math.max(min, Math.min(Math.trunc(value), max));
+}
+
 export class BookingAdminService {
   static async search(data: {
     organizationId: string;
@@ -13,8 +18,8 @@ export class BookingAdminService {
     limit?: number;
     offset?: number;
   }) {
-    const limit = Math.max(1, Math.min(data.limit ?? 25, 100));
-    const offset = Math.max(0, data.offset ?? 0);
+    const limit = safeInteger(data.limit, 25, 1, 100);
+    const offset = safeInteger(data.offset, 0, 0, 1_000_000);
     const conditions = [eq(bookings.organizationId, data.organizationId)];
     if (data.assignedUserId) conditions.push(eq(bookings.assignedUserId, data.assignedUserId));
     if (data.status && data.status !== "all") conditions.push(eq(bookings.status, data.status));
