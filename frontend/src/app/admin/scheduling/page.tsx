@@ -1,10 +1,18 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { api } from "@/lib/api";
-import { AvailabilityEditor } from "./AvailabilityEditor";
-import { BookingManager } from "./BookingManager";
-import { SchedulingAuditTrail } from "./SchedulingAuditTrail";
+
+const AvailabilityEditor = dynamic(() => import("./AvailabilityEditor").then((mod) => mod.AvailabilityEditor), {
+  loading: () => <section className="rounded-xl border bg-card p-5 text-sm text-muted-foreground">Verfügbarkeiten werden geladen…</section>,
+});
+const BookingManager = dynamic(() => import("./BookingManager").then((mod) => mod.BookingManager), {
+  loading: () => <section className="rounded-xl border bg-card p-5 text-sm text-muted-foreground">Buchungen werden geladen…</section>,
+});
+const SchedulingAuditTrail = dynamic(() => import("./SchedulingAuditTrail").then((mod) => mod.SchedulingAuditTrail), {
+  loading: () => <section className="rounded-xl border bg-card p-5 text-sm text-muted-foreground">Audit wird geladen…</section>,
+});
 
 type Connection = { id: string; provider: string; externalAccountId?: string | null; status: string; userId?: string | null };
 type MeetingType = { id: string; name: string; description?: string | null; durationMinutes: number; enabled: boolean; bufferBeforeMinutes: number; bufferAfterMinutes: number; minimumNoticeMinutes: number; maxFutureDays: number };
@@ -57,16 +65,32 @@ export default function AdminSchedulingPage() {
   }
 
   async function disconnect(id: string) {
-    try { await api.delete(`/scheduling/connections/${id}`); await load(); }
-    catch (e: any) { setError(e.response?.data?.error || "Kalenderverbindung konnte nicht getrennt werden."); }
+    try {
+      await api.delete(`/scheduling/connections/${id}`);
+      setConnections((current) => current.filter((connection) => connection.id !== id));
+    } catch (e: any) { setError(e.response?.data?.error || "Kalenderverbindung konnte nicht getrennt werden."); }
   }
 
   async function createMeetingType(event: FormEvent) {
     event.preventDefault();
     if (!capabilities?.canManageConfiguration) return;
     setError("");
-    try { await api.post("/scheduling/meeting-types", { name, durationMinutes: duration }); setName(""); await load(); }
-    catch (e: any) { setError(e.response?.data?.error || "Meeting Type konnte nicht erstellt werden."); }
+    try {
+      const { data } = await api.post("/scheduling/meeting-types", { name, durationMinutes: duration });
+      const next = data as MeetingType;
+      setTypes((current) => [...current, next].sort((a, b) => a.name.localeCompare(b.name, "de")));
+      setTypeDrafts((current) => ({ ...current, [next.id]: {
+        name: next.name,
+        description: next.description || "",
+        durationMinutes: next.durationMinutes,
+        enabled: next.enabled,
+        bufferBeforeMinutes: next.bufferBeforeMinutes,
+        bufferAfterMinutes: next.bufferAfterMinutes,
+        minimumNoticeMinutes: next.minimumNoticeMinutes,
+        maxFutureDays: next.maxFutureDays,
+      }}));
+      setName("");
+    } catch (e: any) { setError(e.response?.data?.error || "Meeting Type konnte nicht erstellt werden."); }
   }
 
   function updateDraft(id: string, patch: Partial<MeetingTypeDraft>) {
@@ -79,8 +103,19 @@ export default function AdminSchedulingPage() {
     const draft = typeDrafts[id]; if (!draft) return;
     setSavingTypeId(id); setError("");
     try {
-      await api.patch(`/scheduling/meeting-types/${id}`, draft);
-      await load();
+      const { data } = await api.patch(`/scheduling/meeting-types/${id}`, draft);
+      const updated = data as MeetingType;
+      setTypes((current) => current.map((type) => type.id === id ? updated : type));
+      setTypeDrafts((current) => ({ ...current, [id]: {
+        name: updated.name,
+        description: updated.description || "",
+        durationMinutes: updated.durationMinutes,
+        enabled: updated.enabled,
+        bufferBeforeMinutes: updated.bufferBeforeMinutes,
+        bufferAfterMinutes: updated.bufferAfterMinutes,
+        minimumNoticeMinutes: updated.minimumNoticeMinutes,
+        maxFutureDays: updated.maxFutureDays,
+      }}));
     } catch (e: any) {
       setError(e.response?.data?.error || "Meeting Type konnte nicht gespeichert werden.");
     } finally {
@@ -103,9 +138,7 @@ export default function AdminSchedulingPage() {
     })}</div></section>
 
     <AvailabilityEditor meetingTypes={types} readOnly={!canManageConfiguration} />
-
     <BookingManager onError={setError} />
-
     {capabilities?.canViewAudit && <SchedulingAuditTrail />}
   </main>;
 }
