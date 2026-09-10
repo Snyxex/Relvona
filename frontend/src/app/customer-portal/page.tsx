@@ -109,7 +109,8 @@ export default function CustomerPortalPage() {
     try {
       const response = await portalFetch(`/customer-portal/tickets/${ticketId}/attachments`);
       if (!response.ok) throw new Error("Anhänge konnten nicht geladen werden.");
-      setTicketAttachments((current) => ({ ...current, [ticketId]: await response.json() as PortalAttachment[] }));
+      const attachments = await response.json() as PortalAttachment[];
+      setTicketAttachments((current) => ({ ...current, [ticketId]: attachments }));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Anhänge konnten nicht geladen werden.");
     } finally {
