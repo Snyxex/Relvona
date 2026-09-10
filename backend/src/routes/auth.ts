@@ -6,6 +6,7 @@ import { db } from "../db/index.js";
 import { users, organizationMembers, organizations } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { createRateLimiter } from "../middleware/security.js";
+import { ProfileAvatarService } from "../services/profileAvatarService.js";
 
 const router = Router();
 
@@ -59,14 +60,54 @@ router.get("/organizations", authenticate, async (req: AuthRequest, res) => {
   return res.json(memberships.filter((membership) => membership.organizationStatus === "active" && membership.membershipStatus === "active").map(({ organizationStatus, membershipStatus, ...membership }) => membership));
 });
 
+router.post("/me/avatar/intent", authenticate, createRateLimiter({ keyPrefix: "profile-avatar-intent", limit: 20, windowMs: 15 * 60_000 }), async (req: AuthRequest, res) => {
+  try {
+    const { mimeType, size } = req.body || {};
+    if (typeof mimeType !== "string" || !Number.isInteger(size)) return res.status(400).json({ error: "AVATAR_INVALID" });
+    return res.status(201).json(await ProfileAvatarService.createUploadIntent(req.user!.id, mimeType, size));
+  } catch (error) {
+    const code = (error as Error).message;
+    return res.status(code === "AVATAR_INVALID" ? 400 : 503).json({ error: code === "AVATAR_INVALID" ? code : "AVATAR_STORAGE_UNAVAILABLE" });
+  }
+});
+
+router.post("/me/avatar/:objectId/finalize", authenticate, createRateLimiter({ keyPrefix: "profile-avatar-finalize", limit: 30, windowMs: 15 * 60_000 }), async (req: AuthRequest, res) => {
+  try {
+    return res.json(await ProfileAvatarService.finalize(req.user!.id, req.params.objectId));
+  } catch (error) {
+    const code = (error as Error).message;
+    if (code === "AVATAR_UPLOAD_EXPIRED") return res.status(410).json({ error: code });
+    if (code === "AVATAR_INVALID") return res.status(400).json({ error: code });
+    return res.status(503).json({ error: "AVATAR_STORAGE_UNAVAILABLE" });
+  }
+});
+
+router.delete("/me/avatar", authenticate, createRateLimiter({ keyPrefix: "profile-avatar-delete", limit: 20, windowMs: 15 * 60_000 }), async (req: AuthRequest, res) => {
+  try {
+    await ProfileAvatarService.remove(req.user!.id);
+    return res.status(204).end();
+  } catch {
+    return res.status(503).json({ error: "AVATAR_STORAGE_UNAVAILABLE" });
+  }
+});
+
 router.patch("/me/preferences", authenticate, async (req: AuthRequest, res) => {
   const { preferredLanguage, name, avatarUrl } = req.body || {};
   if (preferredLanguage !== undefined && !['de', 'en', 'es', 'fr'].includes(preferredLanguage)) return res.status(400).json({ error: "Unsupported preferred language" });
   if (name !== undefined && (typeof name !== "string" || name.trim().length < 2 || name.trim().length > 100)) return res.status(400).json({ error: "Name must contain between 2 and 100 characters" });
-  const validAvatar = avatarUrl === null || (typeof avatarUrl === "string" && avatarUrl.length <= 1_500_000 && (/^https:\/\//.test(avatarUrl) || /^data:image\/(png|jpe?g|webp);base64,/.test(avatarUrl)));
-  if (avatarUrl !== undefined && !validAvatar) return res.status(400).json({ error: "Profile image must be an HTTPS URL or a PNG, JPEG, or WebP image up to 1 MB" });
-  const [user] = await db.update(users).set({ preferredLanguage: preferredLanguage ?? undefined, name: typeof name === "string" ? name.trim() : undefined, avatarUrl: avatarUrl === undefined ? undefined : avatarUrl, updatedAt: new Date() }).where(eq(users.id, req.user!.id)).returning();
-  return res.json({ id: user.id, name: user.name, email: user.email, avatarUrl: user.avatarUrl, preferredLanguage: user.preferredLanguage, isPlatformAdmin: req.user!.isPlatformAdmin, systemRole: req.user!.systemRole });
+  const validAvatar = avatarUrl === undefined || avatarUrl === null || (typeof avatarUrl === "string" && avatarUrl.length <= 2048 && /^https:\/\//.test(avatarUrl));
+  if (!validAvatar) return res.status(400).json({ error: "Profile image must be uploaded using the avatar upload endpoint" });
+
+  let nextAvatar: string | null | undefined = undefined;
+  if (avatarUrl === null) {
+    await ProfileAvatarService.remove(req.user!.id);
+    nextAvatar = null;
+  } else if (typeof avatarUrl === "string") {
+    nextAvatar = avatarUrl;
+  }
+
+  const [user] = await db.update(users).set({ preferredLanguage: preferredLanguage ?? undefined, name: typeof name === "string" ? name.trim() : undefined, avatarUrl: nextAvatar, updatedAt: new Date() }).where(eq(users.id, req.user!.id)).returning();
+  return res.json({ id: user.id, name: user.name, email: user.email, avatarUrl: await ProfileAvatarService.resolvePublicUrl(user.avatarUrl), preferredLanguage: user.preferredLanguage, isPlatformAdmin: req.user!.isPlatformAdmin, systemRole: req.user!.systemRole });
 });
 
 export default router;

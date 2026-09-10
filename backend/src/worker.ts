@@ -20,6 +20,7 @@ import { trace } from "@opentelemetry/api";
 import { shutdownTracing } from "./observability/tracing.js";
 import { validateRuntimeConfiguration } from "./config/runtime.js";
 import { FileObjectService } from "./services/fileObjectService.js";
+import { ProfileAvatarService } from "./services/profileAvatarService.js";
 
 validateRuntimeConfiguration();
 const redisUrl = process.env.REDIS_URL;
@@ -111,12 +112,36 @@ function scheduleCalendarSyncSweep() {
     .catch(() => logger.warn("calendar.sync_sweep_failed"))
     .finally(() => { calendarSyncSweeping = undefined; });
 }
+async function cleanupTenantStorage() {
+  let cursor: string | undefined;
+  let deleted = 0;
+  while (!shuttingDown) {
+    const tenants = await db
+      .select({ id: organizations.id })
+      .from(organizations)
+      .where(cursor ? gt(organizations.id, cursor) : undefined)
+      .orderBy(organizations.id)
+      .limit(100);
+    if (!tenants.length) break;
+    for (const tenant of tenants) {
+      if (shuttingDown) break;
+      try {
+        deleted += await FileObjectService.cleanupForOrganization(tenant.id);
+      } catch {
+        logger.warn("storage.tenant_cleanup_failed", { organizationId: tenant.id });
+      }
+    }
+    cursor = tenants[tenants.length - 1].id;
+  }
+  return deleted;
+}
 function scheduleStorageCleanup() {
   if (storageCleanupSweeping || shuttingDown) return;
   storageCleanupSweeping = (async () => {
-    const tenants = await db.select({ id: organizations.id }).from(organizations).limit(10_000);
-    let deleted = 0; for (const tenant of tenants) deleted += await FileObjectService.cleanupForOrganization(tenant.id);
-    if (deleted) logger.info("storage.cleanup_completed", { deleted });
+    const tenantObjectsDeleted = await cleanupTenantStorage();
+    const avatarObjectsDeleted = shuttingDown ? 0 : await ProfileAvatarService.cleanupExpiredUploads(200);
+    const deleted = tenantObjectsDeleted + avatarObjectsDeleted;
+    if (deleted) logger.info("storage.cleanup_completed", { deleted, tenantObjectsDeleted, avatarObjectsDeleted });
   })().catch(() => logger.warn("storage.cleanup_failed")).finally(() => { storageCleanupSweeping = undefined; });
 }
 function scheduleKnowledgeRecrawl() {
