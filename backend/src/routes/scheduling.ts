@@ -5,6 +5,7 @@ import { SchedulingService } from "../services/schedulingService.js";
 import { SchedulingAuthorizationService } from "../services/schedulingAuthorizationService.js";
 import { BookingCalendarSyncService } from "../services/bookingCalendarSyncService.js";
 import { MeetingTypeAdminService } from "../services/meetingTypeAdminService.js";
+import { AvailabilityAdminService } from "../services/availabilityAdminService.js";
 import { sendInternalError } from "../utils/httpErrors.js";
 import { db } from "../db/index.js";
 import { bookingCalendarSync } from "../db/bookingCalendarSyncSchema.js";
@@ -73,6 +74,27 @@ router.post("/availability", requireRole(["owner", "admin"]), async (req: AuthRe
     const message = (error as Error).message;
     if (["Invalid availability rule", "User not found", "Meeting type not found", schedulableMemberError].includes(message)) return res.status(400).json({ error: message });
     return sendInternalError(req, res, error, { code: "AVAILABILITY_CREATE_FAILED", message: "Unable to create availability" });
+  }
+});
+
+router.patch("/availability/:id", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
+  try {
+    const userId = req.body?.userId === null ? undefined : typeof req.body?.userId === "string" ? req.body.userId : undefined;
+    if (req.body?.userId !== undefined) await SchedulingAuthorizationService.assertSchedulableMember(req.organization!.id, userId);
+    return res.json(await AvailabilityAdminService.update(req.organization!.id, req.params.id, req.body || {}));
+  } catch (error) {
+    const message = (error as Error).message;
+    if (message === "Availability rule not found") return res.status(404).json({ error: message });
+    if (["Invalid availability rule", "User not found", "Meeting type not found", schedulableMemberError].includes(message)) return res.status(400).json({ error: message });
+    return sendInternalError(req, res, error, { code: "AVAILABILITY_UPDATE_FAILED", message: "Unable to update availability" });
+  }
+});
+
+router.delete("/availability/:id", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
+  try { await AvailabilityAdminService.remove(req.organization!.id, req.params.id); return res.status(204).end(); }
+  catch (error) {
+    if ((error as Error).message === "Availability rule not found") return res.status(404).json({ error: "Availability rule not found" });
+    return sendInternalError(req, res, error, { code: "AVAILABILITY_DELETE_FAILED", message: "Unable to delete availability" });
   }
 });
 
