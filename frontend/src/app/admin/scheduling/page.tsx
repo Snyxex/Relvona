@@ -3,11 +3,10 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { AvailabilityEditor } from "./AvailabilityEditor";
+import { BookingManager, type Booking, type CalendarSync } from "./BookingManager";
 
 type Connection = { id: string; provider: string; externalAccountId?: string | null; status: string; userId?: string | null };
 type MeetingType = { id: string; name: string; description?: string | null; durationMinutes: number; enabled: boolean; bufferBeforeMinutes: number; bufferAfterMinutes: number; minimumNoticeMinutes: number; maxFutureDays: number };
-type Booking = { id: string; startsAt: string; endsAt: string; status: string; meetingUrl?: string | null; guestEmail?: string | null; providerEventId?: string | null };
-type CalendarSync = { bookingId: string; status: string; action?: string | null; attempts: number; lastError?: string | null; nextAttemptAt?: string | null };
 type MeetingTypeDraft = Pick<MeetingType, "name" | "description" | "durationMinutes" | "enabled" | "bufferBeforeMinutes" | "bufferAfterMinutes" | "minimumNoticeMinutes" | "maxFutureDays">;
 
 export default function AdminSchedulingPage() {
@@ -101,22 +100,6 @@ export default function AdminSchedulingPage() {
     }
   }
 
-  function syncLabel(sync?: CalendarSync) {
-    if (!sync || sync.status === "not_required") return "kein externer Sync";
-    if (sync.status === "synced") return "Kalender synchron";
-    if (sync.status === "processing") return "Synchronisierung läuft";
-    if (sync.status === "pending") return "Synchronisierung ausstehend";
-    if (sync.status === "failed") return "Synchronisierung fehlgeschlagen";
-    if (sync.status === "exhausted") return "Retries ausgeschöpft";
-    return "Sync-Status unbekannt";
-  }
-
-  function syncClass(sync?: CalendarSync) {
-    if (sync?.status === "synced" || sync?.status === "not_required") return "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-    if (sync?.status === "failed" || sync?.status === "exhausted") return "border-destructive/40 bg-destructive/10 text-destructive";
-    return "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300";
-  }
-
   return <main className="mx-auto max-w-6xl space-y-6 p-4 sm:p-8">
     <div><p className="text-sm text-muted-foreground">Integrationen & Termine</p><h1 className="text-2xl font-semibold">Scheduling</h1><p className="mt-2 text-sm text-muted-foreground">Kalender anbinden, Terminarten verwalten und aktuelle Buchungen prüfen.</p></div>
     {error && <div className="rounded-lg border p-3 text-sm text-destructive">{error}</div>}
@@ -130,10 +113,6 @@ export default function AdminSchedulingPage() {
 
     <AvailabilityEditor meetingTypes={types} />
 
-    <section className="rounded-xl border bg-card p-5"><h2 className="mb-4 font-semibold">Buchungen</h2><div className="space-y-3">{bookings.length ? bookings.map((booking) => {
-      const sync = syncByBooking[booking.id];
-      const retryable = sync?.status === "failed" || sync?.status === "exhausted";
-      return <div key={booking.id} className="rounded-lg border p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-medium">{new Date(booking.startsAt).toLocaleString("de-DE")}</p><p className="text-xs text-muted-foreground">{booking.guestEmail || "Ohne Gast-E-Mail"} · {booking.status}</p></div><div className="flex flex-wrap gap-2">{booking.meetingUrl && <a href={booking.meetingUrl} target="_blank" rel="noreferrer" className="rounded-lg border px-3 py-2 text-sm">Meeting öffnen</a>}{retryable && <button type="button" disabled={retryingBookingId === booking.id} onClick={() => retryCalendarSync(booking.id)} className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50">{retryingBookingId === booking.id ? "Retry läuft…" : "Kalender-Sync erneut versuchen"}</button>}</div></div><div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${syncClass(sync)}`}><div className="flex flex-wrap items-center justify-between gap-2"><span className="font-medium">{syncLabel(sync)}</span>{sync?.action && <span>{sync.action} · Versuch {sync.attempts}</span>}</div>{sync?.lastError && <p className="mt-1 break-words opacity-80">{sync.lastError}</p>}{sync?.nextAttemptAt && <p className="mt-1 opacity-70">Nächster automatischer Versuch: {new Date(sync.nextAttemptAt).toLocaleString("de-DE")}</p>}</div></div>;
-    }) : <p className="text-sm text-muted-foreground">Noch keine Buchungen.</p>}</div></section>
+    <BookingManager bookings={bookings} syncByBooking={syncByBooking} retryingBookingId={retryingBookingId} onRetrySync={retryCalendarSync} onReload={load} onError={setError} />
   </main>;
 }
