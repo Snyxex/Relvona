@@ -27,8 +27,8 @@ type AvatarUploadRow = {
 };
 
 function directUploadAvailable() {
-  const provider = objectStorageConfig().provider;
-  return provider === "s3" || provider === "rustfs";
+  const config = objectStorageConfig();
+  return config.enabled && (config.provider === "s3" || config.provider === "rustfs");
 }
 
 function avatarKey(userId: string, objectId: string) {
@@ -60,6 +60,7 @@ export class ProfileAvatarService {
 
   static async resolvePublicUrl(reference: string | null | undefined) {
     if (!reference || !this.isStorageReference(reference)) return reference ?? null;
+    if (!directUploadAvailable()) return null;
     try {
       return await objectStorage().createSignedDownloadUrl(
         this.keyFromReference(reference),
@@ -99,6 +100,7 @@ export class ProfileAvatarService {
   }
 
   static async finalize(userId: string, objectId: string) {
+    if (!directUploadAvailable()) throw new Error("AVATAR_STORAGE_UNAVAILABLE");
     if (!/^[0-9a-f-]{36}$/i.test(objectId)) throw new Error("AVATAR_INVALID");
 
     const lookup = await db.execute(sql`
@@ -164,6 +166,7 @@ export class ProfileAvatarService {
   }
 
   static async cleanupExpiredUploads(limit = 100) {
+    if (!directUploadAvailable()) return 0;
     const safeLimit = Math.max(1, Math.min(500, Number.isFinite(limit) ? Math.floor(limit) : 100));
     const result = await db.execute(sql`
       SELECT id, user_id, storage_key, mime_type, expected_size, status, expires_at
@@ -194,7 +197,7 @@ export class ProfileAvatarService {
     const [existing] = await db.select({ avatarUrl: users.avatarUrl }).from(users).where(eq(users.id, userId)).limit(1);
     if (!existing) throw new Error("AVATAR_USER_NOT_FOUND");
     await db.update(users).set({ avatarUrl: null, updatedAt: new Date() }).where(eq(users.id, userId));
-    if (existing.avatarUrl && this.isStorageReference(existing.avatarUrl)) {
+    if (existing.avatarUrl && this.isStorageReference(existing.avatarUrl) && directUploadAvailable()) {
       await objectStorage().deleteObject(this.keyFromReference(existing.avatarUrl)).catch(() => undefined);
     }
   }
