@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { availabilityRules, meetingTypes } from "../db/extendedCustomerExperienceSchema.js";
-import { users } from "../db/schema.js";
+import { organizationMembers } from "../db/schema.js";
 
 function validTimezone(value: string) {
   try { Intl.DateTimeFormat("en", { timeZone: value }).format(new Date()); return true; } catch { return false; }
@@ -32,8 +32,8 @@ export class AvailabilityAdminService {
       if (!type) throw new Error("Meeting type not found");
     }
     if (userId) {
-      const [user] = await db.select({ id: users.id }).from(users).where(and(eq(users.organizationId, organizationId), eq(users.id, userId))).limit(1);
-      if (!user) throw new Error("User not found");
+      const [member] = await db.select({ id: organizationMembers.id }).from(organizationMembers).where(and(eq(organizationMembers.organizationId, organizationId), eq(organizationMembers.userId, userId), eq(organizationMembers.status, "active"))).limit(1);
+      if (!member) throw new Error("User not found");
     }
 
     const [updated] = await db.update(availabilityRules).set({ weekday, startMinute, endMinute, timezone, enabled, meetingTypeId: meetingTypeId || null, userId: userId || null, updatedAt: new Date() }).where(and(eq(availabilityRules.organizationId, organizationId), eq(availabilityRules.id, ruleId))).returning();
