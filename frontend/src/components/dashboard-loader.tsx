@@ -27,8 +27,11 @@ export default function DashboardLoader({ administration = false }: { administra
       const detail = (event as CustomEvent<ActiveAttachmentContext>).detail;
       if (!detail || !["conversation", "ticket"].includes(detail.parentType)) return;
       if (!/^[0-9a-f-]{36}$/i.test(detail.parentId)) return;
-      setAttachmentContext(detail);
-      setAttachmentOpen(false);
+      setAttachmentContext((current) => {
+        const changed = !current || current.parentType !== detail.parentType || current.parentId !== detail.parentId;
+        if (changed) setAttachmentOpen(false);
+        return changed ? detail : current;
+      });
     };
     window.addEventListener(ATTACHMENT_CONTEXT_EVENT, onContext);
     return () => window.removeEventListener(ATTACHMENT_CONTEXT_EVENT, onContext);
