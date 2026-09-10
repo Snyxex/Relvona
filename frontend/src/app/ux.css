@@ -1,0 +1,90 @@
+/* Interaction and responsive refinements layered on top of the shared theme. */
+
+@media (max-width: 900px) {
+  .h-screen > aside.w-64 {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .h-screen > aside.w-64 nav {
+    display: flex !important;
+    gap: 0.4rem;
+    overflow-x: auto !important;
+    overflow-y: hidden;
+    padding: 0.5rem 0.75rem 0.75rem;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+  }
+
+  .h-screen > aside.w-64 nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .h-screen > aside.w-64 nav > button,
+  .h-screen > aside.w-64 nav > a {
+    width: auto !important;
+    min-width: max-content !important;
+    min-height: 40px;
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+    padding-inline: 0.75rem;
+  }
+
+  .h-screen > aside.w-64 nav > button span,
+  .h-screen > aside.w-64 nav > a span {
+    max-width: 10rem;
+  }
+
+  .h-screen > aside.w-64 > div:last-child {
+    min-height: 44px;
+    padding: 0.45rem 0.75rem;
+    background: rgba(7, 11, 20, 0.52);
+    border-color: var(--border) !important;
+  }
+
+  .h-screen > aside.w-64 > div:last-child p:last-child {
+    display: none;
+  }
+
+  .h-screen:has(> aside.w-64) > main {
+    flex: 1 1 auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .h-screen > aside.w-64 nav {
+    display: flex !important;
+    padding: 0.45rem 0.625rem 0.625rem;
+  }
+
+  .h-screen > aside.w-64 nav > button,
+  .h-screen > aside.w-64 nav > a {
+    min-height: 40px;
+    padding-block: 0.55rem;
+  }
+
+  .overflow-x-auto {
+    border-radius: 0.875rem;
+  }
+}
+
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.48;
+  filter: saturate(0.7);
+}
+
+button.text-destructive:hover,
+a.text-destructive:hover {
+  background: rgba(255, 107, 122, 0.09);
+  border-color: rgba(255, 107, 122, 0.32) !important;
+}
