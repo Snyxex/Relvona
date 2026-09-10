@@ -25,6 +25,7 @@ export default function AttachmentPanel({
   const [items, setItems] = useState<AttachmentListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [visibility, setVisibility] = useState<AttachmentVisibility>("INTERNAL_ONLY");
   const [error, setError] = useState<string | null>(null);
@@ -43,28 +44,31 @@ export default function AttachmentPanel({
 
   useEffect(() => {
     setLoading(true);
+    setItems([]);
     void refresh();
   }, [refresh]);
 
   const upload = async (file?: File) => {
-    if (!file) return;
+    if (!file || uploading) return;
     setUploading(true);
     setError(null);
     try {
       const created = await uploadAttachment({ parentType, parentId, file, visibility });
       setItems((current) => [created, ...current.filter((item) => item.id !== created.id)]);
       if (inputRef.current) inputRef.current.value = "";
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "";
+    } catch (uploadError) {
+      const message = uploadError instanceof Error ? uploadError.message : "";
       if (message.includes("TYPE_NOT_ALLOWED")) setError("Dieser Dateityp ist nicht erlaubt.");
       else if (message.includes("SIZE_INVALID")) setError("Dateien dürfen maximal 10 MB groß sein.");
       else setError("Upload fehlgeschlagen. Bitte erneut versuchen.");
     } finally {
       setUploading(false);
+      setDragging(false);
     }
   };
 
   const remove = async (item: AttachmentListItem) => {
+    if (!window.confirm(`„${item.originalFilename}“ wirklich löschen?`)) return;
     setDeletingId(item.id);
     setError(null);
     try {
@@ -87,36 +91,46 @@ export default function AttachmentPanel({
             <p className="text-[10px] text-slate-500">PDF, PNG, JPEG, WebP, TXT oder CSV · max. 10 MB</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {allowCustomerVisible && (
-            <select
-              value={visibility}
-              onChange={(event) => setVisibility(event.target.value as AttachmentVisibility)}
-              disabled={uploading}
-              className="rounded border border-slate-700 bg-slate-800 px-2 py-1.5 text-[10px] text-slate-200"
-            >
-              <option value="INTERNAL_ONLY">Nur intern</option>
-              <option value="CUSTOMER_VISIBLE">Für Kunden sichtbar</option>
-            </select>
-          )}
-          <input
-            ref={inputRef}
-            type="file"
-            className="hidden"
-            accept="application/pdf,image/png,image/jpeg,image/webp,text/plain,text/csv,.pdf,.png,.jpg,.jpeg,.webp,.txt,.csv"
-            onChange={(event) => void upload(event.target.files?.[0])}
-          />
-          <button
-            type="button"
+        {allowCustomerVisible && (
+          <select
+            value={visibility}
+            onChange={(event) => setVisibility(event.target.value as AttachmentVisibility)}
             disabled={uploading}
-            onClick={() => inputRef.current?.click()}
-            className="inline-flex items-center gap-1.5 rounded bg-blue-600 px-2.5 py-1.5 font-semibold text-white hover:bg-blue-500 disabled:opacity-50"
+            className="rounded border border-slate-700 bg-slate-800 px-2 py-1.5 text-[10px] text-slate-200"
           >
-            {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-            {uploading ? "Upload…" : "Datei hinzufügen"}
-          </button>
-        </div>
+            <option value="INTERNAL_ONLY">Nur intern</option>
+            <option value="CUSTOMER_VISIBLE">Für Kunden sichtbar</option>
+          </select>
+        )}
       </div>
+
+      <input
+        ref={inputRef}
+        type="file"
+        className="hidden"
+        accept="application/pdf,image/png,image/jpeg,image/webp,text/plain,text/csv,.pdf,.png,.jpg,.jpeg,.webp,.txt,.csv"
+        onChange={(event) => void upload(event.target.files?.[0])}
+      />
+      <button
+        type="button"
+        disabled={uploading}
+        onClick={() => inputRef.current?.click()}
+        onDragEnter={(event) => { event.preventDefault(); if (!uploading) setDragging(true); }}
+        onDragOver={(event) => { event.preventDefault(); if (!uploading) setDragging(true); }}
+        onDragLeave={(event) => {
+          event.preventDefault();
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          setDragging(false);
+          void upload(event.dataTransfer.files?.[0]);
+        }}
+        className={`mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed px-3 py-4 text-xs font-medium transition-colors disabled:opacity-50 ${dragging ? "border-blue-500 bg-blue-950/30 text-blue-200" : "border-slate-700 bg-slate-950/30 text-slate-400 hover:border-slate-600 hover:text-slate-200"}`}
+      >
+        {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+        {uploading ? "Datei wird direkt hochgeladen…" : dragging ? "Datei hier ablegen" : "Datei auswählen oder hierher ziehen"}
+      </button>
 
       {error && <p className="mt-3 rounded border border-red-900/70 bg-red-950/30 px-2.5 py-2 text-red-300">{error}</p>}
 
@@ -143,7 +157,7 @@ export default function AttachmentPanel({
               </div>
               <button
                 type="button"
-                onClick={() => void downloadAttachment(item.id)}
+                onClick={() => void downloadAttachment(item.id).catch(() => setError("Anhang konnte nicht heruntergeladen werden."))}
                 className="rounded p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white"
                 title="Herunterladen"
               >
