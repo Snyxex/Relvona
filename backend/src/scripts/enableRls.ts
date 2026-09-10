@@ -30,10 +30,6 @@ async function main() {
       await client.query(`CREATE POLICY supportai_tenant_isolation ON "${table}" USING (organization_id::text = current_setting('app.organization_id', true)) WITH CHECK (organization_id::text = current_setting('app.organization_id', true))`);
     }
 
-    // Customer-facing retrieval reads document_chunks through the restricted
-    // application role. Enforce publication at the database boundary as defense
-    // in depth: legacy sources without an intelligence record remain readable,
-    // while an explicit DRAFT/ARCHIVED state immediately hides their chunks.
     const chunksExist = await client.query("SELECT to_regclass('public.document_chunks') AS table_name");
     const intelligenceExists = await client.query("SELECT to_regclass('public.knowledge_source_intelligence') AS table_name");
     if (chunksExist.rows[0]?.table_name && intelligenceExists.rows[0]?.table_name) {
@@ -60,7 +56,19 @@ async function main() {
     await client.query(`DROP FUNCTION IF EXISTS public.supportai_public_widget_assistant_for_org(uuid)`);
     await client.query("REVOKE ALL ON FUNCTION public.supportai_public_widget_assistant(uuid, text) FROM PUBLIC");
     await client.query(`GRANT EXECUTE ON FUNCTION public.supportai_public_widget_assistant(uuid, text) TO "${appRole}"`);
-    console.log("Enabled forced RLS policies for tenant-owned tables and knowledge publication filtering.");
+
+    await client.query(`CREATE OR REPLACE FUNCTION public.supportai_resolve_api_key(supplied_prefix text, supplied_hash text)
+      RETURNS TABLE (id uuid, organization_id uuid, revoked_at timestamp without time zone, expires_at timestamp without time zone)
+      LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
+        SELECT k.id, k.organization_id, k.revoked_at, k.expires_at
+        FROM public.api_keys k
+        WHERE k.key_prefix = supplied_prefix AND k.key_hash = supplied_hash
+        LIMIT 1
+      $$`);
+    await client.query("REVOKE ALL ON FUNCTION public.supportai_resolve_api_key(text, text) FROM PUBLIC");
+    await client.query(`GRANT EXECUTE ON FUNCTION public.supportai_resolve_api_key(text, text) TO "${appRole}"`);
+
+    console.log("Enabled forced RLS policies and restricted public resolver functions.");
   } finally {
     await client.end();
   }
