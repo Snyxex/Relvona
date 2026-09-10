@@ -8,10 +8,8 @@ function matchId(path: string, pattern: RegExp) {
   return path.match(pattern)?.[1];
 }
 
-function resolveTarget(req: AuthRequest): AuditTarget | undefined {
-  const method = req.method.toUpperCase();
-  const path = req.path;
-
+export function resolveSchedulingAuditTarget(methodInput: string, path: string): AuditTarget | undefined {
+  const method = methodInput.toUpperCase();
   const connectionId = matchId(path, /^\/connections\/([^/]+)$/);
   if (method === "DELETE" && connectionId) return { action: "scheduling.calendar.disconnect", resourceType: "calendar_connection", resourceId: connectionId };
   if (method === "POST" && path === "/meeting-types") return { action: "scheduling.meeting_type.create", resourceType: "meeting_type" };
@@ -32,7 +30,7 @@ function resolveTarget(req: AuthRequest): AuditTarget | undefined {
 }
 
 export function auditSchedulingMutation(req: AuthRequest, res: Response, next: NextFunction) {
-  const target = resolveTarget(req);
+  const target = resolveSchedulingAuditTarget(req.method, req.path);
   if (!target) return next();
 
   res.once("finish", () => {
