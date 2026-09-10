@@ -4,6 +4,7 @@ import { authenticate, tenantContext, requireRole, type AuthRequest } from "../m
 import { SchedulingService } from "../services/schedulingService.js";
 import { SchedulingAuthorizationService } from "../services/schedulingAuthorizationService.js";
 import { BookingCalendarSyncService } from "../services/bookingCalendarSyncService.js";
+import { BookingAdminService } from "../services/bookingAdminService.js";
 import { MeetingTypeAdminService } from "../services/meetingTypeAdminService.js";
 import { AvailabilityAdminService } from "../services/availabilityAdminService.js";
 import { sendInternalError } from "../utils/httpErrors.js";
@@ -117,6 +118,32 @@ router.get("/slots", async (req: AuthRequest, res) => {
 router.get("/bookings", async (req: AuthRequest, res) => {
   try { return res.json(await SchedulingService.listBookings(req.organization!.id)); }
   catch (error) { return sendInternalError(req, res, error, { code: "BOOKINGS_LOAD_FAILED", message: "Unable to load bookings" }); }
+});
+
+router.get("/bookings-search", async (req: AuthRequest, res) => {
+  try {
+    const from = typeof req.query.from === "string" ? new Date(req.query.from) : undefined;
+    const to = typeof req.query.to === "string" ? new Date(req.query.to) : undefined;
+    return res.json(await BookingAdminService.search({
+      organizationId: req.organization!.id,
+      status: typeof req.query.status === "string" ? req.query.status : undefined,
+      from,
+      to,
+      query: typeof req.query.query === "string" ? req.query.query : undefined,
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+      offset: req.query.offset ? Number(req.query.offset) : undefined,
+    }));
+  } catch (error) {
+    return sendInternalError(req, res, error, { code: "BOOKINGS_SEARCH_FAILED", message: "Unable to search bookings" });
+  }
+});
+
+router.get("/bookings/:id/events", async (req: AuthRequest, res) => {
+  try { return res.json(await BookingAdminService.history(req.organization!.id, req.params.id)); }
+  catch (error) {
+    if ((error as Error).message === "Booking not found") return res.status(404).json({ error: "Booking not found" });
+    return sendInternalError(req, res, error, { code: "BOOKING_HISTORY_LOAD_FAILED", message: "Unable to load booking history" });
+  }
 });
 
 router.get("/bookings/:id/calendar-sync", async (req: AuthRequest, res) => {
