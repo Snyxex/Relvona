@@ -36,27 +36,31 @@ export class BookingAdminService {
       )!);
     }
     const where = and(...conditions)!;
-    const [rows, [countRow]] = await Promise.all([
-      db.select({
-        booking: bookings,
-        syncId: bookingCalendarSync.id,
-        syncAction: bookingCalendarSync.action,
-        syncStatus: bookingCalendarSync.status,
-        syncAttempts: bookingCalendarSync.attempts,
-        syncLastError: bookingCalendarSync.lastError,
-        syncNextAttemptAt: bookingCalendarSync.nextAttemptAt,
-      })
-        .from(bookings)
-        .leftJoin(bookingCalendarSync, and(
-          eq(bookingCalendarSync.organizationId, bookings.organizationId),
-          eq(bookingCalendarSync.bookingId, bookings.id),
-        ))
-        .where(where)
-        .orderBy(asc(bookings.startsAt))
-        .limit(limit)
-        .offset(offset),
-      db.select({ count: sql<number>`count(*)::int` }).from(bookings).where(where),
-    ]);
+    const rows = await db.select({
+      booking: bookings,
+      syncId: bookingCalendarSync.id,
+      syncAction: bookingCalendarSync.action,
+      syncStatus: bookingCalendarSync.status,
+      syncAttempts: bookingCalendarSync.attempts,
+      syncLastError: bookingCalendarSync.lastError,
+      syncNextAttemptAt: bookingCalendarSync.nextAttemptAt,
+      totalCount: sql<number>`count(*) over()::int`,
+    })
+      .from(bookings)
+      .leftJoin(bookingCalendarSync, and(
+        eq(bookingCalendarSync.organizationId, bookings.organizationId),
+        eq(bookingCalendarSync.bookingId, bookings.id),
+      ))
+      .where(where)
+      .orderBy(asc(bookings.startsAt))
+      .limit(limit)
+      .offset(offset);
+
+    let total = Number(rows[0]?.totalCount || 0);
+    if (!rows.length && offset > 0) {
+      const [countRow] = await db.select({ count: sql<number>`count(*)::int` }).from(bookings).where(where);
+      total = Number(countRow?.count || 0);
+    }
 
     const items = rows.map((row) => ({
       ...row.booking,
@@ -77,7 +81,7 @@ export class BookingAdminService {
       },
     }));
 
-    return { items, total: Number(countRow?.count || 0), limit, offset };
+    return { items, total, limit, offset };
   }
 
   static async history(organizationId: string, bookingId: string) {
