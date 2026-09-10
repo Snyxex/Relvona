@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { AvailabilityEditor } from "./AvailabilityEditor";
 import { BookingManager } from "./BookingManager";
+import { SchedulingAuditTrail } from "./SchedulingAuditTrail";
 
 type Connection = { id: string; provider: string; externalAccountId?: string | null; status: string; userId?: string | null };
 type MeetingType = { id: string; name: string; description?: string | null; durationMinutes: number; enabled: boolean; bufferBeforeMinutes: number; bufferAfterMinutes: number; minimumNoticeMinutes: number; maxFutureDays: number };
@@ -88,5 +89,7 @@ export default function AdminSchedulingPage() {
     <AvailabilityEditor meetingTypes={types} />
 
     <BookingManager onError={setError} />
+
+    <SchedulingAuditTrail />
   </main>;
 }
