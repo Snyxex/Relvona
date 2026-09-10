@@ -40,13 +40,14 @@ const corePoolQuery = pool.query.bind(pool);
 
 async function requestScopedQuery(...args: Parameters<typeof pool.query>) {
   const context = currentDatabaseContext();
-  if (!context) return corePoolQuery(...args);
+  if (!context?.requestScoped) return corePoolQuery(...args);
   if (context.released) throw new Error("Database request context already released");
 
   if (!context.requestClientPromise) {
     context.requestClientPromise = requestPool.connect() as Promise<RequestDatabaseClient>;
   }
   const client = await context.requestClientPromise;
+  if (context.released) throw new Error("Database request context already released");
   context.requestClient = client;
 
   const organizationId = currentDatabaseTenant();
@@ -56,11 +57,11 @@ async function requestScopedQuery(...args: Parameters<typeof pool.query>) {
     context.appliedTenantId = organizationId;
   }
 
-  return client.query(...args as any);
+  return (client.query as any)(...args);
 }
 
 // Drizzle uses pool.query internally. Route HTTP traffic through the request-scoped
-// client while keeping explicit transactions and worker traffic on the core pool.
+// client while keeping explicit transactions and transient/worker traffic on the core pool.
 pool.query = requestScopedQuery as typeof pool.query;
 
 export const db = drizzle(pool, { schema });
