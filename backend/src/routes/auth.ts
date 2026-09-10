@@ -71,16 +71,18 @@ router.post("/me/avatar/intent", authenticate, createRateLimiter({ keyPrefix: "p
   }
 });
 
-router.post("/me/avatar/:objectId/finalize", authenticate, async (req: AuthRequest, res) => {
+router.post("/me/avatar/:objectId/finalize", authenticate, createRateLimiter({ keyPrefix: "profile-avatar-finalize", limit: 30, windowMs: 15 * 60_000 }), async (req: AuthRequest, res) => {
   try {
     return res.json(await ProfileAvatarService.finalize(req.user!.id, req.params.objectId));
   } catch (error) {
     const code = (error as Error).message;
-    return res.status(code === "AVATAR_INVALID" ? 400 : 503).json({ error: code === "AVATAR_INVALID" ? code : "AVATAR_STORAGE_UNAVAILABLE" });
+    if (code === "AVATAR_UPLOAD_EXPIRED") return res.status(410).json({ error: code });
+    if (code === "AVATAR_INVALID") return res.status(400).json({ error: code });
+    return res.status(503).json({ error: "AVATAR_STORAGE_UNAVAILABLE" });
   }
 });
 
-router.delete("/me/avatar", authenticate, async (req: AuthRequest, res) => {
+router.delete("/me/avatar", authenticate, createRateLimiter({ keyPrefix: "profile-avatar-delete", limit: 20, windowMs: 15 * 60_000 }), async (req: AuthRequest, res) => {
   try {
     await ProfileAvatarService.remove(req.user!.id);
     return res.status(204).end();
