@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 
 export type KnowledgeSource = {
@@ -10,17 +10,45 @@ export type KnowledgeSource = {
 };
 type Editor = { sourceId: string; title: string; content: string; category: string; language: string };
 
-export default function KnowledgeSources({ sources, canManage, onRefresh, notify }: {
+function KnowledgeSources({ sources, canManage, onRefresh, notify }: {
   sources: KnowledgeSource[]; canManage: boolean; onRefresh: () => Promise<void>; notify: (message: string) => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
+  const refreshRef = useRef(onRefresh);
+  refreshRef.current = onRefresh;
   const pending = sources.some((source) => ["queued", "processing"].includes(source.status));
+
   useEffect(() => {
     if (!pending) return;
-    const timer = setInterval(() => { void onRefresh(); }, 5000);
-    return () => clearInterval(timer);
-  }, [pending, onRefresh]);
+    let timer: number | undefined;
+
+    const schedule = () => {
+      if (timer) window.clearTimeout(timer);
+      if (document.visibilityState !== "visible") return;
+      timer = window.setTimeout(async () => {
+        await refreshRef.current();
+        schedule();
+      }, 5000);
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void refreshRef.current();
+        schedule();
+      } else if (timer) {
+        window.clearTimeout(timer);
+        timer = undefined;
+      }
+    };
+
+    schedule();
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [pending]);
 
   async function action(source: KnowledgeSource, operation: "reprocess" | "delete" | "edit") {
     if (operation === "delete" && !window.confirm(`„${source.title}“ und alle zugehörigen Chunks löschen?`)) return;
@@ -66,3 +94,5 @@ export default function KnowledgeSources({ sources, canManage, onRefresh, notify
     </table></div>
   </section>;
 }
+
+export default memo(KnowledgeSources);
