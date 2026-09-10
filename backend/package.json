@@ -43,6 +43,7 @@
     "test:ingestion": "tsx src/tests/ingestion.test.ts",
     "test:storage": "tsx src/tests/objectStorage.test.ts",
     "test:storage-config": "tsx src/tests/objectStorageConfig.test.ts",
+    "test:storage-rustfs": "tsx src/tests/rustfs.integration.test.ts",
     "test:github": "tsx src/tests/githubIssueService.test.ts",
     "test:active-directory": "tsx src/tests/activeDirectoryService.test.ts",
     "test:authorization": "tsx src/tests/authorizationMiddleware.test.ts",
