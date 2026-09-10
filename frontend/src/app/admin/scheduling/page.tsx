@@ -4,13 +4,13 @@ import { FormEvent, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { api } from "@/lib/api";
 
-const AvailabilityEditor = dynamic(() => import("./AvailabilityEditor").then((mod) => mod.AvailabilityEditor), {
+const AvailabilityEditor = dynamic(() => import("./AvailabilityEditorMemo").then((mod) => mod.AvailabilityEditorMemo), {
   loading: () => <section className="rounded-xl border bg-card p-5 text-sm text-muted-foreground">Verfügbarkeiten werden geladen…</section>,
 });
-const BookingManager = dynamic(() => import("./BookingManager").then((mod) => mod.BookingManager), {
+const BookingManager = dynamic(() => import("./BookingManagerMemo").then((mod) => mod.BookingManagerMemo), {
   loading: () => <section className="rounded-xl border bg-card p-5 text-sm text-muted-foreground">Buchungen werden geladen…</section>,
 });
-const SchedulingAuditTrail = dynamic(() => import("./SchedulingAuditTrail").then((mod) => mod.SchedulingAuditTrail), {
+const SchedulingAuditTrail = dynamic(() => import("./SchedulingAuditTrailMemo").then((mod) => mod.SchedulingAuditTrailMemo), {
   loading: () => <section className="rounded-xl border bg-card p-5 text-sm text-muted-foreground">Audit wird geladen…</section>,
 });
 
