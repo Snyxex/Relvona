@@ -37,7 +37,7 @@ const nextConfig: NextConfig = {
   turbopack: {
     resolveAlias: {
       "socket.io-client": "./src/lib/lazy-socket-client.ts",
-      "socket.io-client-real": "./node_modules/socket.io-client/build/esm-debug/index.js",
+      "socket.io-client-real": "./node_modules/socket.io-client/build/esm/index.js",
     },
   },
   async headers() {
