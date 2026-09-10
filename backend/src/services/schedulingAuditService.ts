@@ -16,6 +16,11 @@ export const schedulingAuditActions = [
   "scheduling.booking.cancel",
 ] as const;
 
+function safeLimit(value: number) {
+  if (!Number.isFinite(value)) return 50;
+  return Math.max(1, Math.min(Math.trunc(value), 100));
+}
+
 export class SchedulingAuditService {
   static async record(data: {
     organizationId: string;
@@ -47,6 +52,6 @@ export class SchedulingAuditService {
     return db.select().from(auditLogs)
       .where(and(eq(auditLogs.organizationId, organizationId), inArray(auditLogs.action, [...schedulingAuditActions])))
       .orderBy(desc(auditLogs.createdAt))
-      .limit(Math.max(1, Math.min(limit, 100)));
+      .limit(safeLimit(limit));
   }
 }
