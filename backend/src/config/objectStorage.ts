@@ -9,6 +9,7 @@ export type ObjectStorageConfig = {
   secretKey?: string;
   forcePathStyle: boolean;
   autoCreateBucket: boolean;
+  corsAllowedOrigins: string[];
   signedUrlTtlSeconds: number;
   connectTimeoutMs: number;
   requestTimeoutMs: number;
@@ -28,6 +29,21 @@ function validateEndpoint(name: string, value: string | undefined, allowInternal
   if (process.env.NODE_ENV === "production" && url.protocol !== "https:" && !allowInternalHttp) {
     throw new Error(`${name} must use HTTPS in production`);
   }
+}
+
+function parseCorsOrigins(value: string | undefined) {
+  if (!value?.trim()) return [];
+  const origins = [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))];
+  for (const origin of origins) {
+    const url = new URL(origin);
+    if (url.origin !== origin || url.username || url.password || (url.protocol !== "http:" && url.protocol !== "https:")) {
+      throw new Error("OBJECT_STORAGE_CORS_ALLOWED_ORIGINS must contain comma-separated HTTP(S) origins without paths");
+    }
+    if (process.env.NODE_ENV === "production" && url.protocol !== "https:") {
+      throw new Error("OBJECT_STORAGE_CORS_ALLOWED_ORIGINS must use HTTPS in production");
+    }
+  }
+  return origins;
 }
 
 export function objectStorageConfig(): ObjectStorageConfig {
@@ -51,6 +67,7 @@ export function objectStorageConfig(): ObjectStorageConfig {
     secretKey: process.env.OBJECT_STORAGE_SECRET_KEY,
     forcePathStyle: process.env.OBJECT_STORAGE_FORCE_PATH_STYLE !== "false",
     autoCreateBucket: process.env.OBJECT_STORAGE_AUTO_CREATE_BUCKET === "true",
+    corsAllowedOrigins: parseCorsOrigins(process.env.OBJECT_STORAGE_CORS_ALLOWED_ORIGINS),
     signedUrlTtlSeconds: positive("OBJECT_STORAGE_SIGNED_URL_TTL_SECONDS", 300),
     connectTimeoutMs: positive("OBJECT_STORAGE_CONNECT_TIMEOUT_MS", 5_000),
     requestTimeoutMs: positive("OBJECT_STORAGE_REQUEST_TIMEOUT_MS", 30_000),
