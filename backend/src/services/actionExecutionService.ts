@@ -6,12 +6,18 @@ import { conversationMessages, conversations } from "../db/schema.js";
 import { domainEventBus } from "./domainEventBus.js";
 import { toolRegistry, type ToolExecutionContext } from "./toolRegistry.js";
 import { validateToolInput } from "./toolInputValidator.js";
+import { detectSchedulingLanguage, formatSchedulingSlot, schedulingText } from "./schedulingLanguage.js";
 
 const terminalStatuses = new Set(["rejected", "executed", "failed", "expired"]);
 
-function bookingConfirmation(startsAt: Date, timezone: string, meetingUrl?: string | null) {
-  const formatted = new Intl.DateTimeFormat("de-DE", { timeZone: timezone, weekday: "long", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(startsAt);
-  return `Der Termin ist bestätigt: ${formatted}.${meetingUrl ? `\nMeeting-Link: ${meetingUrl}` : ""}`;
+async function bookingConfirmation(conversationId: string, organizationId: string, startsAt: Date, timezone: string, meetingUrl?: string | null) {
+  const [lastCustomerMessage] = await db.select({ content: conversationMessages.content })
+    .from(conversationMessages)
+    .where(and(eq(conversationMessages.organizationId, organizationId), eq(conversationMessages.conversationId, conversationId), eq(conversationMessages.senderType, "customer")))
+    .orderBy(desc(conversationMessages.createdAt))
+    .limit(1);
+  const language = detectSchedulingLanguage(lastCustomerMessage?.content);
+  return schedulingText(language).confirmed(formatSchedulingSlot(startsAt, timezone, language, true), meetingUrl);
 }
 
 export class ActionExecutionService {
@@ -90,7 +96,8 @@ export class ActionExecutionService {
           if (execution.conversationId) {
             const [conversation] = await db.select({ assistantId: conversations.assistantId }).from(conversations).where(and(eq(conversations.organizationId, data.organizationId), eq(conversations.id, execution.conversationId))).limit(1);
             if (conversation?.assistantId) {
-              const [message] = await db.insert(conversationMessages).values({ organizationId: data.organizationId, conversationId: execution.conversationId, senderType: "ai", senderId: conversation.assistantId, senderName: "AI Assistant", content: bookingConfirmation(new Date(booking.startsAt), booking.timezone, booking.meetingUrl) }).returning();
+              const content = await bookingConfirmation(execution.conversationId, data.organizationId, new Date(booking.startsAt), booking.timezone, booking.meetingUrl);
+              const [message] = await db.insert(conversationMessages).values({ organizationId: data.organizationId, conversationId: execution.conversationId, senderType: "ai", senderId: conversation.assistantId, senderName: "AI Assistant", content }).returning();
               await domainEventBus.emit({ type: "message.created", organizationId: data.organizationId, conversationId: execution.conversationId, payload: message });
             }
           }
