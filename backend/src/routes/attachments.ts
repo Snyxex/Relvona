@@ -2,7 +2,7 @@ import { Router } from "express";
 import { and, desc, eq } from "drizzle-orm";
 import { authenticate, tenantContext, requireRole, type AuthRequest } from "../middleware/auth.js";
 import { db } from "../db/index.js";
-import { conversations, fileAttachments, tickets } from "../db/schema.js";
+import { conversations, fileAttachments, fileObjects, tickets } from "../db/schema.js";
 import { FileObjectService } from "../services/fileObjectService.js";
 import { objectStorage } from "../services/objectStorage.js";
 import { objectStorageConfig } from "../config/objectStorage.js";
@@ -17,6 +17,15 @@ const validId = (value: unknown): value is string => typeof value === "string" &
 const supportsSignedUrls = () => {
   const provider = objectStorageConfig().provider;
   return provider === "s3" || provider === "rustfs";
+};
+
+type AttachmentIntentMetadata = {
+  maxSize?: number;
+  attachmentKind?: "conversation" | "ticket";
+  parentType?: "conversation" | "ticket";
+  parentId?: string;
+  visibility?: "INTERNAL_ONLY" | "CUSTOMER_VISIBLE";
+  uploaderUserId?: string;
 };
 
 async function parent(org: string, kind: "conversation" | "ticket", id: string) {
@@ -77,6 +86,7 @@ router.post("/intent", async (req: AuthRequest, res) => {
       (parentType !== "conversation" && parentType !== "ticket") ||
       !validId(parentId) ||
       typeof originalFilename !== "string" ||
+      originalFilename.length < 1 ||
       originalFilename.length > 255 ||
       typeof mimeType !== "string" ||
       !Number.isInteger(maxSize) ||
@@ -95,13 +105,26 @@ router.post("/intent", async (req: AuthRequest, res) => {
       maxSize,
       attachmentKind: parentType,
     });
+
+    const immutableMetadata: AttachmentIntentMetadata = {
+      ...((intent.object.metadata || {}) as AttachmentIntentMetadata),
+      parentType,
+      parentId,
+      visibility,
+      uploaderUserId: req.user!.id,
+    };
+    await db
+      .update(fileObjects)
+      .set({ metadata: immutableMetadata, updatedAt: new Date() })
+      .where(and(eq(fileObjects.id, intent.object.id), eq(fileObjects.organizationId, req.organization!.id)));
+
     await AuditService.logAction({
       organizationId: req.organization!.id,
       actorUserId: req.user!.id,
       action: "attachment.upload_intent",
       resourceType: "file_object",
       resourceId: intent.object.id,
-      metadata: { parentType, visibility },
+      metadata: { parentType, parentId, visibility },
     });
     return res.status(201).json({
       objectId: intent.object.id,
@@ -120,9 +143,26 @@ router.post("/:objectId/finalize", async (req: AuthRequest, res) => {
       (parentType !== "conversation" && parentType !== "ticket") ||
       !validId(parentId) ||
       !["INTERNAL_ONLY", "CUSTOMER_VISIBLE"].includes(visibility) ||
+      !validId(req.params.objectId) ||
       !await parent(req.organization!.id, parentType, parentId)
     ) {
       return res.status(400).json({ error: "UPLOAD_INVALID" });
+    }
+
+    const [pendingObject] = await db
+      .select({ metadata: fileObjects.metadata })
+      .from(fileObjects)
+      .where(and(eq(fileObjects.id, req.params.objectId), eq(fileObjects.organizationId, req.organization!.id)))
+      .limit(1);
+    const bound = pendingObject?.metadata as AttachmentIntentMetadata | null | undefined;
+    if (
+      !bound ||
+      bound.parentType !== parentType ||
+      bound.parentId !== parentId ||
+      bound.visibility !== visibility ||
+      bound.uploaderUserId !== req.user!.id
+    ) {
+      return res.status(400).json({ error: "UPLOAD_BINDING_MISMATCH" });
     }
 
     const result = await FileObjectService.finalizeAttachmentUpload(req.organization!.id, req.params.objectId);
@@ -158,9 +198,9 @@ router.post("/:objectId/finalize", async (req: AuthRequest, res) => {
       action: "attachment.created",
       resourceType: "attachment",
       resourceId: attachment.id,
-      metadata: { parentType, visibility },
+      metadata: { parentType, parentId, visibility },
     });
-    return res.status(201).json(attachment);
+    return res.status(created ? 201 : 200).json(attachment);
   } catch (error) {
     const code = (error as Error).message;
     return res.status(code === "ATTACHMENT_NOT_READY" ? 409 : 400).json({
@@ -243,6 +283,7 @@ router.delete("/:id", async (req: AuthRequest, res) => {
       resourceId: attachment.id,
       metadata: {
         parentType: attachment.conversationId ? "conversation" : "ticket",
+        parentId: attachment.conversationId || attachment.ticketId,
         visibility: attachment.visibility,
       },
     });
