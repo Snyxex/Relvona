@@ -5,6 +5,7 @@ import { conversationSchedulingStates } from "../db/conversationSchedulingSchema
 import { conversationMessages, conversations } from "../db/schema.js";
 import { domainEventBus } from "./domainEventBus.js";
 import { toolRegistry, type ToolExecutionContext } from "./toolRegistry.js";
+import { validateToolInput } from "./toolInputValidator.js";
 
 const terminalStatuses = new Set(["rejected", "executed", "failed", "expired"]);
 
@@ -17,6 +18,8 @@ export class ActionExecutionService {
   static async request(data: { context: ToolExecutionContext; toolId: string; input: Record<string, unknown>; requestedByType?: "ai" | "user" | "system"; requestedByUserId?: string; idempotencyKey?: string }) {
     const tool = toolRegistry.get(data.toolId); if (!tool) throw new Error("Unknown tool");
     if (data.context.actorRole === "viewer" && tool.riskLevel !== "read") throw new Error("Tool not permitted for viewer role");
+    const validation = validateToolInput(tool.inputSchema, data.input);
+    if (!validation.valid) throw new Error(`Invalid tool input: ${validation.error}`);
     if (data.idempotencyKey) {
       const [existing] = await db.select().from(actionExecutions).where(and(
         eq(actionExecutions.organizationId, data.context.organizationId),
@@ -70,9 +73,15 @@ export class ActionExecutionService {
     if (execution.expiresAt && execution.expiresAt <= new Date()) { const [expired] = await db.update(actionExecutions).set({ status: "expired", updatedAt: new Date() }).where(and(eq(actionExecutions.organizationId, data.organizationId), eq(actionExecutions.id, execution.id))).returning(); return expired; }
     if (execution.status !== "approved") throw new Error("Action must be approved before execution");
     const tool = toolRegistry.get(execution.toolId); if (!tool) throw new Error("Tool no longer exists");
+    const input = execution.input as Record<string, unknown>;
+    const validation = validateToolInput(tool.inputSchema, input);
+    if (!validation.valid) {
+      const [failed] = await db.update(actionExecutions).set({ status: "failed", error: `Invalid tool input: ${validation.error}`.slice(0, 2000), executedAt: new Date(), updatedAt: new Date() }).where(and(eq(actionExecutions.organizationId, data.organizationId), eq(actionExecutions.id, execution.id), eq(actionExecutions.status, "approved"))).returning();
+      return failed || execution;
+    }
     const [claimed] = await db.update(actionExecutions).set({ status: "executing", updatedAt: new Date() }).where(and(eq(actionExecutions.organizationId, data.organizationId), eq(actionExecutions.id, execution.id), eq(actionExecutions.status, "approved"))).returning(); if (!claimed) throw new Error("Action is already being executed");
     try {
-      const result = await tool.execute({ ...data.context, organizationId: data.organizationId, conversationId: execution.conversationId || data.context.conversationId, customerId: execution.customerId || data.context.customerId }, execution.input as Record<string, unknown>);
+      const result = await tool.execute({ ...data.context, organizationId: data.organizationId, conversationId: execution.conversationId || data.context.conversationId, customerId: execution.customerId || data.context.customerId }, input);
       const [finished] = await db.update(actionExecutions).set({ status: result.success ? "executed" : "failed", result: result.data || null, error: result.success ? null : (result.error || "Tool execution failed").slice(0, 2000), executedAt: new Date(), updatedAt: new Date() }).where(and(eq(actionExecutions.organizationId, data.organizationId), eq(actionExecutions.id, execution.id))).returning();
       if (result.success && execution.toolId === "scheduling.create_booking") {
         const booking = (result.data as any)?.booking;
