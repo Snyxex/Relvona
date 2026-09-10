@@ -55,14 +55,17 @@ services:
       OBJECT_STORAGE_ENABLED: "true"
       OBJECT_STORAGE_PROVIDER: rustfs
       OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
+      # Public HTTPS route to the same RustFS S3 API, e.g. https://objects.example.com.
+      # It is used only to sign URLs returned to browsers.
+      OBJECT_STORAGE_PUBLIC_ENDPOINT: ${OBJECT_STORAGE_PUBLIC_ENDPOINT:?set public HTTPS RustFS endpoint}
       OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-supportai}
       OBJECT_STORAGE_ACCESS_KEY: ${OBJECT_STORAGE_ACCESS_KEY:?set OBJECT_STORAGE_ACCESS_KEY}
       OBJECT_STORAGE_SECRET_KEY: ${OBJECT_STORAGE_SECRET_KEY:?set OBJECT_STORAGE_SECRET_KEY}
       OBJECT_STORAGE_REGION: ${OBJECT_STORAGE_REGION:-us-east-1}
       OBJECT_STORAGE_FORCE_PATH_STYLE: "true"
       OBJECT_STORAGE_AUTO_CREATE_BUCKET: "true"
-      # HTTP is permitted only because RustFS is reachable exclusively on the
-      # internal Docker data network. Use HTTPS when pointing at an external store.
+      # HTTP is permitted only because this endpoint is reachable exclusively on
+      # Docker's isolated data network. The public signing endpoint must use HTTPS.
       OBJECT_STORAGE_ALLOW_INSECURE_HTTP: "true"
       INFISICAL_TOKEN: ${INFISICAL_TOKEN:?authenticate with Infisical before deployment}
       INFISICAL_PROJECT_ID: ${INFISICAL_PROJECT_ID:?set the Infisical project id}
@@ -111,6 +114,7 @@ services:
       OBJECT_STORAGE_ENABLED: "true"
       OBJECT_STORAGE_PROVIDER: rustfs
       OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
+      OBJECT_STORAGE_PUBLIC_ENDPOINT: ${OBJECT_STORAGE_PUBLIC_ENDPOINT:?set public HTTPS RustFS endpoint}
       OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-supportai}
       OBJECT_STORAGE_ACCESS_KEY: ${OBJECT_STORAGE_ACCESS_KEY:?set OBJECT_STORAGE_ACCESS_KEY}
       OBJECT_STORAGE_SECRET_KEY: ${OBJECT_STORAGE_SECRET_KEY:?set OBJECT_STORAGE_SECRET_KEY}
