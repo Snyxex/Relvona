@@ -1,4 +1,5 @@
 import { toolRegistry } from "../services/toolRegistry.js";
+import { validateToolInput } from "../services/toolInputValidator.js";
 
 function assert(condition: boolean, message: string) {
   if (!condition) throw new Error(message);
@@ -69,4 +70,40 @@ assert(viewerIntegrationTools.length === 3, "Viewers must only receive integrati
 assert(viewerIntegrationTools.every((tool) => tool.riskLevel === "read"), "Viewer role must never receive integration write actions");
 assert(!viewerIntegrationTools.some((tool) => tool.requiresApproval), "Viewer integration tools must not include approval-gated writes");
 
-console.log("Tool registry tests passed");
+const bookingTool = toolRegistry.get("scheduling.create_booking");
+assert(Boolean(bookingTool), "Create booking tool must be registered");
+if (bookingTool) {
+  assert(validateToolInput(bookingTool.inputSchema, {
+    meetingTypeId: "c9b1ad0e-e72b-4c44-9d0a-2fd15ef44f48",
+    startsAt: "2026-09-15T10:00:00.000Z",
+    timezone: "Europe/Berlin",
+    idempotencyKey: "test-key",
+  }).valid, "valid booking input must pass schema validation");
+  assert(!validateToolInput(bookingTool.inputSchema, {
+    meetingTypeId: "not-a-uuid",
+    startsAt: "2026-09-15T10:00:00.000Z",
+    timezone: "Europe/Berlin",
+    idempotencyKey: "test-key",
+  }).valid, "invalid booking UUID must be rejected");
+  assert(!validateToolInput(bookingTool.inputSchema, {
+    meetingTypeId: "c9b1ad0e-e72b-4c44-9d0a-2fd15ef44f48",
+    startsAt: "2026-09-15T10:00:00.000Z",
+    timezone: "Europe/Berlin",
+    idempotencyKey: "test-key",
+    organizationId: "attacker-controlled",
+  }).valid, "unexpected fields must be rejected");
+}
+
+const hubspotContactTool = toolRegistry.get("hubspot.create_contact");
+assert(Boolean(hubspotContactTool), "HubSpot contact tool must be registered");
+if (hubspotContactTool) assert(!validateToolInput(hubspotContactTool.inputSchema, { email: "invalid-email" }).valid, "invalid email must be rejected");
+
+const zendeskUpdateTool = toolRegistry.get("zendesk.update_ticket");
+assert(Boolean(zendeskUpdateTool), "Zendesk update tool must be registered");
+if (zendeskUpdateTool) assert(!validateToolInput(zendeskUpdateTool.inputSchema, { ticketId: "123", status: "deleted" }).valid, "invalid enum value must be rejected");
+
+const companySearchTool = toolRegistry.get("hubspot.search_companies");
+assert(Boolean(companySearchTool), "HubSpot company search tool must be registered");
+if (companySearchTool) assert(!validateToolInput(companySearchTool.inputSchema, { query: "OpenAI", limit: 100 }).valid, "numeric maximum must be enforced");
+
+console.log("Tool registry and input validation tests passed");
