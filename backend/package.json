@@ -11,6 +11,7 @@
     "db:migrate": "tsx src/scripts/ensureVectorExtension.ts && drizzle-kit push && tsx src/scripts/ensureProfileAvatarUploadSchema.ts && tsx src/scripts/ensureApplicationSchema.ts && tsx src/scripts/ensureWidgetIntegrationSchema.ts && tsx src/scripts/ensureIngestionSchema.ts && tsx src/scripts/ensureAgentInboxSchema.ts && tsx src/scripts/migrateLegacyPasswordHashes.ts && tsx src/scripts/migratePlatformRoles.ts && tsx src/scripts/migrateLegacyApiKeys.ts && tsx src/scripts/normalizeEmbeddingConfig.ts && tsx src/scripts/ensureVectorIndexes.ts && tsx src/scripts/ensurePerformanceIndexes.ts && tsx src/scripts/enableRls.ts && tsx src/scripts/ensureKnowledgeRetrievalTracking.ts && tsx src/scripts/ensureKnowledgeRevisionTracking.ts",
     "db:seed": "tsx src/db/seed.ts",
     "storage:migrate-avatars": "tsx src/scripts/migrateLegacyProfileAvatars.ts",
+    "storage:verify": "tsx src/scripts/verifyObjectStorageConsistency.ts",
     "test:security": "tsx src/tests/security.test.ts",
     "test:error-responses": "tsx src/tests/errorResponses.test.ts",
     "test:tenant-isolation": "tsx src/tests/tenantIsolation.integration.test.ts",
