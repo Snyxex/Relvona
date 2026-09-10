@@ -20,7 +20,7 @@ function timeToMinute(value: string) {
   return hours * 60 + minutes;
 }
 
-export function AvailabilityEditor({ meetingTypes }: { meetingTypes: MeetingType[] }) {
+export function AvailabilityEditor({ meetingTypes, readOnly = false }: { meetingTypes: MeetingType[]; readOnly?: boolean }) {
   const [rules, setRules] = useState<AvailabilityRule[]>([]);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [weekday, setWeekday] = useState(1);
@@ -50,7 +50,9 @@ export function AvailabilityEditor({ meetingTypes }: { meetingTypes: MeetingType
   useEffect(() => { void load(); }, []);
 
   async function createRule(event: FormEvent) {
-    event.preventDefault(); setError(""); setBusy("new");
+    event.preventDefault();
+    if (readOnly) return;
+    setError(""); setBusy("new");
     try {
       await api.post("/scheduling/availability", {
         meetingTypeId: meetingTypeId || undefined,
@@ -65,10 +67,12 @@ export function AvailabilityEditor({ meetingTypes }: { meetingTypes: MeetingType
   }
 
   function updateDraft(id: string, patch: Partial<Draft>) {
+    if (readOnly) return;
     setDrafts((current) => ({ ...current, [id]: { ...current[id], ...patch } }));
   }
 
   async function saveRule(id: string) {
+    if (readOnly) return;
     const draft = drafts[id]; if (!draft) return;
     setBusy(id); setError("");
     try {
@@ -79,27 +83,32 @@ export function AvailabilityEditor({ meetingTypes }: { meetingTypes: MeetingType
   }
 
   async function deleteRule(id: string) {
-    if (!window.confirm("Diese Verfügbarkeitsregel wirklich löschen?")) return;
+    if (readOnly || !window.confirm("Diese Verfügbarkeitsregel wirklich löschen?")) return;
     setBusy(id); setError("");
     try { await api.delete(`/scheduling/availability/${id}`); await load(); }
     catch (e: any) { setError(e.response?.data?.error || "Verfügbarkeit konnte nicht gelöscht werden."); }
     finally { setBusy(null); }
   }
 
+  function meetingTypeName(id?: string | null) {
+    return id ? meetingTypes.find((type) => type.id === id)?.name || "Unbekannter Meeting Type" : "Alle Meeting Types";
+  }
+
   return <section className="rounded-xl border bg-card p-5">
     <h2 className="font-semibold">Verfügbarkeiten</h2>
-    <p className="mt-1 text-sm text-muted-foreground">Globale Regeln gelten für alle Terminarten; optional kann eine Regel auf einen Meeting Type begrenzt werden.</p>
+    <p className="mt-1 text-sm text-muted-foreground">{readOnly ? "Verfügbarkeiten für deinen Scheduling-Bereich." : "Globale Regeln gelten für alle Terminarten; optional kann eine Regel auf einen Meeting Type begrenzt werden."}</p>
     {error && <div className="mt-3 rounded-lg border border-destructive/40 p-3 text-sm text-destructive">{error}</div>}
-    <form onSubmit={createRule} className="mt-4 grid gap-3 md:grid-cols-6">
+    {!readOnly && <form onSubmit={createRule} className="mt-4 grid gap-3 md:grid-cols-6">
       <select value={weekday} onChange={(event) => setWeekday(Number(event.target.value))} className="rounded-lg border bg-background px-3 py-2 text-sm">{weekdays.map((label, index) => <option key={label} value={index}>{label}</option>)}</select>
       <input type="time" value={start} onChange={(event) => setStart(event.target.value)} className="rounded-lg border bg-background px-3 py-2 text-sm" />
       <input type="time" value={end} onChange={(event) => setEnd(event.target.value)} className="rounded-lg border bg-background px-3 py-2 text-sm" />
       <input value={timezone} onChange={(event) => setTimezone(event.target.value)} className="rounded-lg border bg-background px-3 py-2 text-sm" placeholder="Europe/Berlin" />
       <select value={meetingTypeId} onChange={(event) => setMeetingTypeId(event.target.value)} className="rounded-lg border bg-background px-3 py-2 text-sm"><option value="">Alle Meeting Types</option>{meetingTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}</select>
       <button disabled={busy === "new"} className="rounded-lg bg-foreground px-4 py-2 text-sm text-background disabled:opacity-50">{busy === "new" ? "Speichert…" : "Hinzufügen"}</button>
-    </form>
+    </form>}
     <div className="mt-4 space-y-3">{rules.length ? rules.map((rule) => {
       const draft = drafts[rule.id]; if (!draft) return null;
+      if (readOnly) return <div key={rule.id} className="rounded-lg border p-3 text-sm"><div className="flex flex-wrap items-center justify-between gap-2"><span className="font-medium">{weekdays[draft.weekday]} · {minuteToTime(draft.startMinute)}–{minuteToTime(draft.endMinute)}</span><span className="text-xs text-muted-foreground">{draft.enabled ? "aktiv" : "inaktiv"}</span></div><p className="mt-1 text-xs text-muted-foreground">{draft.timezone} · {meetingTypeName(draft.meetingTypeId)}</p></div>;
       return <div key={rule.id} className="grid gap-3 rounded-lg border p-3 md:grid-cols-[1fr_1fr_1fr_1.2fr_1.4fr_auto] md:items-center">
         <select value={draft.weekday} onChange={(event) => updateDraft(rule.id, { weekday: Number(event.target.value) })} className="rounded-lg border bg-background px-3 py-2 text-sm">{weekdays.map((label, index) => <option key={label} value={index}>{label}</option>)}</select>
         <input type="time" value={minuteToTime(draft.startMinute)} onChange={(event) => updateDraft(rule.id, { startMinute: timeToMinute(event.target.value) })} className="rounded-lg border bg-background px-3 py-2 text-sm" />
