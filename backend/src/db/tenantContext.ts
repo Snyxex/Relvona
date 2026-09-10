@@ -6,16 +6,17 @@ export type RequestDatabaseClient = {
   release: () => void;
 };
 
-type TenantContext = {
+export type DatabaseTenantContext = {
   organizationId?: string;
+  requestScoped: boolean;
   requestClient?: RequestDatabaseClient;
   requestClientPromise?: Promise<RequestDatabaseClient>;
   appliedTenantId?: string;
   released?: boolean;
 };
-const storage = new AsyncLocalStorage<TenantContext>();
+const storage = new AsyncLocalStorage<DatabaseTenantContext>();
 
-async function releaseRequestClient(context: TenantContext) {
+async function releaseRequestClient(context: DatabaseTenantContext) {
   if (context.released) return;
   context.released = true;
   try {
@@ -32,7 +33,7 @@ async function releaseRequestClient(context: TenantContext) {
 }
 
 export function tenantContextMiddleware(_req: Request, res: Response, next: NextFunction) {
-  storage.run({}, () => {
+  storage.run({ requestScoped: true }, () => {
     const context = storage.getStore()!;
     let cleanupStarted = false;
     const cleanup = () => {
@@ -47,7 +48,7 @@ export function tenantContextMiddleware(_req: Request, res: Response, next: Next
 }
 
 export function withDatabaseTenantContext<T>(work: () => T): T {
-  return storage.run({}, work);
+  return storage.run({ requestScoped: false }, work);
 }
 
 export function hasDatabaseTenantContext() {
