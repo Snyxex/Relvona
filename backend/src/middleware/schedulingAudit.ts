@@ -4,21 +4,30 @@ import { SchedulingAuditService } from "../services/schedulingAuditService.js";
 
 type AuditTarget = { action: Parameters<typeof SchedulingAuditService.record>[0]["action"]; resourceType: string; resourceId?: string };
 
+function matchId(path: string, pattern: RegExp) {
+  return path.match(pattern)?.[1];
+}
+
 function resolveTarget(req: AuthRequest): AuditTarget | undefined {
   const method = req.method.toUpperCase();
   const path = req.path;
-  const id = typeof req.params?.id === "string" ? req.params.id : undefined;
 
-  if (method === "DELETE" && /^\/connections\/[^/]+$/.test(path)) return { action: "scheduling.calendar.disconnect", resourceType: "calendar_connection", resourceId: id };
+  const connectionId = matchId(path, /^\/connections\/([^/]+)$/);
+  if (method === "DELETE" && connectionId) return { action: "scheduling.calendar.disconnect", resourceType: "calendar_connection", resourceId: connectionId };
   if (method === "POST" && path === "/meeting-types") return { action: "scheduling.meeting_type.create", resourceType: "meeting_type" };
-  if (method === "PATCH" && /^\/meeting-types\/[^/]+$/.test(path)) return { action: "scheduling.meeting_type.update", resourceType: "meeting_type", resourceId: id };
+  const meetingTypeId = matchId(path, /^\/meeting-types\/([^/]+)$/);
+  if (method === "PATCH" && meetingTypeId) return { action: "scheduling.meeting_type.update", resourceType: "meeting_type", resourceId: meetingTypeId };
   if (method === "POST" && path === "/availability") return { action: "scheduling.availability.create", resourceType: "availability_rule" };
-  if (method === "PATCH" && /^\/availability\/[^/]+$/.test(path)) return { action: "scheduling.availability.update", resourceType: "availability_rule", resourceId: id };
-  if (method === "DELETE" && /^\/availability\/[^/]+$/.test(path)) return { action: "scheduling.availability.delete", resourceType: "availability_rule", resourceId: id };
-  if (method === "POST" && /^\/bookings\/[^/]+\/calendar-sync\/retry$/.test(path)) return { action: "scheduling.calendar_sync.retry", resourceType: "booking", resourceId: id };
+  const availabilityId = matchId(path, /^\/availability\/([^/]+)$/);
+  if (method === "PATCH" && availabilityId) return { action: "scheduling.availability.update", resourceType: "availability_rule", resourceId: availabilityId };
+  if (method === "DELETE" && availabilityId) return { action: "scheduling.availability.delete", resourceType: "availability_rule", resourceId: availabilityId };
+  const retryBookingId = matchId(path, /^\/bookings\/([^/]+)\/calendar-sync\/retry$/);
+  if (method === "POST" && retryBookingId) return { action: "scheduling.calendar_sync.retry", resourceType: "booking", resourceId: retryBookingId };
   if (method === "POST" && path === "/bookings") return { action: "scheduling.booking.create", resourceType: "booking" };
-  if (method === "POST" && /^\/bookings\/[^/]+\/reschedule$/.test(path)) return { action: "scheduling.booking.reschedule", resourceType: "booking", resourceId: id };
-  if (method === "POST" && /^\/bookings\/[^/]+\/cancel$/.test(path)) return { action: "scheduling.booking.cancel", resourceType: "booking", resourceId: id };
+  const rescheduleBookingId = matchId(path, /^\/bookings\/([^/]+)\/reschedule$/);
+  if (method === "POST" && rescheduleBookingId) return { action: "scheduling.booking.reschedule", resourceType: "booking", resourceId: rescheduleBookingId };
+  const cancelBookingId = matchId(path, /^\/bookings\/([^/]+)\/cancel$/);
+  if (method === "POST" && cancelBookingId) return { action: "scheduling.booking.cancel", resourceType: "booking", resourceId: cancelBookingId };
   return undefined;
 }
 
