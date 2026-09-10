@@ -11,7 +11,7 @@ import { AvailabilityAdminService } from "../services/availabilityAdminService.j
 import { sendInternalError } from "../utils/httpErrors.js";
 import { db } from "../db/index.js";
 import { bookingCalendarSync } from "../db/bookingCalendarSyncSchema.js";
-import { calendarConnections, bookings } from "../db/extendedCustomerExperienceSchema.js";
+import { calendarConnections } from "../db/extendedCustomerExperienceSchema.js";
 
 const router = Router();
 router.use(authenticate);
@@ -126,8 +126,13 @@ router.get("/slots", async (req: AuthRequest, res) => {
 });
 
 router.get("/bookings", async (req: AuthRequest, res) => {
-  try { return res.json(await SchedulingService.listBookings(req.organization!.id, undefined, BookingAccessService.assignedUserIdForRole(role(req), req.user!.id))); }
-  catch (error) { return sendInternalError(req, res, error, { code: "BOOKINGS_LOAD_FAILED", message: "Unable to load bookings" }); }
+  try {
+    if (req.organization!.role === "agent") {
+      const result = await BookingAdminService.search({ organizationId: req.organization!.id, assignedUserId: req.user!.id, limit: 100, offset: 0 });
+      return res.json(result.items);
+    }
+    return res.json(await SchedulingService.listBookings(req.organization!.id));
+  } catch (error) { return sendInternalError(req, res, error, { code: "BOOKINGS_LOAD_FAILED", message: "Unable to load bookings" }); }
 });
 
 router.get("/bookings-search", async (req: AuthRequest, res) => {
