@@ -6,6 +6,7 @@ const names = [
   "OBJECT_STORAGE_ENABLED",
   "OBJECT_STORAGE_PROVIDER",
   "OBJECT_STORAGE_ENDPOINT",
+  "OBJECT_STORAGE_PUBLIC_ENDPOINT",
   "OBJECT_STORAGE_BUCKET",
   "OBJECT_STORAGE_ACCESS_KEY",
   "OBJECT_STORAGE_SECRET_KEY",
@@ -29,6 +30,7 @@ try {
   process.env.NODE_ENV = "development";
   process.env.OBJECT_STORAGE_PROVIDER = "rustfs";
   process.env.OBJECT_STORAGE_ENDPOINT = "http://127.0.0.1:9000";
+  process.env.OBJECT_STORAGE_PUBLIC_ENDPOINT = "http://localhost:9000";
   process.env.OBJECT_STORAGE_BUCKET = "supportai";
   process.env.OBJECT_STORAGE_ACCESS_KEY = "SUPPORTAITEST";
   process.env.OBJECT_STORAGE_SECRET_KEY = "test-secret-with-sufficient-entropy";
@@ -36,15 +38,21 @@ try {
 
   const rustfs = objectStorageConfig();
   assert.equal(rustfs.provider, "rustfs");
+  assert.equal(rustfs.publicEndpoint, "http://localhost:9000");
   assert.equal(rustfs.autoCreateBucket, true);
   assert.equal(rustfs.forcePathStyle, true);
 
   process.env.NODE_ENV = "production";
   process.env.OBJECT_STORAGE_ALLOW_INSECURE_HTTP = "true";
+  process.env.OBJECT_STORAGE_PUBLIC_ENDPOINT = "https://objects.example.test";
   assert.equal(objectStorageConfig().provider, "rustfs");
 
+  process.env.OBJECT_STORAGE_PUBLIC_ENDPOINT = "http://objects.example.test";
+  assert.throws(() => objectStorageConfig(), /OBJECT_STORAGE_PUBLIC_ENDPOINT must use HTTPS in production/);
+
+  process.env.OBJECT_STORAGE_PUBLIC_ENDPOINT = "https://objects.example.test";
   delete process.env.OBJECT_STORAGE_ALLOW_INSECURE_HTTP;
-  assert.throws(() => objectStorageConfig(), /must use HTTPS in production/);
+  assert.throws(() => objectStorageConfig(), /OBJECT_STORAGE_ENDPOINT must use HTTPS in production/);
 
   process.env.NODE_ENV = "development";
   process.env.OBJECT_STORAGE_PROVIDER = "invalid";
