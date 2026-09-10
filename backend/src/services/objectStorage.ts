@@ -10,6 +10,7 @@ import {
   GetObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
+  PutBucketCorsCommand,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
@@ -165,30 +166,55 @@ export class S3CompatibleObjectStorageProvider implements ObjectStorage {
     }
   }
 
+  private async configureCorsIfRequested() {
+    if (!this.config.corsAllowedOrigins.length) return;
+    await this.run("put_bucket_cors", () =>
+      this.client.send(
+        new PutBucketCorsCommand({
+          Bucket: this.config.bucket!,
+          CORSConfiguration: {
+            CORSRules: [
+              {
+                AllowedOrigins: this.config.corsAllowedOrigins,
+                AllowedMethods: ["GET", "PUT", "HEAD"],
+                AllowedHeaders: ["*"],
+                ExposeHeaders: ["ETag"],
+                MaxAgeSeconds: 3600,
+              },
+            ],
+          },
+        }),
+      ),
+    );
+  }
+
   private async ensureReadyInternal() {
+    let exists = false;
     try {
       await this.run("head_bucket", () => this.client.send(new HeadBucketCommand({ Bucket: this.config.bucket! })));
-      return;
+      exists = true;
     } catch (error) {
       if (!isNotFound(error) || !this.config.autoCreateBucket) throw error;
     }
 
-    try {
-      await this.run("create_bucket", () =>
-        this.client.send(new CreateBucketCommand({ Bucket: this.config.bucket! })),
-      );
-    } catch (createError) {
-      // Backend and worker may race on first boot. If the other process created
-      // the bucket first, a successful HEAD proves readiness and the conflict is harmless.
+    if (!exists) {
       try {
-        await this.run("head_bucket", () => this.client.send(new HeadBucketCommand({ Bucket: this.config.bucket! })));
-        return;
-      } catch {
-        throw createError;
+        await this.run("create_bucket", () =>
+          this.client.send(new CreateBucketCommand({ Bucket: this.config.bucket! })),
+        );
+      } catch (createError) {
+        // Backend and worker may race on first boot. If the other process created
+        // the bucket first, a successful HEAD proves readiness and the conflict is harmless.
+        try {
+          await this.run("head_bucket", () => this.client.send(new HeadBucketCommand({ Bucket: this.config.bucket! })));
+        } catch {
+          throw createError;
+        }
       }
+      await this.run("head_bucket", () => this.client.send(new HeadBucketCommand({ Bucket: this.config.bucket! })));
     }
 
-    await this.run("head_bucket", () => this.client.send(new HeadBucketCommand({ Bucket: this.config.bucket! })));
+    await this.configureCorsIfRequested();
   }
 
   ensureReady() {
