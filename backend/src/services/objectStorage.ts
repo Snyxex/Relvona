@@ -173,9 +173,21 @@ export class S3CompatibleObjectStorageProvider implements ObjectStorage {
       if (!isNotFound(error) || !this.config.autoCreateBucket) throw error;
     }
 
-    await this.run("create_bucket", () =>
-      this.client.send(new CreateBucketCommand({ Bucket: this.config.bucket! })),
-    );
+    try {
+      await this.run("create_bucket", () =>
+        this.client.send(new CreateBucketCommand({ Bucket: this.config.bucket! })),
+      );
+    } catch (createError) {
+      // Backend and worker may race on first boot. If the other process created
+      // the bucket first, a successful HEAD proves readiness and the conflict is harmless.
+      try {
+        await this.run("head_bucket", () => this.client.send(new HeadBucketCommand({ Bucket: this.config.bucket! })));
+        return;
+      } catch {
+        throw createError;
+      }
+    }
+
     await this.run("head_bucket", () => this.client.send(new HeadBucketCommand({ Bucket: this.config.bucket! })));
   }
 
