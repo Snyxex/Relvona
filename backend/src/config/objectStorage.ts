@@ -2,6 +2,7 @@ export type ObjectStorageConfig = {
   enabled: boolean;
   provider: "filesystem" | "s3" | "rustfs";
   endpoint?: string;
+  publicEndpoint?: string;
   region: string;
   bucket?: string;
   accessKey?: string;
@@ -20,6 +21,15 @@ const positive = (name: string, fallback: number) => {
   return value;
 };
 
+function validateEndpoint(name: string, value: string | undefined, allowInternalHttp: boolean) {
+  if (!value) return;
+  const url = new URL(value);
+  if (url.username || url.password) throw new Error(`${name} must not contain credentials`);
+  if (process.env.NODE_ENV === "production" && url.protocol !== "https:" && !allowInternalHttp) {
+    throw new Error(`${name} must use HTTPS in production`);
+  }
+}
+
 export function objectStorageConfig(): ObjectStorageConfig {
   const enabled = process.env.OBJECT_STORAGE_ENABLED !== "false";
   const provider = (process.env.OBJECT_STORAGE_PROVIDER || "filesystem").toLowerCase();
@@ -28,10 +38,13 @@ export function objectStorageConfig(): ObjectStorageConfig {
   }
 
   const endpoint = process.env.OBJECT_STORAGE_ENDPOINT;
+  const publicEndpoint = process.env.OBJECT_STORAGE_PUBLIC_ENDPOINT;
+  const allowInsecureInternal = process.env.OBJECT_STORAGE_ALLOW_INSECURE_HTTP === "true";
   const config: ObjectStorageConfig = {
     enabled,
     provider,
     endpoint,
+    publicEndpoint,
     region: process.env.OBJECT_STORAGE_REGION || "us-east-1",
     bucket: process.env.OBJECT_STORAGE_BUCKET,
     accessKey: process.env.OBJECT_STORAGE_ACCESS_KEY,
@@ -48,17 +61,11 @@ export function objectStorageConfig(): ObjectStorageConfig {
     throw new Error("OBJECT_STORAGE_SIGNED_URL_TTL_SECONDS must not exceed 3600");
   }
 
-  if (endpoint) {
-    const url = new URL(endpoint);
-    if (url.username || url.password) throw new Error("OBJECT_STORAGE_ENDPOINT must not contain credentials");
-    if (
-      process.env.NODE_ENV === "production" &&
-      url.protocol !== "https:" &&
-      process.env.OBJECT_STORAGE_ALLOW_INSECURE_HTTP !== "true"
-    ) {
-      throw new Error("OBJECT_STORAGE_ENDPOINT must use HTTPS in production");
-    }
-  }
+  // Internal endpoints may use HTTP only after an explicit deployment opt-in,
+  // e.g. Docker's isolated data network. Public presigned URLs always require
+  // HTTPS in production because they are handed to browsers.
+  validateEndpoint("OBJECT_STORAGE_ENDPOINT", endpoint, allowInsecureInternal);
+  validateEndpoint("OBJECT_STORAGE_PUBLIC_ENDPOINT", publicEndpoint, false);
 
   if (process.env.NODE_ENV === "production" && enabled) {
     if (provider === "filesystem") {
