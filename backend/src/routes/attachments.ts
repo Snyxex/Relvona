@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { and, desc, eq } from "drizzle-orm";
 import { authenticate, tenantContext, requireRole, type AuthRequest } from "../middleware/auth.js";
+import { createRateLimiter } from "../middleware/security.js";
 import { db } from "../db/index.js";
 import { conversations, fileAttachments, fileObjects, tickets } from "../db/schema.js";
 import { FileObjectService } from "../services/fileObjectService.js";
@@ -12,6 +13,11 @@ const router = Router();
 router.use(authenticate);
 router.use(tenantContext);
 router.use(requireRole(["owner", "admin", "agent"]));
+
+const attachmentIntentLimit = createRateLimiter({ keyPrefix: "attachment-intent", limit: 60, windowMs: 15 * 60_000 });
+const attachmentFinalizeLimit = createRateLimiter({ keyPrefix: "attachment-finalize", limit: 60, windowMs: 15 * 60_000 });
+const attachmentDownloadLimit = createRateLimiter({ keyPrefix: "attachment-download", limit: 240, windowMs: 15 * 60_000 });
+const attachmentDeleteLimit = createRateLimiter({ keyPrefix: "attachment-delete", limit: 60, windowMs: 15 * 60_000 });
 
 const validId = (value: unknown): value is string => typeof value === "string" && /^[0-9a-f-]{36}$/i.test(value);
 const supportsSignedUrls = () => {
@@ -79,7 +85,7 @@ router.get("/", async (req: AuthRequest, res) => {
   })));
 });
 
-router.post("/intent", async (req: AuthRequest, res) => {
+router.post("/intent", attachmentIntentLimit, async (req: AuthRequest, res) => {
   try {
     const { parentType, parentId, originalFilename, mimeType, maxSize, visibility = "INTERNAL_ONLY" } = req.body || {};
     if (
@@ -136,7 +142,7 @@ router.post("/intent", async (req: AuthRequest, res) => {
   }
 });
 
-router.post("/:objectId/finalize", async (req: AuthRequest, res) => {
+router.post("/:objectId/finalize", attachmentFinalizeLimit, async (req: AuthRequest, res) => {
   try {
     const { parentType, parentId, visibility = "INTERNAL_ONLY" } = req.body || {};
     if (
@@ -209,7 +215,7 @@ router.post("/:objectId/finalize", async (req: AuthRequest, res) => {
   }
 });
 
-router.get("/:id/download", async (req: AuthRequest, res) => {
+router.get("/:id/download", attachmentDownloadLimit, async (req: AuthRequest, res) => {
   try {
     const [attachment] = await db
       .select()
@@ -249,7 +255,7 @@ router.get("/:id/download", async (req: AuthRequest, res) => {
   }
 });
 
-router.delete("/:id", async (req: AuthRequest, res) => {
+router.delete("/:id", attachmentDeleteLimit, async (req: AuthRequest, res) => {
   try {
     const [attachment] = await db
       .select()
