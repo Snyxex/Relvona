@@ -20,7 +20,7 @@
     ],
     "paths": {
       "@/*": ["./src/*"],
-      "socket.io-client-real": ["./node_modules/socket.io-client/build/esm-debug/index.js"]
+      "socket.io-client-real": ["./node_modules/socket.io-client/build/esm/index.js"]
     }
   },
   "include": [
