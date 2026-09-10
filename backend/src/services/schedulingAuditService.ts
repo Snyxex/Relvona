@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "../db/index.js";
+import { setDatabaseTenant, withDatabaseTenantContext } from "../db/tenantContext.js";
 import { auditLogs } from "../db/schema.js";
 
 export const schedulingAuditActions = [
@@ -26,17 +27,20 @@ export class SchedulingAuditService {
     ipAddress?: string;
     userAgent?: string;
   }) {
-    const [row] = await db.insert(auditLogs).values({
-      organizationId: data.organizationId,
-      actorUserId: data.actorUserId,
-      action: data.action,
-      resourceType: data.resourceType,
-      resourceId: data.resourceId,
-      metadata: data.metadata || {},
-      ipAddress: data.ipAddress?.slice(0, 120),
-      userAgent: data.userAgent?.slice(0, 500),
-    }).returning();
-    return row;
+    return withDatabaseTenantContext(async () => {
+      setDatabaseTenant(data.organizationId);
+      const [row] = await db.insert(auditLogs).values({
+        organizationId: data.organizationId,
+        actorUserId: data.actorUserId,
+        action: data.action,
+        resourceType: data.resourceType,
+        resourceId: data.resourceId,
+        metadata: data.metadata || {},
+        ipAddress: data.ipAddress?.slice(0, 120),
+        userAgent: data.userAgent?.slice(0, 500),
+      }).returning();
+      return row;
+    });
   }
 
   static async list(organizationId: string, limit = 50) {
