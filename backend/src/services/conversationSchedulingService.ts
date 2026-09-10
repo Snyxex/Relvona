@@ -4,6 +4,7 @@ import { conversationSchedulingStates } from "../db/conversationSchedulingSchema
 import { ActionExecutionService } from "./actionExecutionService.js";
 import { SchedulingAuthorizationService } from "./schedulingAuthorizationService.js";
 import { SchedulingService } from "./schedulingService.js";
+import { detectSchedulingLanguage, formatSchedulingSlot, schedulingText } from "./schedulingLanguage.js";
 
 const meetingIntent = /\b(termin|meeting|besprechung|gespräch|telefonieren|anruf|call|appointment|schedule|meet|demo)\b/i;
 const cancelIntent = /\b(abbrechen|vergiss|doch nicht|cancel|nevermind)\b/i;
@@ -20,7 +21,6 @@ function dateWindow(text: string) {
   start.setMinutes(start.getMinutes() + 60); end.setDate(end.getDate() + 7); return { from: start, to: end };
 }
 
-function formatSlot(date: Date, timezone: string) { return new Intl.DateTimeFormat("de-DE", { timeZone: timezone, weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(date); }
 function selectedIndex(text: string, slots: Array<{ startsAt: string; timezone: string }>) {
   const normalized = text.trim().toLowerCase(); const ordinal: Record<string, number> = { "1": 0, "erste": 0, "first": 0, "2": 1, "zweite": 1, "second": 1, "3": 2, "dritte": 2, "third": 2 };
   for (const [token, index] of Object.entries(ordinal)) if (new RegExp(`\\b${token}\\b`, "i").test(normalized) && slots[index]) return index;
@@ -40,12 +40,14 @@ export class ConversationSchedulingService {
   }
 
   static async handle(data: { organizationId: string; conversationId: string; customerId?: string; text: string }) {
+    const language = detectSchedulingLanguage(data.text);
+    const copy = schedulingText(language);
     let [state] = await db.select().from(conversationSchedulingStates).where(and(eq(conversationSchedulingStates.organizationId, data.organizationId), eq(conversationSchedulingStates.conversationId, data.conversationId))).limit(1);
     if (state?.expiresAt && state.expiresAt <= new Date() && state.state === "offered") { await db.update(conversationSchedulingStates).set({ state: "idle", offeredSlots: [], updatedAt: new Date() }).where(eq(conversationSchedulingStates.id, state.id)); state = { ...state, state: "idle", offeredSlots: [] }; }
-    if (cancelIntent.test(data.text) && state && state.state !== "booked") { await db.update(conversationSchedulingStates).set({ state: "cancelled", offeredSlots: [], updatedAt: new Date() }).where(eq(conversationSchedulingStates.id, state.id)); return { handled: true, reply: "Die Terminplanung wurde abgebrochen." }; }
+    if (cancelIntent.test(data.text) && state && state.state !== "booked") { await db.update(conversationSchedulingStates).set({ state: "cancelled", offeredSlots: [], updatedAt: new Date() }).where(eq(conversationSchedulingStates.id, state.id)); return { handled: true, reply: copy.cancelled }; }
     if (state?.state === "approval_pending") {
       if (!isApprovalPendingFollowup(data.text)) return { handled: false };
-      return { handled: true, reply: "Der ausgewählte Termin wartet noch auf Freigabe. Sobald die Aktion ausgeführt wurde, steht der endgültige Termin fest.", actionExecutionId: state.actionExecutionId || undefined };
+      return { handled: true, reply: copy.approvalPending, actionExecutionId: state.actionExecutionId || undefined };
     }
     if (state?.state === "offered") {
       const slots = Array.isArray(state.offeredSlots) ? state.offeredSlots as Array<{ startsAt: string; timezone: string }> : []; const index = selectedIndex(data.text, slots);
@@ -53,12 +55,12 @@ export class ConversationSchedulingService {
         const selected = slots[index]; const idempotencyKey = `conversation-booking:${data.conversationId}:${selected.startsAt}`;
         const execution = await ActionExecutionService.request({ context: { organizationId: data.organizationId, conversationId: data.conversationId, customerId: data.customerId, actorRole: "agent" }, toolId: "scheduling.create_booking", input: { meetingTypeId: state.meetingTypeId!, assignedUserId: state.assignedUserId || undefined, startsAt: selected.startsAt, timezone: selected.timezone, idempotencyKey }, requestedByType: "ai", idempotencyKey });
         await db.update(conversationSchedulingStates).set({ state: "approval_pending", selectedStartsAt: new Date(selected.startsAt), selectedTimezone: selected.timezone, actionExecutionId: execution.id, updatedAt: new Date() }).where(eq(conversationSchedulingStates.id, state.id));
-        return { handled: true, reply: `Ich habe ${formatSlot(new Date(selected.startsAt), selected.timezone)} ausgewählt. Der Termin wartet jetzt auf die erforderliche Freigabe.`, actionExecutionId: execution.id };
+        return { handled: true, reply: copy.selected(formatSchedulingSlot(new Date(selected.startsAt), selected.timezone, language)), actionExecutionId: execution.id };
       }
-      return { handled: true, reply: "Bitte wählen Sie einen der angebotenen Termine per Nummer oder Uhrzeit aus, oder nennen Sie einen anderen Zeitraum." };
+      return { handled: true, reply: copy.selectionRequired };
     }
     if (!meetingIntent.test(data.text)) return { handled: false };
-    const enabled = (await SchedulingService.listMeetingTypes(data.organizationId)).filter((type) => type.enabled); if (!enabled.length) return { handled: true, reply: "Für diese Organisation sind aktuell keine buchbaren Terminarten eingerichtet." };
+    const enabled = (await SchedulingService.listMeetingTypes(data.organizationId)).filter((type) => type.enabled); if (!enabled.length) return { handled: true, reply: copy.noMeetingTypes };
     const preferred = enabled.find((type) => new RegExp(type.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(data.text)) || enabled[0];
     const rules = await SchedulingService.listAvailabilityRules(data.organizationId, preferred.id); const candidateUserIds = [...new Set(rules.filter((rule) => rule.enabled && rule.userId).map((rule) => rule.userId!))]; const { from, to } = dateWindow(data.text);
     let assignedUserId: string | undefined; let slots: Awaited<ReturnType<typeof SchedulingService.findAvailableSlots>> = [];
@@ -70,10 +72,10 @@ export class ConversationSchedulingService {
         if (candidate.length) { assignedUserId = userId; slots = candidate; break; }
       }
     } else slots = await SchedulingService.findAvailableSlots({ organizationId: data.organizationId, meetingTypeId: preferred.id, from, to, limit: 3 });
-    if (!slots.length) return { handled: true, reply: "Ich konnte im gewünschten Zeitraum keinen freien Termin finden. Sie können mir einen anderen Zeitraum nennen." };
+    if (!slots.length) return { handled: true, reply: copy.noSlots };
     const serialized = slots.map((slot) => ({ startsAt: slot.startsAt.toISOString(), endsAt: slot.endsAt.toISOString(), timezone: slot.timezone })); const expiresAt = new Date(Date.now() + 30 * 60_000);
     if (state) [state] = await db.update(conversationSchedulingStates).set({ meetingTypeId: preferred.id, assignedUserId, state: "offered", offeredSlots: serialized, expiresAt, updatedAt: new Date() }).where(eq(conversationSchedulingStates.id, state.id)).returning();
     else [state] = await db.insert(conversationSchedulingStates).values({ organizationId: data.organizationId, conversationId: data.conversationId, meetingTypeId: preferred.id, assignedUserId, state: "offered", offeredSlots: serialized, expiresAt }).returning();
-    const options = serialized.map((slot, index) => `${index + 1}. ${formatSlot(new Date(slot.startsAt), slot.timezone)}`).join("\n"); return { handled: true, reply: `Für „${preferred.name}“ sind diese Zeiten frei:\n${options}\n\nWelche Zeit passt Ihnen?` };
+    const options = serialized.map((slot, index) => `${index + 1}. ${formatSchedulingSlot(new Date(slot.startsAt), slot.timezone, language)}`).join("\n"); return { handled: true, reply: copy.offered(preferred.name, options) };
   }
 }
