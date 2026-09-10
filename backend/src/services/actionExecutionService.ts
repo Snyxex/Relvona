@@ -74,10 +74,18 @@ export class ActionExecutionService {
   }
 
   static async execute(data: { organizationId: string; executionId: string; context: ToolExecutionContext }) {
-    const [execution] = await db.select().from(actionExecutions).where(and(eq(actionExecutions.organizationId, data.organizationId), eq(actionExecutions.id, data.executionId))).limit(1); if (!execution) throw new Error("Action execution not found");
-    if (terminalStatuses.has(execution.status)) return execution;
-    if (execution.expiresAt && execution.expiresAt <= new Date()) { const [expired] = await db.update(actionExecutions).set({ status: "expired", updatedAt: new Date() }).where(and(eq(actionExecutions.organizationId, data.organizationId), eq(actionExecutions.id, execution.id))).returning(); return expired; }
+    const [execution] = await db.select().from(actionExecutions).where(and(eq(actionExecutions.organizationId, data.organizationId), eq(actionExecutions.id, data.executionId))).limit(1);
+    if (!execution) throw new Error("Action execution not found");
+    if (terminalStatuses.has(execution.status) || execution.status === "executing") return execution;
     if (execution.status !== "approved") throw new Error("Action must be approved before execution");
+    if (execution.expiresAt && execution.expiresAt <= new Date()) {
+      const [expired] = await db.update(actionExecutions).set({ status: "expired", updatedAt: new Date() }).where(and(
+        eq(actionExecutions.organizationId, data.organizationId),
+        eq(actionExecutions.id, execution.id),
+        eq(actionExecutions.status, "approved"),
+      )).returning();
+      return expired || execution;
+    }
     const tool = toolRegistry.get(execution.toolId); if (!tool) throw new Error("Tool no longer exists");
     const input = execution.input as Record<string, unknown>;
     const validation = validateToolInput(tool.inputSchema, input);
@@ -85,11 +93,15 @@ export class ActionExecutionService {
       const [failed] = await db.update(actionExecutions).set({ status: "failed", error: `Invalid tool input: ${validation.error}`.slice(0, 2000), executedAt: new Date(), updatedAt: new Date() }).where(and(eq(actionExecutions.organizationId, data.organizationId), eq(actionExecutions.id, execution.id), eq(actionExecutions.status, "approved"))).returning();
       return failed || execution;
     }
-    const [claimed] = await db.update(actionExecutions).set({ status: "executing", updatedAt: new Date() }).where(and(eq(actionExecutions.organizationId, data.organizationId), eq(actionExecutions.id, execution.id), eq(actionExecutions.status, "approved"))).returning(); if (!claimed) throw new Error("Action is already being executed");
+    const [claimed] = await db.update(actionExecutions).set({ status: "executing", updatedAt: new Date() }).where(and(eq(actionExecutions.organizationId, data.organizationId), eq(actionExecutions.id, execution.id), eq(actionExecutions.status, "approved"))).returning();
+    if (!claimed) {
+      const [current] = await db.select().from(actionExecutions).where(and(eq(actionExecutions.organizationId, data.organizationId), eq(actionExecutions.id, execution.id))).limit(1);
+      return current || execution;
+    }
     try {
       const result = await tool.execute({ ...data.context, organizationId: data.organizationId, conversationId: execution.conversationId || data.context.conversationId, customerId: execution.customerId || data.context.customerId }, input);
-      const [finished] = await db.update(actionExecutions).set({ status: result.success ? "executed" : "failed", result: result.data || null, error: result.success ? null : (result.error || "Tool execution failed").slice(0, 2000), executedAt: new Date(), updatedAt: new Date() }).where(and(eq(actionExecutions.organizationId, data.organizationId), eq(actionExecutions.id, execution.id))).returning();
-      if (result.success && execution.toolId === "scheduling.create_booking") {
+      const [finished] = await db.update(actionExecutions).set({ status: result.success ? "executed" : "failed", result: result.data || null, error: result.success ? null : (result.error || "Tool execution failed").slice(0, 2000), executedAt: new Date(), updatedAt: new Date() }).where(and(eq(actionExecutions.organizationId, data.organizationId), eq(actionExecutions.id, execution.id), eq(actionExecutions.status, "executing"))).returning();
+      if (result.success && execution.toolId === "scheduling.create_booking" && finished?.status === "executed") {
         const booking = (result.data as any)?.booking;
         if (booking?.id) {
           await db.update(conversationSchedulingStates).set({ state: "booked", bookingId: booking.id, updatedAt: new Date() }).where(and(eq(conversationSchedulingStates.organizationId, data.organizationId), eq(conversationSchedulingStates.actionExecutionId, execution.id)));
@@ -103,9 +115,10 @@ export class ActionExecutionService {
           }
         }
       }
-      return finished;
+      return finished || claimed;
     } catch (error) {
-      const [failed] = await db.update(actionExecutions).set({ status: "failed", error: (error as Error).message.slice(0, 2000), executedAt: new Date(), updatedAt: new Date() }).where(and(eq(actionExecutions.organizationId, data.organizationId), eq(actionExecutions.id, execution.id))).returning(); return failed;
+      const [failed] = await db.update(actionExecutions).set({ status: "failed", error: (error as Error).message.slice(0, 2000), executedAt: new Date(), updatedAt: new Date() }).where(and(eq(actionExecutions.organizationId, data.organizationId), eq(actionExecutions.id, execution.id), eq(actionExecutions.status, "executing"))).returning();
+      return failed || claimed;
     }
   }
 }
