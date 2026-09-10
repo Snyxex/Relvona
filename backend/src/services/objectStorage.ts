@@ -134,6 +134,7 @@ export class S3CompatibleObjectStorageProvider implements ObjectStorage {
       requestTimeout: this.config.requestTimeoutMs,
     }),
   });
+  private readyPromise: Promise<void> | undefined;
 
   private key(key: string) {
     safePath("/storage-key-validation", key);
@@ -154,7 +155,7 @@ export class S3CompatibleObjectStorageProvider implements ObjectStorage {
     }
   }
 
-  async ensureReady() {
+  private async ensureReadyInternal() {
     try {
       await this.run("head_bucket", () => this.client.send(new HeadBucketCommand({ Bucket: this.config.bucket! })));
       return;
@@ -168,7 +169,18 @@ export class S3CompatibleObjectStorageProvider implements ObjectStorage {
     await this.run("head_bucket", () => this.client.send(new HeadBucketCommand({ Bucket: this.config.bucket! })));
   }
 
+  ensureReady() {
+    if (!this.readyPromise) {
+      this.readyPromise = this.ensureReadyInternal().catch((error) => {
+        this.readyPromise = undefined;
+        throw error;
+      });
+    }
+    return this.readyPromise;
+  }
+
   async putObject(key: string, object: PutObject) {
+    await this.ensureReady();
     await this.run("put", () =>
       this.client.send(
         new PutObjectCommand({
@@ -185,6 +197,7 @@ export class S3CompatibleObjectStorageProvider implements ObjectStorage {
   }
 
   async getObject(key: string) {
+    await this.ensureReady();
     const response = await this.run("get", () =>
       this.client.send(new GetObjectCommand({ Bucket: this.config.bucket!, Key: this.key(key) })),
     );
@@ -201,6 +214,7 @@ export class S3CompatibleObjectStorageProvider implements ObjectStorage {
   }
 
   async deleteObject(key: string) {
+    await this.ensureReady();
     await this.run("delete", () =>
       this.client.send(new DeleteObjectCommand({ Bucket: this.config.bucket!, Key: this.key(key) })),
     );
@@ -217,6 +231,7 @@ export class S3CompatibleObjectStorageProvider implements ObjectStorage {
   }
 
   async getObjectMetadata(key: string) {
+    await this.ensureReady();
     const response = await this.run("head", () =>
       this.client.send(new HeadObjectCommand({ Bucket: this.config.bucket!, Key: this.key(key) })),
     );
@@ -229,6 +244,7 @@ export class S3CompatibleObjectStorageProvider implements ObjectStorage {
   }
 
   async createSignedDownloadUrl(key: string, expiresInSeconds: number) {
+    await this.ensureReady();
     const url = await getSignedUrl(
       this.client,
       new GetObjectCommand({ Bucket: this.config.bucket!, Key: this.key(key) }),
@@ -239,6 +255,7 @@ export class S3CompatibleObjectStorageProvider implements ObjectStorage {
   }
 
   async createSignedUploadUrl(key: string, expiresInSeconds: number, metadata: ObjectMetadata) {
+    await this.ensureReady();
     // Do not sign Content-Length here. Browser clients cannot reliably control that
     // header and the configured max size is enforced during finalize via HEAD + scan.
     const url = await getSignedUrl(
@@ -256,7 +273,7 @@ export class S3CompatibleObjectStorageProvider implements ObjectStorage {
 
   async healthCheck(): Promise<"HEALTHY" | "UNAVAILABLE"> {
     try {
-      await this.client.send(new HeadBucketCommand({ Bucket: this.config.bucket! }));
+      await this.ensureReady();
       return "HEALTHY";
     } catch {
       return "UNAVAILABLE";
@@ -287,7 +304,12 @@ export function objectStorage(): ObjectStorage {
 export function initializeObjectStorage() {
   const config = objectStorageConfig();
   if (!config.enabled) return Promise.resolve();
-  if (!storageInitialization) storageInitialization = objectStorage().ensureReady();
+  if (!storageInitialization) {
+    storageInitialization = objectStorage().ensureReady().catch((error) => {
+      storageInitialization = undefined;
+      throw error;
+    });
+  }
   return storageInitialization;
 }
 
