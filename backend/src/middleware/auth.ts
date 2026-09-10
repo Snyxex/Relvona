@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { db } from "../db/index.js";
+import { setDatabaseTenant } from "../db/tenantContext.js";
 import { organizationMembers, organizations, apiKeys, platformSupportSessions } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { setLogContext } from "../observability/logger.js";
@@ -58,6 +59,7 @@ export async function requireOrganizationMember(req: AuthRequest, res: Response,
   const membership = await getOrganizationMembership(req.user.id, req.organization.id);
   if (!membership) return res.status(403).json({ error: "Organization membership required" });
   req.organization = membership;
+  setDatabaseTenant(membership.id);
   return next();
 }
 
@@ -92,6 +94,7 @@ export async function tenantContext(req: AuthRequest, res: Response, next: NextF
         role: firstMembership.member.role as OrganizationRole,
       };
       req.organization = organization;
+      setDatabaseTenant(organization.id);
       setLogContext({ organizationId: organization.id });
       return next();
     }
@@ -109,6 +112,7 @@ export async function tenantContext(req: AuthRequest, res: Response, next: NextF
       const [org] = await db.select().from(organizations).where(eq(organizations.id, orgId)).limit(1);
       if (!org) return res.status(404).json({ error: "Organization not found" });
       req.organization = { id: org.id, name: org.name, slug: org.slug, role: "admin" };
+      setDatabaseTenant(org.id);
       setLogContext({ organizationId: org.id });
       return next();
     }
@@ -139,6 +143,7 @@ export async function tenantContext(req: AuthRequest, res: Response, next: NextF
       role: membership.member.role as OrganizationRole,
     };
     req.organization = organization;
+    setDatabaseTenant(organization.id);
     setLogContext({ organizationId: organization.id });
     next();
   } catch {
@@ -173,6 +178,7 @@ export async function authenticateApiKey(req: AuthRequest, res: Response, next: 
   await db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, key.id));
 
   req.organization = { id: org.id, name: org.name, slug: org.slug, role: "admin" };
+  setDatabaseTenant(org.id);
   setLogContext({ organizationId: org.id });
   next();
 }
