@@ -68,10 +68,7 @@ async function requestScopedQuery(...args: Parameters<typeof pool.query>) {
     context.requestClientPromise = requestPool.connect() as Promise<RequestDatabaseClient>;
   }
   const client = await context.requestClientPromise;
-  if (context.released) {
-    client.release();
-    throw new Error("Database request context already released");
-  }
+  if (context.released) throw new Error("Database request context already released");
   context.requestClient = client;
 
   if (organizationId && context.appliedTenantId !== organizationId) {
