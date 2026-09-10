@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { AvailabilityEditor } from "./AvailabilityEditor";
-import { BookingManager, type Booking, type CalendarSync } from "./BookingManager";
+import { BookingManager } from "./BookingManager";
 
 type Connection = { id: string; provider: string; externalAccountId?: string | null; status: string; userId?: string | null };
 type MeetingType = { id: string; name: string; description?: string | null; durationMinutes: number; enabled: boolean; bufferBeforeMinutes: number; bufferAfterMinutes: number; minimumNoticeMinutes: number; maxFutureDays: number };
@@ -14,9 +14,6 @@ export default function AdminSchedulingPage() {
   const [types, setTypes] = useState<MeetingType[]>([]);
   const [typeDrafts, setTypeDrafts] = useState<Record<string, MeetingTypeDraft>>({});
   const [savingTypeId, setSavingTypeId] = useState<string | null>(null);
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [syncByBooking, setSyncByBooking] = useState<Record<string, CalendarSync>>({});
-  const [retryingBookingId, setRetryingBookingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [duration, setDuration] = useState(30);
   const [error, setError] = useState("");
@@ -24,10 +21,9 @@ export default function AdminSchedulingPage() {
   async function load() {
     setError("");
     try {
-      const [connectionsResult, typesResult, bookingsResult] = await Promise.all([api.get("/scheduling/connections"), api.get("/scheduling/meeting-types"), api.get("/scheduling/bookings")]);
+      const [connectionsResult, typesResult] = await Promise.all([api.get("/scheduling/connections"), api.get("/scheduling/meeting-types")]);
       const nextTypes: MeetingType[] = typesResult.data;
-      const nextBookings: Booking[] = bookingsResult.data;
-      setConnections(connectionsResult.data); setTypes(nextTypes); setBookings(nextBookings);
+      setConnections(connectionsResult.data); setTypes(nextTypes);
       setTypeDrafts(Object.fromEntries(nextTypes.map((type) => [type.id, {
         name: type.name,
         description: type.description || "",
@@ -38,15 +34,6 @@ export default function AdminSchedulingPage() {
         minimumNoticeMinutes: type.minimumNoticeMinutes,
         maxFutureDays: type.maxFutureDays,
       }])));
-      const statuses = await Promise.all(nextBookings.map(async (booking) => {
-        try {
-          const result = await api.get(`/scheduling/bookings/${booking.id}/calendar-sync`);
-          return [booking.id, result.data] as const;
-        } catch {
-          return [booking.id, { bookingId: booking.id, status: "unknown", attempts: 0 }] as const;
-        }
-      }));
-      setSyncByBooking(Object.fromEntries(statuses));
     } catch (e: any) { setError(e.response?.data?.error || "Scheduling konnte nicht geladen werden."); }
   }
 
@@ -87,19 +74,6 @@ export default function AdminSchedulingPage() {
     }
   }
 
-  async function retryCalendarSync(bookingId: string) {
-    setRetryingBookingId(bookingId);
-    setError("");
-    try {
-      await api.post(`/scheduling/bookings/${bookingId}/calendar-sync/retry`);
-      await load();
-    } catch (e: any) {
-      setError(e.response?.data?.error || "Kalender-Synchronisierung konnte nicht erneut gestartet werden.");
-    } finally {
-      setRetryingBookingId(null);
-    }
-  }
-
   return <main className="mx-auto max-w-6xl space-y-6 p-4 sm:p-8">
     <div><p className="text-sm text-muted-foreground">Integrationen & Termine</p><h1 className="text-2xl font-semibold">Scheduling</h1><p className="mt-2 text-sm text-muted-foreground">Kalender anbinden, Terminarten verwalten und aktuelle Buchungen prüfen.</p></div>
     {error && <div className="rounded-lg border p-3 text-sm text-destructive">{error}</div>}
@@ -113,6 +87,6 @@ export default function AdminSchedulingPage() {
 
     <AvailabilityEditor meetingTypes={types} />
 
-    <BookingManager bookings={bookings} syncByBooking={syncByBooking} retryingBookingId={retryingBookingId} onRetrySync={retryCalendarSync} onReload={load} onError={setError} />
+    <BookingManager onError={setError} />
   </main>;
 }
