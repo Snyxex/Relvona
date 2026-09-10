@@ -120,19 +120,29 @@ export class FilesystemObjectStorage implements ObjectStorage {
 /** AWS-SDK based adapter used for both generic S3 and RustFS. */
 export class S3CompatibleObjectStorageProvider implements ObjectStorage {
   private readonly config = objectStorageConfig();
+  private readonly credentials = {
+    accessKeyId: this.config.accessKey!,
+    secretAccessKey: this.config.secretKey!,
+  };
+  private readonly requestHandler = new NodeHttpHandler({
+    connectionTimeout: this.config.connectTimeoutMs,
+    requestTimeout: this.config.requestTimeoutMs,
+  });
   private readonly client = new S3Client({
     endpoint: this.config.endpoint,
     region: this.config.region,
     forcePathStyle: this.config.forcePathStyle,
-    credentials: {
-      accessKeyId: this.config.accessKey!,
-      secretAccessKey: this.config.secretKey!,
-    },
+    credentials: this.credentials,
     maxAttempts: this.config.maxRetries,
-    requestHandler: new NodeHttpHandler({
-      connectionTimeout: this.config.connectTimeoutMs,
-      requestTimeout: this.config.requestTimeoutMs,
-    }),
+    requestHandler: this.requestHandler,
+  });
+  private readonly signingClient = new S3Client({
+    endpoint: this.config.publicEndpoint || this.config.endpoint,
+    region: this.config.region,
+    forcePathStyle: this.config.forcePathStyle,
+    credentials: this.credentials,
+    maxAttempts: this.config.maxRetries,
+    requestHandler: this.requestHandler,
   });
   private readyPromise: Promise<void> | undefined;
 
@@ -246,7 +256,7 @@ export class S3CompatibleObjectStorageProvider implements ObjectStorage {
   async createSignedDownloadUrl(key: string, expiresInSeconds: number) {
     await this.ensureReady();
     const url = await getSignedUrl(
-      this.client,
+      this.signingClient,
       new GetObjectCommand({ Bucket: this.config.bucket!, Key: this.key(key) }),
       { expiresIn: expiresInSeconds },
     );
@@ -259,7 +269,7 @@ export class S3CompatibleObjectStorageProvider implements ObjectStorage {
     // Do not sign Content-Length here. Browser clients cannot reliably control that
     // header and the configured max size is enforced during finalize via HEAD + scan.
     const url = await getSignedUrl(
-      this.client,
+      this.signingClient,
       new PutObjectCommand({
         Bucket: this.config.bucket!,
         Key: this.key(key),
