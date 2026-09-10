@@ -38,19 +38,42 @@ requestPool.on("error", (error) => console.error(JSON.stringify({ level: "error"
 
 const corePoolQuery = pool.query.bind(pool);
 
+async function transientTenantQuery(organizationId: string, args: Parameters<typeof pool.query>) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('app.organization_id', $1, true)", [organizationId]);
+    const result = await (client.query as any)(...args);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function requestScopedQuery(...args: Parameters<typeof pool.query>) {
   const context = currentDatabaseContext();
-  if (!context?.requestScoped) return corePoolQuery(...args);
+  if (!context) return corePoolQuery(...args);
+
+  const organizationId = currentDatabaseTenant();
+  if (!context.requestScoped) {
+    return organizationId ? transientTenantQuery(organizationId, args) : corePoolQuery(...args);
+  }
   if (context.released) throw new Error("Database request context already released");
 
   if (!context.requestClientPromise) {
     context.requestClientPromise = requestPool.connect() as Promise<RequestDatabaseClient>;
   }
   const client = await context.requestClientPromise;
-  if (context.released) throw new Error("Database request context already released");
+  if (context.released) {
+    client.release();
+    throw new Error("Database request context already released");
+  }
   context.requestClient = client;
 
-  const organizationId = currentDatabaseTenant();
   if (organizationId && context.appliedTenantId !== organizationId) {
     if (context.appliedTenantId && context.appliedTenantId !== organizationId) throw new Error("Cross-tenant request rejected");
     await client.query("SELECT set_config('app.organization_id', $1, false)", [organizationId]);
@@ -60,8 +83,8 @@ async function requestScopedQuery(...args: Parameters<typeof pool.query>) {
   return (client.query as any)(...args);
 }
 
-// Drizzle uses pool.query internally. Route HTTP traffic through the request-scoped
-// client while keeping explicit transactions and transient/worker traffic on the core pool.
+// Drizzle uses pool.query internally. HTTP requests reuse one request-pool client;
+// transient tenant contexts retain the safe transaction-local RLS fallback.
 pool.query = requestScopedQuery as typeof pool.query;
 
 export const db = drizzle(pool, { schema });
