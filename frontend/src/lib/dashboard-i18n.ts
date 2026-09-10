@@ -2,9 +2,6 @@ export type DashboardLanguage = "de" | "en" | "es" | "fr";
 
 type Translation = Record<DashboardLanguage, string>;
 
-// English is the source language used by the existing dashboard. Keeping the
-// dictionary in one place makes every user-specific language selection apply
-// consistently across the whole client-rendered dashboard.
 const translations: Record<string, Translation> = {
   "Overview": { de: "Übersicht", en: "Overview", es: "Resumen", fr: "Aperçu" },
   "Conversations Inbox": { de: "Unterhaltungen", en: "Conversations Inbox", es: "Bandeja de conversaciones", fr: "Boîte de conversations" },
@@ -60,13 +57,14 @@ const translations: Record<string, Translation> = {
   "Save Widget Access Settings": { de: "Widget-Zugriff speichern", en: "Save Widget Access Settings", es: "Guardar acceso al widget", fr: "Enregistrer l’accès au widget" },
 };
 
-function sourceText(value: string) {
-  const trimmed = value.trim();
-  return Object.keys(translations).find((key) => key === trimmed || Object.values(translations[key]).includes(trimmed));
+const sourceByText = new Map<string, string>();
+for (const [source, values] of Object.entries(translations)) {
+  sourceByText.set(source, source);
+  for (const translated of Object.values(values)) sourceByText.set(translated, source);
 }
 
 function translate(value: string, language: DashboardLanguage) {
-  const key = sourceText(value);
+  const key = sourceByText.get(value.trim());
   return key ? translations[key][language] : value;
 }
 
@@ -78,40 +76,22 @@ function styleTicketCommunication() {
 
     let palette: { border: string; background: string; badgeBackground: string; badgeColor: string } | null = null;
     let type = "";
-
     if (label.startsWith("Interne Notiz ·")) {
       type = "internal-note";
-      palette = {
-        border: "rgba(245, 158, 11, 0.55)",
-        background: "rgba(120, 53, 15, 0.22)",
-        badgeBackground: "rgba(180, 83, 9, 0.35)",
-        badgeColor: "rgb(253, 230, 138)",
-      };
+      palette = { border: "rgba(245, 158, 11, 0.55)", background: "rgba(120, 53, 15, 0.22)", badgeBackground: "rgba(180, 83, 9, 0.35)", badgeColor: "rgb(253, 230, 138)" };
     } else if (label.startsWith("Öffentliche Antwort ·")) {
       type = "public-reply";
-      palette = {
-        border: "rgba(59, 130, 246, 0.55)",
-        background: "rgba(30, 64, 175, 0.18)",
-        badgeBackground: "rgba(37, 99, 235, 0.3)",
-        badgeColor: "rgb(191, 219, 254)",
-      };
+      palette = { border: "rgba(59, 130, 246, 0.55)", background: "rgba(30, 64, 175, 0.18)", badgeBackground: "rgba(37, 99, 235, 0.3)", badgeColor: "rgb(191, 219, 254)" };
     } else if (label.startsWith("Zendesk-Kunde ·") || label.startsWith("Externer Kunde ·")) {
       type = "external-customer";
-      palette = {
-        border: "rgba(16, 185, 129, 0.55)",
-        background: "rgba(6, 78, 59, 0.2)",
-        badgeBackground: "rgba(5, 150, 105, 0.28)",
-        badgeColor: "rgb(167, 243, 208)",
-      };
+      palette = { border: "rgba(16, 185, 129, 0.55)", background: "rgba(6, 78, 59, 0.2)", badgeBackground: "rgba(5, 150, 105, 0.28)", badgeColor: "rgb(167, 243, 208)" };
     }
-
-    if (!palette) return;
+    if (!palette || card.dataset.ticketCommunicationType === type) return;
 
     card.dataset.ticketCommunicationType = type;
     card.style.border = `1px solid ${palette.border}`;
     card.style.backgroundColor = palette.background;
     card.style.boxShadow = "0 1px 2px rgba(0, 0, 0, 0.18)";
-
     authorLine.style.display = "inline-flex";
     authorLine.style.alignItems = "center";
     authorLine.style.width = "fit-content";
@@ -124,24 +104,37 @@ function styleTicketCommunication() {
   });
 }
 
-/** Localize static dashboard content after React renders it. Dynamic customer data is never altered. */
-export function localizeDashboard(language: DashboardLanguage) {
+function localizeNow(language: DashboardLanguage) {
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-  const nodes: Text[] = [];
-  while (walker.nextNode()) nodes.push(walker.currentNode as Text);
-  nodes.forEach((node) => {
+  while (walker.nextNode()) {
+    const node = walker.currentNode as Text;
     const parent = node.parentElement;
-    if (!parent || ["SCRIPT", "STYLE", "TEXTAREA"].includes(parent.tagName)) return;
+    if (!parent || ["SCRIPT", "STYLE", "TEXTAREA"].includes(parent.tagName)) continue;
     const original = node.nodeValue || "";
     const translated = translate(original, language);
     if (translated !== original) node.nodeValue = original.replace(original.trim(), translated);
-  });
+  }
   document.querySelectorAll<HTMLElement>("[title],[aria-label],[placeholder]").forEach((element) => {
-    ["title", "aria-label", "placeholder"].forEach((attribute) => {
+    for (const attribute of ["title", "aria-label", "placeholder"] as const) {
       const value = element.getAttribute(attribute);
-      if (value) element.setAttribute(attribute, translate(value, language));
-    });
+      if (!value) continue;
+      const translated = translate(value, language);
+      if (translated !== value) element.setAttribute(attribute, translated);
+    }
   });
   styleTicketCommunication();
-  document.documentElement.lang = language;
+  if (document.documentElement.lang !== language) document.documentElement.lang = language;
+}
+
+let pendingLanguage: DashboardLanguage = "de";
+let scheduledFrame: number | null = null;
+
+/** Coalesces MutationObserver bursts into at most one full dashboard localization pass per frame. */
+export function localizeDashboard(language: DashboardLanguage) {
+  pendingLanguage = language;
+  if (scheduledFrame !== null) return;
+  scheduledFrame = window.requestAnimationFrame(() => {
+    scheduledFrame = null;
+    localizeNow(pendingLanguage);
+  });
 }
