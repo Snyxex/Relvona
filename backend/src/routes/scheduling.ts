@@ -4,6 +4,7 @@ import { authenticate, tenantContext, requireRole, type AuthRequest } from "../m
 import { SchedulingService } from "../services/schedulingService.js";
 import { SchedulingAuthorizationService } from "../services/schedulingAuthorizationService.js";
 import { BookingCalendarSyncService } from "../services/bookingCalendarSyncService.js";
+import { MeetingTypeAdminService } from "../services/meetingTypeAdminService.js";
 import { sendInternalError } from "../utils/httpErrors.js";
 import { db } from "../db/index.js";
 import { bookingCalendarSync } from "../db/bookingCalendarSyncSchema.js";
@@ -45,6 +46,16 @@ router.post("/meeting-types", requireRole(["owner", "admin"]), async (req: AuthR
   catch (error) {
     if ((error as Error).message === "Invalid meeting type") return res.status(400).json({ error: "Invalid meeting type" });
     return sendInternalError(req, res, error, { code: "MEETING_TYPE_CREATE_FAILED", message: "Unable to create meeting type" });
+  }
+});
+
+router.patch("/meeting-types/:id", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
+  try { return res.json(await MeetingTypeAdminService.update(req.organization!.id, req.params.id, req.body || {})); }
+  catch (error) {
+    const message = (error as Error).message;
+    if (message === "Meeting type not found") return res.status(404).json({ error: message });
+    if (message === "Invalid meeting type") return res.status(400).json({ error: message });
+    return sendInternalError(req, res, error, { code: "MEETING_TYPE_UPDATE_FAILED", message: "Unable to update meeting type" });
   }
 });
 
