@@ -34,6 +34,12 @@ const nextConfig: NextConfig = {
   experimental: {
     optimizePackageImports: ["lucide-react"],
   },
+  turbopack: {
+    resolveAlias: {
+      "socket.io-client": "./src/lib/lazy-socket-client.ts",
+      "socket.io-client-real": "./node_modules/socket.io-client/build/esm-debug/index.js",
+    },
+  },
   async headers() {
     return [
       {
