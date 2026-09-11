@@ -19,6 +19,12 @@ async function main() {
     )
   `);
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS mail_server_settings_org_unique ON mail_server_settings (organization_id)`);
+  await pool.query(`ALTER TABLE mail_server_settings ENABLE ROW LEVEL SECURITY`);
+  await pool.query(`ALTER TABLE mail_server_settings FORCE ROW LEVEL SECURITY`);
+  await pool.query(`DROP POLICY IF EXISTS supportai_tenant_isolation ON mail_server_settings`);
+  await pool.query(`CREATE POLICY supportai_tenant_isolation ON mail_server_settings
+    USING (organization_id::text = current_setting('app.organization_id', true))
+    WITH CHECK (organization_id::text = current_setting('app.organization_id', true))`);
 }
 
 main()
