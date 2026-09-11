@@ -4,7 +4,7 @@ Relvona is a self-hosted, multi-tenant AI customer-support platform for teams th
 
 It combines an embeddable AI support widget, retrieval-augmented generation (RAG), human handoff, ticketing, customer management, scheduling, integrations, analytics, a customer portal, and production-focused security controls in one platform.
 
-> Project status: Relvona is under active development. Review the security and production documentation before deploying it to production.
+> Project status: Relvona is under active development. Do not use in production, Relvona is still in testing.
 
 ## Features
 
