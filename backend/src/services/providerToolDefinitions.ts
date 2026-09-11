@@ -1,7 +1,37 @@
 import type { SupportTool } from "./toolRegistry.js";
 import { HubSpotExtendedAdapter, ZendeskExtendedAdapter } from "./providerActionService.js";
+import { EmployeeDirectoryService } from "./employeeDirectoryService.js";
 
 export const providerExtendedTools: SupportTool[] = [
+  {
+    id: "support.search_employees",
+    name: "Search employees",
+    description: "Search the current organization's AI-approved employee directory by person, department or job title. Only customer-approved contact fields are returned.",
+    inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+    riskLevel: "read",
+    requiresApproval: false,
+    async execute(context, input) {
+      if (typeof input.query !== "string" || !input.query.trim()) return { success: false, error: "query is required" };
+      try {
+        return { success: true, data: { employees: await EmployeeDirectoryService.searchForAI(context.organizationId, input.query) } as Record<string, unknown> };
+      } catch (error) { return { success: false, error: (error as Error).message }; }
+    },
+  },
+  {
+    id: "support.request_employee_handoff",
+    name: "Request specific employee handoff",
+    description: "Route the active customer conversation to a specific AI-approved employee when direct handoff is enabled for that employee.",
+    inputSchema: { type: "object", properties: { employeeId: { type: "string", format: "uuid" } }, required: ["employeeId"] },
+    riskLevel: "write",
+    requiresApproval: true,
+    async execute(context, input) {
+      if (!context.conversationId) return { success: false, error: "No active conversation" };
+      if (typeof input.employeeId !== "string") return { success: false, error: "employeeId is required" };
+      try {
+        return { success: true, data: await EmployeeDirectoryService.requestDirectHandoff(context.organizationId, context.conversationId, input.employeeId) as Record<string, unknown> };
+      } catch (error) { return { success: false, error: (error as Error).message }; }
+    },
+  },
   {
     id: "hubspot.update_contact",
     name: "Update HubSpot contact",

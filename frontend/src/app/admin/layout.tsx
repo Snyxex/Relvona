@@ -41,6 +41,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       </label>
       <nav className="flex flex-wrap gap-3 text-sm lg:ml-auto">
         <Link href="/admin/agents" className="text-blue-300">Agent-Versionen</Link>
+        <Link href="/admin/employees" className="text-blue-300">Mitarbeiter</Link>
         <Link href="/admin/analytics" className="text-blue-300">Analytics</Link>
         <Link href="/admin/knowledge" className="text-blue-300">Knowledge Intelligence</Link>
         <Link href="/admin/actions" className="text-blue-300">AI Actions</Link>
