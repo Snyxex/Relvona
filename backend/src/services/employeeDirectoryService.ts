@@ -1,7 +1,7 @@
 import { and, eq, ilike, or } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { employeeDirectory } from "../db/employeeDirectorySchema.js";
-import { agentPresence, conversationActivities, conversationHandoffs, conversations, organizationMembers } from "../db/schema.js";
+import { agentPresence, conversationActivities, conversationHandoffs, conversations, organizationMembers, users } from "../db/schema.js";
 
 function clean(value: unknown, max: number) {
   return typeof value === "string" ? value.trim().slice(0, max) : "";
@@ -40,8 +40,9 @@ export class EmployeeDirectoryService {
   }
 
   static async listAssignableMembers(organizationId: string) {
-    return db.select({ userId: organizationMembers.userId, role: organizationMembers.role })
+    return db.select({ userId: organizationMembers.userId, role: organizationMembers.role, name: users.name, email: users.email })
       .from(organizationMembers)
+      .innerJoin(users, eq(users.id, organizationMembers.userId))
       .where(and(eq(organizationMembers.organizationId, organizationId), eq(organizationMembers.status, "active")));
   }
 
