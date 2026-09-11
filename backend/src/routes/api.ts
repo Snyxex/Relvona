@@ -15,6 +15,7 @@ import analyticsRouter from "./analytics.js";
 import widgetRouter from "./widget.js";
 import widgetPrivacyRouter from "./widgetPrivacy.js";
 import adminSettingsRouter from "./adminSettings.js";
+import mailServerSettingsRouter from "./mailServerSettings.js";
 import toolsRouter from "./tools.js";
 import platformAdminRouter from "./platformAdmin.js";
 import visitorMemoryRouter from "./visitorMemory.js";
@@ -30,9 +31,11 @@ import attachmentsRouter from "./attachments.js";
 import storageRouter from "./storage.js";
 import { registerWebhookDomainBridge } from "../services/webhookDomainBridge.js";
 import { registerIntegrationSyncBridge } from "../services/integrationSyncBridge.js";
+import { registerBookingEmailNotificationBridge } from "../services/bookingEmailNotificationBridge.js";
 
 registerWebhookDomainBridge();
 registerIntegrationSyncBridge();
+registerBookingEmailNotificationBridge();
 
 const apiRouter = Router();
 
@@ -59,6 +62,7 @@ apiRouter.use("/v1/webhooks", webhooksRouter);
 apiRouter.use("/v1/integrations/zendesk/inbound", integrationInboundRouter);
 apiRouter.use("/v1/integrations/sync", integrationSyncRouter);
 apiRouter.use("/v1/integrations", integrationConnectionsRouter);
+apiRouter.use("/v1/admin/mail-server", mailServerSettingsRouter);
 apiRouter.use("/v1/admin", adminSettingsRouter);
 apiRouter.use("/v1/platform-admin", platformAdminRouter);
 apiRouter.use("/v1/tools", toolsRouter);
