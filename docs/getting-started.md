@@ -1,6 +1,6 @@
-# Getting Started with SupportAI
+# Getting Started with Relvona
 
-This guide is for organization owners and administrators who want to set up SupportAI for real customer support.
+This guide is for organization owners and administrators who want to set up Relvona for real customer support.
 
 ## 1. Sign in and create your organization
 
@@ -104,7 +104,7 @@ Example:
 
 Do not put provider API keys, database credentials, organization secrets, JWTs, or internal API tokens in the page.
 
-If the customer website uses Content-Security-Policy, allow the SupportAI API origin for the widget script, API calls, and WebSocket connections.
+If the customer website uses Content-Security-Policy, allow the Relvona API origin for the widget script, API calls, and WebSocket connections.
 
 ## 11. Review security before launch
 
