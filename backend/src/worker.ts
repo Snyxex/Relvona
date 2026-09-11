@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { gt } from "drizzle-orm";
 import { db, closeDatabasePool } from "./db/index.js";
 import { organizations } from "./db/schema.js";
+import { setDatabaseTenant, withDatabaseTenantContext } from "./db/tenantContext.js";
 import { IngestionJobService } from "./services/ingestionJobService.js";
 import { ConversationAutoCloseService } from "./services/conversationAutoCloseService.js";
 import { WebhookDeliverySweepService } from "./services/webhookDeliverySweepService.js";
@@ -13,6 +14,7 @@ import { IntegrationSyncService } from "./services/integrationSyncService.js";
 import { IntegrationInboundService } from "./services/integrationInboundService.js";
 import { BookingCalendarSyncService } from "./services/bookingCalendarSyncService.js";
 import { KnowledgeRecrawlService } from "./services/knowledgeRecrawlService.js";
+import { NotificationService } from "./services/notificationService.js";
 import { closeQueues, publishIngestion } from "./services/queueService.js";
 import type { IngestionInput, IngestionReference } from "./services/ingestionTypes.js";
 import { logger, withLogContext, setLogContext } from "./observability/logger.js";
@@ -59,6 +61,7 @@ let integrationInboundSweeping: Promise<void> | undefined;
 let calendarSyncSweeping: Promise<void> | undefined;
 let storageCleanupSweeping: Promise<void> | undefined;
 let knowledgeRecrawlSweeping: Promise<void> | undefined;
+let notificationSweeping: Promise<void> | undefined;
 
 async function dispatch() {
   let cursor: string | undefined;
@@ -116,20 +119,12 @@ async function cleanupTenantStorage() {
   let cursor: string | undefined;
   let deleted = 0;
   while (!shuttingDown) {
-    const tenants = await db
-      .select({ id: organizations.id })
-      .from(organizations)
-      .where(cursor ? gt(organizations.id, cursor) : undefined)
-      .orderBy(organizations.id)
-      .limit(100);
+    const tenants = await db.select({ id: organizations.id }).from(organizations).where(cursor ? gt(organizations.id, cursor) : undefined).orderBy(organizations.id).limit(100);
     if (!tenants.length) break;
     for (const tenant of tenants) {
       if (shuttingDown) break;
-      try {
-        deleted += await FileObjectService.cleanupForOrganization(tenant.id);
-      } catch {
-        logger.warn("storage.tenant_cleanup_failed", { organizationId: tenant.id });
-      }
+      try { deleted += await FileObjectService.cleanupForOrganization(tenant.id); }
+      catch { logger.warn("storage.tenant_cleanup_failed", { organizationId: tenant.id }); }
     }
     cursor = tenants[tenants.length - 1].id;
   }
@@ -161,6 +156,24 @@ function scheduleKnowledgeRecrawl() {
     if (claimed || failed) logger.info("knowledge.recrawl_sweep", { claimed, dispatched, failed });
   })().catch(() => logger.warn("knowledge.recrawl_sweep_failed")).finally(() => { knowledgeRecrawlSweeping = undefined; });
 }
+function scheduleNotificationSweep() {
+  if (notificationSweeping || shuttingDown) return;
+  notificationSweeping = (async () => {
+    const tenants = await db.select({ id: organizations.id }).from(organizations).limit(10_000);
+    let bookingNotifications = 0;
+    let ticketNotifications = 0;
+    for (const tenant of tenants) {
+      if (shuttingDown) return;
+      const result = await withDatabaseTenantContext(async () => {
+        setDatabaseTenant(tenant.id);
+        return NotificationService.sweepOrganization(tenant.id);
+      });
+      bookingNotifications += result.bookingNotifications;
+      ticketNotifications += result.ticketNotifications;
+    }
+    if (bookingNotifications || ticketNotifications) logger.info("notifications.sweep", { bookingNotifications, ticketNotifications });
+  })().catch(() => logger.warn("notifications.sweep_failed")).finally(() => { notificationSweeping = undefined; });
+}
 
 const dispatchTimer = setInterval(scheduleDispatch, 10_000);
 const autoCloseTimer = setInterval(scheduleAutoClose, Number(process.env.CONVERSATION_AUTO_CLOSE_SWEEP_MS || 60_000));
@@ -170,6 +183,7 @@ const integrationInboundTimer = setInterval(scheduleIntegrationInboundSweep, Num
 const calendarSyncTimer = setInterval(scheduleCalendarSyncSweep, Number(process.env.CALENDAR_SYNC_SWEEP_MS || 5_000));
 const storageCleanupTimer = setInterval(scheduleStorageCleanup, Number(process.env.STORAGE_CLEANUP_SWEEP_MS || 60_000));
 const knowledgeRecrawlTimer = setInterval(scheduleKnowledgeRecrawl, Number(process.env.KNOWLEDGE_RECRAWL_SWEEP_MS || 60_000));
+const notificationTimer = setInterval(scheduleNotificationSweep, Number(process.env.NOTIFICATION_SWEEP_MS || 60_000));
 scheduleDispatch();
 scheduleAutoClose();
 scheduleWebhookSweep();
@@ -178,6 +192,7 @@ scheduleIntegrationInboundSweep();
 scheduleCalendarSyncSweep();
 scheduleStorageCleanup();
 scheduleKnowledgeRecrawl();
+scheduleNotificationSweep();
 
 async function shutdown(signal: string) {
   if (shuttingDown) return;
@@ -190,6 +205,7 @@ async function shutdown(signal: string) {
   clearInterval(calendarSyncTimer);
   clearInterval(storageCleanupTimer);
   clearInterval(knowledgeRecrawlTimer);
+  clearInterval(notificationTimer);
   logger.info("worker.shutdown_started", { signal });
   const timer = setTimeout(() => { logger.error("worker.shutdown_timeout"); process.exit(1); }, Number(process.env.SHUTDOWN_TIMEOUT_MS || 30_000));
   timer.unref();
@@ -203,6 +219,7 @@ async function shutdown(signal: string) {
     await calendarSyncSweeping;
     await storageCleanupSweeping;
     await knowledgeRecrawlSweeping;
+    await notificationSweeping;
     await closeQueues();
     connection.disconnect();
     await closeDatabasePool();
