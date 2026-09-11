@@ -4,10 +4,10 @@ import "./ux.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "SupportAI",
-    template: "%s · SupportAI",
+    default: "Relvona",
+    template: "%s · Relvona",
   },
-  description: "AI customer support, knowledge management and agent operations.",
+  description: "Self-hosted AI customer support, knowledge management and agent operations.",
 };
 
 export const viewport: Viewport = {
