@@ -1,0 +1,16 @@
+title = "AI Customer Support secret scanning"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allow documented placeholders and example env templates"
+paths = [
+  '''(^|/)\.env\.example$''',
+  '''(^|/)\.env\.sample$'''
+]
+regexes = [
+  '''replace-with-[A-Za-z0-9._-]+''',
+  '''postgrespassword''',
+  '''supportai_app'''
+]
