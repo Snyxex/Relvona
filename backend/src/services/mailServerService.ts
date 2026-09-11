@@ -91,6 +91,16 @@ function htmlEscape(value: string) {
   return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character] || character);
 }
 
+function safeMeetingUrl(value: string | null) {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 function formatAppointment(date: Date, timezone: string) {
   try {
     return new Intl.DateTimeFormat("de-DE", {
@@ -175,6 +185,7 @@ export class MailServerService {
       fromName: effectiveFromName,
       replyTo: effectiveReplyTo,
     });
+    if (!host) throw new Error("Ungültiger SMTP-Host.");
 
     await SmtpService.verify({ host, port, security: security as SmtpSecurity, username: effectiveUsername, password });
     return true;
@@ -202,9 +213,10 @@ export class MailServerService {
     const meetingName = meetingType?.name || "Termin";
     const startsAt = formatAppointment(booking.startsAt, booking.timezone);
     const endsAt = formatAppointment(booking.endsAt, booking.timezone);
-    const meetingUrlText = booking.meetingUrl ? `\nTeilnahmelink: ${booking.meetingUrl}` : "";
+    const meetingUrl = safeMeetingUrl(booking.meetingUrl);
+    const meetingUrlText = meetingUrl ? `\nTeilnahmelink: ${meetingUrl}` : "";
     const text = `Hallo ${guestName},\n\nIhr Termin bei ${organizationName} wurde bestätigt.\n\n${meetingName}\nBeginn: ${startsAt}\nEnde: ${endsAt}\nZeitzone: ${booking.timezone}${meetingUrlText}\n\nViele Grüße\n${organizationName}`;
-    const meetingUrlHtml = booking.meetingUrl ? `<p><strong>Teilnahmelink:</strong> <a href="${htmlEscape(booking.meetingUrl)}">${htmlEscape(booking.meetingUrl)}</a></p>` : "";
+    const meetingUrlHtml = meetingUrl ? `<p><strong>Teilnahmelink:</strong> <a href="${htmlEscape(meetingUrl)}">${htmlEscape(meetingUrl)}</a></p>` : "";
     const html = `<p>Hallo ${htmlEscape(guestName)},</p><p>Ihr Termin bei <strong>${htmlEscape(organizationName)}</strong> wurde bestätigt.</p><p><strong>${htmlEscape(meetingName)}</strong><br>Beginn: ${htmlEscape(startsAt)}<br>Ende: ${htmlEscape(endsAt)}<br>Zeitzone: ${htmlEscape(booking.timezone)}</p>${meetingUrlHtml}<p>Viele Grüße<br>${htmlEscape(organizationName)}</p>`;
 
     await SmtpService.send(smtpConfig(settings), {
