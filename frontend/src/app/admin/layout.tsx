@@ -45,6 +45,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         <Link href="/admin/knowledge" className="text-blue-300">Knowledge Intelligence</Link>
         <Link href="/admin/actions" className="text-blue-300">AI Actions</Link>
         <Link href="/admin/scheduling" className="text-blue-300">Scheduling</Link>
+        <Link href="/admin/notifications" className="text-blue-300">Benachrichtigungen</Link>
         <Link href="/admin/mail-server" className="text-blue-300">Mailserver</Link>
         <Link href="/admin/integrations" className="text-blue-300">Integrationen</Link>
         <Link href="/admin/integrations/zendesk-inbound" className="text-blue-300">Zendesk Inbound</Link>
