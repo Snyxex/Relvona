@@ -1,126 +1,89 @@
-# SupportAI
+# Relvona
 
-SupportAI is a self-hosted, multi-tenant AI customer-support platform for organizations that want AI-assisted support while keeping control over their data, infrastructure, integrations, and customer workflows.
+Relvona is a self-hosted, multi-tenant AI customer-support platform for teams that want AI-assisted support while keeping control over their data, infrastructure, integrations, and customer workflows.
 
-It combines an embeddable website assistant, RAG-based knowledge retrieval, human handoff, ticketing, customer management, scheduling, integrations, analytics, a customer portal, and production-focused security controls in one platform.
+It combines an embeddable AI support widget, retrieval-augmented generation (RAG), human handoff, ticketing, customer management, scheduling, integrations, analytics, a customer portal, and production-focused security controls in one platform.
 
-## What SupportAI can do
+> Project status: Relvona is under active development. Review the security and production documentation before deploying it to production.
 
-### AI-powered customer support
+## Features
 
-- Answer customer questions with organization-specific knowledge using RAG.
-- Stream responses in the website widget.
-- Keep conversations tenant-scoped and tied to the correct customer context.
-- Escalate conversations to human agents when AI should not continue.
-- Fall back to human support when tenant AI budgets are exhausted.
-- Collect helpful/not-helpful feedback on AI answers.
+### AI customer support
+
+- Organization-specific answers using RAG.
+- Streaming responses in the website widget.
+- Tenant-scoped conversations and customer context.
+- Human handoff when AI should not continue.
+- AI-assisted reply suggestions for support agents.
+- Helpful/not-helpful feedback for AI responses.
+- Configurable AI providers, model routing, fallbacks, and usage limits.
 
 ### Knowledge management
 
-- Create knowledge from FAQs, text, documents, PDFs, and approved websites.
-- Organize content into knowledge collections.
-- Assign selected collections to individual assistants.
-- Track knowledge revisions.
-- Schedule automatic website recrawls.
-- Skip unchanged website content to avoid unnecessary reprocessing.
-- Inspect knowledge and retrieval-related information through knowledge intelligence features.
+- FAQs, text, documents, PDFs, and approved websites.
+- Knowledge collections and assistant-specific scopes.
+- Knowledge revisions and publication controls.
+- Scheduled website recrawls.
+- Change detection to avoid unnecessary reprocessing.
+- Knowledge intelligence and retrieval tracking.
 
-### Assistants
+### Support operations
 
-- Create multiple assistants per organization.
-- Configure assistant behavior and AI models.
-- Limit each assistant to selected knowledge collections.
-- Use versioned assistant configuration.
-- Give assistants access to approved tools and integrations.
+- Conversations and agent inbox workflows.
+- Ticket creation and management.
+- Customer directory and support history.
+- Roles for owners, admins, agents, and viewers.
+- Support analytics and operational dashboards.
 
-### Human support and tickets
+### Customer portal
 
-- Manage customer conversations in the support dashboard.
-- Hand AI conversations over to human agents.
-- Use AI-assisted reply suggestions.
-- Create and manage support tickets.
-- Track ticket status, priority, customer context, and attachments.
-- Integrate ticket workflows with Zendesk.
-
-### Customers and customer portal
-
-- Maintain an organization-scoped customer directory.
-- Associate customers with conversations, tickets, meetings, and support history.
-- Give customers access to a dedicated portal without exposing the internal dashboard.
-- Let customers review support history and ticket information.
-- Expose approved customer-visible attachments.
-- Show meetings and allow supported cancellation/rescheduling.
-- Display linked AI memory information where enabled.
+- Customer-visible support history and tickets.
+- Approved attachments.
+- Meetings and supported cancellation/rescheduling.
+- Linked AI memory information where enabled.
+- Portal access without exposing the internal dashboard.
 
 ### Scheduling
 
-- Configure meeting types and availability rules.
-- Detect scheduling intent in support conversations.
-- Offer valid, time-zone-aware meeting slots.
-- Require approval for sensitive booking actions when configured.
-- Create idempotent bookings.
-- Connect Google Calendar.
-- Connect Microsoft Calendar.
-- Allow customers to reschedule using server-validated available slots.
+- Meeting types and availability rules.
+- Time-zone-aware slot generation.
+- Scheduling intent detection in conversations.
+- Approval gates for sensitive booking actions.
+- Idempotent bookings.
+- Google Calendar and Microsoft Calendar connections.
+- Server-validated rescheduling.
 
 ### Integrations
 
-- HubSpot CRM integration.
-- Zendesk integration.
-- Zendesk inbound webhook handling and signing-secret support.
-- Google Calendar OAuth connection.
-- Microsoft Calendar OAuth connection.
+- HubSpot CRM.
+- Zendesk ticketing and inbound webhooks.
+- Google Calendar OAuth.
+- Microsoft Calendar OAuth.
 - Integration synchronization and webhook workflows.
-- Tenant-scoped integration credentials stored server-side.
+- Tenant-scoped credentials stored server-side.
 
-### Analytics and administration
+### Storage and attachments
 
-- Support analytics for organization operations.
-- Agent and customer management.
-- Organization roles such as owner, admin, agent, and viewer.
-- Platform administration separated from normal tenant administration.
-- Configurable AI providers, model routing, fallback models, and usage limits.
-
-### Attachments and object storage
-
-- Store support attachments using S3-compatible object storage such as RustFS.
-- Controlled upload and download workflows.
-- Customer-portal attachment access without exposing object-storage credentials.
+- S3-compatible object storage such as RustFS.
+- Controlled upload and download flows.
+- Customer-portal attachment access without exposing storage credentials.
 
 ## Security and privacy
 
-SupportAI is designed for deployments where customer data and infrastructure control matter.
+Relvona is designed for self-hosted and privacy-conscious deployments. Security controls include multi-tenant isolation, PostgreSQL row-level security, authenticated sessions, role-based authorization, encrypted provider/integration credentials, request validation, upload validation, SSRF protection, rate limiting, AI usage quotas, PII/secret redaction, RAG prompt-injection defenses, tool schema validation, approval gates for sensitive actions, and repository secret scanning.
 
-Security controls include:
+Security documentation:
 
-- multi-tenant isolation;
-- PostgreSQL row-level security for tenant-owned data;
-- authenticated sessions and role-based authorization;
-- encrypted provider and integration credentials;
-- runtime production-secret injection;
-- file-upload validation;
-- SSRF protection for outbound/public URL workflows;
-- bounded request body sizes;
-- rate limiting and tenant AI quotas;
-- PII and secret redaction;
-- prompt-injection defenses for retrieved knowledge;
-- streaming-output safety controls;
-- schema validation before AI tool execution;
-- approval gates for sensitive tool actions;
-- private PostgreSQL and Redis deployment patterns;
-- repository secret protection and Gitleaks configuration.
+- [Security policy and architecture](SECURITY.md)
+- [Security and privacy guide](docs/security.md)
+- [Privacy architecture](docs/privacy-architecture.md)
+- [Production operations](docs/production-operations.md)
 
-Read [Security and privacy](docs/security.md) and [Privacy architecture](docs/privacy-architecture.md) for details.
+Please do not report vulnerabilities through a public issue. Use GitHub's private vulnerability reporting / security advisory flow for this repository when available.
 
-## Who SupportAI is for
+## Who Relvona is for
 
-SupportAI is aimed at teams that want more control than a fully hosted support SaaS provides, including:
-
-- companies that want to self-host customer-support infrastructure;
-- organizations with data-protection or compliance requirements;
-- SaaS teams that need tenant-aware AI support;
-- support teams that want AI plus human escalation rather than an AI-only chatbot;
-- organizations that want to connect their own CRM, ticketing, calendar, AI, and storage infrastructure.
+Relvona is intended for companies and teams that want more control than a fully hosted customer-support SaaS provides, especially organizations that need self-hosting, tenant-aware AI support, human escalation, custom integrations, or stronger control over customer data and infrastructure.
 
 ## Documentation
 
@@ -128,70 +91,19 @@ The repository includes wiki-style documentation under [`docs/`](docs/index.md).
 
 | Guide | Purpose |
 | --- | --- |
-| [Documentation home](docs/index.md) | Full documentation index |
-| [Feature overview](docs/features.md) | Detailed explanation of product capabilities |
-| [Getting started](docs/getting-started.md) | First organization, assistant, knowledge, integrations, and widget |
+| [Documentation home](docs/index.md) | Documentation index |
+| [Feature overview](docs/features.md) | Detailed product capabilities |
+| [Getting started](docs/getting-started.md) | Initial organization, assistant, knowledge, integrations, and widget setup |
 | [User guide](docs/user-guide.md) | Daily use for support teams and administrators |
-| [Integrations](docs/integrations.md) | HubSpot, Zendesk, calendars, webhooks, and synchronization |
+| [Integrations](docs/integrations.md) | CRM, ticketing, calendars, webhooks, and synchronization |
 | [Security and privacy](docs/security.md) | Security model and operational guidance |
 | [Platform administration](docs/platform-administration.md) | Deployment-wide administration |
-| [Production operations](docs/production-operations.md) | Deployment, rollback, backup, restore, monitoring, and incidents |
-| [Object storage](docs/object-storage.md) | RustFS/S3-compatible attachment storage |
-| [Privacy architecture](docs/privacy-architecture.md) | Privacy-focused architecture notes |
-| [Technology stack](docs/technologie-stack.md) | Technical architecture and technologies |
+| [Production operations](docs/production-operations.md) | Deployment, backup, restore, monitoring, rollback, and incidents |
+| [Object storage](docs/object-storage.md) | S3-compatible attachment storage |
+| [Privacy architecture](docs/privacy-architecture.md) | Privacy architecture notes |
+| [Technology stack](docs/technologie-stack.md) | Architecture and technologies |
 
-## Quick start for users
-
-A typical organization setup looks like this:
-
-1. Create an organization and sign in as owner.
-2. Create an assistant.
-3. Add FAQs, documentation, PDFs, or approved website sources.
-4. Organize larger knowledge bases into collections.
-5. Configure the AI provider/model.
-6. Add support agents and assign roles.
-7. Test AI answers and human handoff.
-8. Configure tickets and optional integrations.
-9. Connect calendars if meeting scheduling is required.
-10. Test the customer portal.
-11. Embed the website widget.
-12. Review security and production settings before launch.
-
-See [Getting started](docs/getting-started.md) for the complete guide.
-
-## Website widget
-
-Add the widget before the closing `</body>` tag of the customer website:
-
-```html
-<script
-  src="https://api.example.com/public/widget.js"
-  data-assistant-id="YOUR_ASSISTANT_ID"
-  data-api-base="https://api.example.com">
-</script>
-```
-
-Provider API keys, database credentials, JWTs, or organization secrets must never be placed in browser code.
-
-## Self-hosting
-
-SupportAI is designed to run with Docker-based infrastructure.
-
-Core components include:
-
-| Component | Technology |
-| --- | --- |
-| Dashboard | Next.js, TypeScript, Tailwind CSS |
-| API | Express, TypeScript, Socket.IO |
-| Database | PostgreSQL, pgvector, Drizzle ORM |
-| Queue and realtime infrastructure | Redis, BullMQ |
-| Object storage | S3-compatible storage such as RustFS |
-| AI | Configurable external/local model providers |
-| Production secrets | Runtime secret injection, e.g. Infisical |
-
-For production deployment, backups, migrations, health checks, observability, and incident procedures, read [Production operations](docs/production-operations.md).
-
-## Local development
+## Quick start
 
 Requirements:
 
@@ -201,8 +113,8 @@ Requirements:
 - Redis
 
 ```bash
-git clone <repository-url>
-cd AI_Customer_Sup
+git clone https://github.com/Snyxex/Relvona.git
+cd Relvona
 cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env.local
 docker compose up -d postgres redis
@@ -214,34 +126,63 @@ npm run dev:backend
 npm run dev:frontend
 ```
 
-The included seed account is for local development only and must never be used in production.
+The included development/seed configuration is for local use only. Never reuse local example passwords, tokens, or secrets in production.
 
-## Production principles
+For the complete setup process, read [Getting started](docs/getting-started.md).
 
-For a production installation:
+## Website widget
+
+A deployment can expose the Relvona widget from its API host:
+
+```html
+<script
+  src="https://api.example.com/public/widget.js"
+  data-assistant-id="YOUR_ASSISTANT_ID"
+  data-api-base="https://api.example.com">
+</script>
+```
+
+Never place provider API keys, database credentials, authentication secrets, or organization secrets in browser code.
+
+## Architecture
+
+| Component | Technology |
+| --- | --- |
+| Dashboard | Next.js, React, TypeScript, Tailwind CSS |
+| API | Express, TypeScript, Socket.IO |
+| Database | PostgreSQL, pgvector, Drizzle ORM |
+| Queue / realtime | Redis, BullMQ |
+| Object storage | S3-compatible storage such as RustFS |
+| Authentication | Better Auth |
+| Observability | OpenTelemetry |
+| AI | Configurable external or local model providers |
+
+## Production checklist
+
+Before a production deployment:
 
 - use HTTPS;
 - inject secrets at runtime rather than committing `.env` files;
+- generate unique high-entropy production secrets;
 - use a non-owner PostgreSQL application role;
 - keep PostgreSQL and Redis off the public internet;
-- configure restrictive CORS origins;
-- run at least one ingestion worker;
+- configure restrictive CORS and widget origins;
 - configure backups and test restores;
-- configure provider budgets and rate limits;
-- run migrations before new API versions receive traffic;
-- monitor `/health/live`, `/health/ready`, metrics, logs, and traces;
-- run security and secret-scanning checks before releases.
+- configure rate limits and provider budgets;
+- run database migrations before routing traffic to a new API version;
+- monitor health endpoints, metrics, logs, and traces;
+- run tests and secret scanning before releases.
 
-See [Production operations](docs/production-operations.md) and [Security and privacy](docs/security.md).
+See [Production operations](docs/production-operations.md) for the full operational guide.
 
 ## API
 
-Public HTTP APIs are versioned under `/api/v1`.
+HTTP APIs are versioned under `/api/v1`. Product areas include authentication, organizations, assistants, assistant versions, knowledge, knowledge intelligence, collections, revisions, conversations, tickets, customers, agents, analytics, widget APIs, customer portal, scheduling, calendar OAuth, integrations, webhooks, attachments, storage, tools, and platform administration.
 
-Major product areas include authentication, organizations, assistants, assistant versions, knowledge, knowledge intelligence, collections, revisions, conversations, tickets, customers, agents, analytics, widget APIs, customer portal, scheduling, calendar OAuth, integrations, webhooks, attachments, storage, tools, and platform administration.
+## Contributing
 
-Breaking public API changes should use a new major API version.
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. For security issues, follow [SECURITY.md](SECURITY.md) instead of opening a public issue.
 
 ## License
 
-[MIT](LICENSE)
+Relvona is licensed under the [Apache License 2.0](LICENSE).
