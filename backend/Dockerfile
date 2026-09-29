@@ -2,6 +2,7 @@ FROM node:22-alpine AS build
 WORKDIR /app
 ARG INFISICAL_CLI_VERSION=0.43.116
 ENV PUPPETEER_SKIP_DOWNLOAD=true
+RUN apk add --no-cache git
 COPY package*.json ./
 RUN npm ci
 RUN npm install --global @infisical/cli@${INFISICAL_CLI_VERSION}
@@ -17,6 +18,7 @@ FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production PUPPETEER_SKIP_DOWNLOAD=true
 ARG INFISICAL_CLI_VERSION=0.43.116
+RUN apk add --no-cache git
 COPY package*.json ./
 RUN npm ci --omit=dev
 RUN npm install --global @infisical/cli@${INFISICAL_CLI_VERSION}

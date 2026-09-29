@@ -1,12 +1,23 @@
 import type { NextConfig } from "next";
 
-const apiOrigin = (() => {
+const apiOrigins = (() => {
   try {
-    return new URL(
+    const configured = new URL(
       process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api/v1",
-    ).origin;
+    );
+    const origins = new Set([configured.origin]);
+
+    if (["localhost", "127.0.0.1"].includes(configured.hostname)) {
+      for (const hostname of ["localhost", "127.0.0.1"]) {
+        const loopback = new URL(configured.origin);
+        loopback.hostname = hostname;
+        origins.add(loopback.origin);
+      }
+    }
+
+    return [...origins];
   } catch {
-    return "http://localhost:8080";
+    return ["http://localhost:8080", "http://127.0.0.1:8080"];
   }
 })();
 
@@ -20,7 +31,7 @@ const contentSecurityPolicy = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
-  `connect-src 'self' ${apiOrigin} ws: wss:`,
+  `connect-src 'self' ${apiOrigins.join(" ")} ws: wss:`,
 ].join("; ");
 
 const securityHeaders = [

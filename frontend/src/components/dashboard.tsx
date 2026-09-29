@@ -24,6 +24,7 @@ import {
   BookOpen,
 } from "lucide-react";
 import KnowledgeSources from "@/components/knowledge-sources";
+import ProfileSecuritySettings from "@/components/profile-security-settings";
 import {
   LazyAgentsTab,
   LazyAnalyticsTab,
@@ -36,6 +37,13 @@ import {
   type DashboardLanguage,
   localizeDashboard,
 } from "@/lib/dashboard-i18n";
+import {
+  applyUserTheme,
+  completeUserTheme,
+  DEFAULT_USER_THEME,
+  LIGHT_USER_THEME,
+  type UserThemePreferences,
+} from "@/lib/user-theme";
 
 const DEFAULT_WIDGET_SETTINGS = {
   primaryColor: "#3B82F6",
@@ -58,13 +66,16 @@ const DEFAULT_WIDGET_SETTINGS = {
 
 export default function Dashboard({
   administration = false,
+  initialTab,
 }: {
   administration?: boolean;
+  initialTab?: "profile";
 }) {
   const [auth, setAuth] = useState<{
     user: any;
     organizations: any[];
   } | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
   const [activeOrg, setActiveOrg] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<
     | "overview"
@@ -79,7 +90,7 @@ export default function Dashboard({
     | "widget"
     | "settings"
     | "profile"
-  >(administration ? "assistant" : "overview");
+  >(initialTab ?? (administration ? "assistant" : "overview"));
 
   // Auth Form State
   const [isRegistering, setIsRegistering] = useState(false);
@@ -88,6 +99,8 @@ export default function Dashboard({
   const [authPassword, setAuthPassword] = useState("");
   const [authOrgName, setAuthOrgName] = useState("");
   const [authError, setAuthError] = useState("");
+  const [awaitingTwoFactor, setAwaitingTwoFactor] = useState(false);
+  const [twoFactorLoginCode, setTwoFactorLoginCode] = useState("");
 
   // Data States
   const [overviewMetrics, setOverviewMetrics] = useState<any>(null);
@@ -147,38 +160,71 @@ export default function Dashboard({
   const [translations, setTranslations] = useState<Record<string, string>>({});
   const [profileName, setProfileName] = useState("");
   const [profileAvatarUrl, setProfileAvatarUrl] = useState<string | null>(null);
+  const [themePreferences, setThemePreferences] = useState<UserThemePreferences>(
+    DEFAULT_USER_THEME,
+  );
 
   useEffect(() => {
-    const activeOrgId = localStorage.getItem("active_org_id");
-    if (administration) {
-      Promise.all([api.get("/auth/me"), api.get("/admin/organizations")])
-        .then(([me, list]) => {
+    let active = true;
+    const initialize = async () => {
+      const activeOrgId = localStorage.getItem("active_org_id");
+      try {
+        const bootstrap = await api.get("/auth/bootstrap-status");
+        if (bootstrap.data.required) {
+          active = false;
+          window.location.replace("/setup/platform-admin");
+          return;
+        }
+        const session = await authClient.getSession();
+        if (session.error || !session.data?.user) return;
+        if (administration) {
+          const [me, list] = await Promise.all([
+            api.get("/auth/me"),
+            api.get("/admin/organizations"),
+          ]);
+          if (!active) return;
           const orgs = list.data.map((org: any) => ({ ...org, role: "admin" }));
-          setAuth({ user: me.data.user, organizations: orgs });
-          setActiveOrg(
-            orgs.find((org: any) => org.id === activeOrgId) || orgs[0],
-          );
-        })
-        .catch(() => setAuthError("Verwaltung konnte nicht geladen werden."));
-      return;
-    }
-    Promise.all([api.get("/auth/me"), api.get("/auth/organizations")])
-      .then(([me, memberships]) => {
+          const user = me.data.user;
+          setAuth({ user, organizations: orgs });
+          setPreferredLanguage(user.preferredLanguage || "de");
+          setProfileName(user.name || "");
+          setProfileAvatarUrl(user.avatarUrl || null);
+          setThemePreferences(completeUserTheme(user.themePreferences));
+          setActiveOrg(orgs.find((org: any) => org.id === activeOrgId) || orgs[0]);
+          return;
+        }
+        const [me, memberships] = await Promise.all([
+          api.get("/auth/me"),
+          api.get("/auth/organizations"),
+        ]);
+        if (!active) return;
         const user = me.data.user;
         const orgs = memberships.data;
         setAuth({ user, organizations: orgs });
         setPreferredLanguage(user.preferredLanguage || "de");
         setProfileName(user.name || "");
         setProfileAvatarUrl(user.avatarUrl || null);
-        const currentOrg =
-          orgs.find((o: any) => o.id === activeOrgId) || orgs[0];
+        setThemePreferences(completeUserTheme(user.themePreferences));
+        const currentOrg = orgs.find((o: any) => o.id === activeOrgId) || orgs[0];
         if (currentOrg) {
           setActiveOrg(currentOrg);
           localStorage.setItem("active_org_id", currentOrg.id);
         }
-      })
-      .catch(() => setAuth(null));
+      } catch {
+        if (active) setAuth(null);
+      } finally {
+        if (active) setAuthChecking(false);
+      }
+    };
+    void initialize();
+    return () => {
+      active = false;
+    };
   }, [administration]);
+
+  useEffect(() => {
+    applyUserTheme(themePreferences);
+  }, [themePreferences]);
 
   useEffect(() => {
     const language = preferredLanguage as DashboardLanguage;
@@ -273,6 +319,11 @@ export default function Dashboard({
       });
       if (result.error)
         throw new Error(result.error.message || "Anmeldung fehlgeschlagen.");
+      if ((result.data as any)?.twoFactorRedirect) {
+        setAwaitingTwoFactor(true);
+        setAuthPassword("");
+        return;
+      }
       const [me, memberships] = await Promise.all([
         api.get("/auth/me"),
         api.get("/auth/organizations"),
@@ -284,6 +335,7 @@ export default function Dashboard({
       setPreferredLanguage(user.preferredLanguage || "de");
       setProfileName(user.name || "");
       setProfileAvatarUrl(user.avatarUrl || null);
+      setThemePreferences(completeUserTheme(user.themePreferences));
       if (organizations.length > 0) {
         setActiveOrg(organizations[0]);
         localStorage.setItem("active_org_id", organizations[0].id);
@@ -295,6 +347,18 @@ export default function Dashboard({
         err.response?.data?.error ||
           "Login failed. Please check your credentials.",
       );
+    }
+  };
+
+  const handleTwoFactorLogin = async () => {
+    setAuthError("");
+    try {
+      const result = await authClient.twoFactor.verifyTotp({ code: twoFactorLoginCode, trustDevice: true });
+      if (result.error) throw new Error(result.error.message || "Der Authenticator-Code ist ungültig.");
+      const { data } = await api.get("/auth/me");
+      window.location.assign(data.user.systemRole === "superadmin" ? "/admin" : "/");
+    } catch (error: any) {
+      setAuthError(error.message || "2FA-Bestätigung fehlgeschlagen.");
     }
   };
 
@@ -618,11 +682,13 @@ export default function Dashboard({
         name: profileName,
         avatarUrl: profileAvatarUrl,
         preferredLanguage,
+        themePreferences,
       });
       if (auth) {
         const user = { ...auth.user, ...res.data };
         setAuth({ ...auth, user });
       }
+      setThemePreferences(completeUserTheme(res.data.themePreferences));
       showNotify("Profile saved");
     } catch (err: any) {
       showNotify(err.response?.data?.error || "Could not save profile");
@@ -791,6 +857,14 @@ export default function Dashboard({
   };
 
   // --- Render Authentication Screen ---
+  if (authChecking) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-slate-950 text-slate-100">
+        Relvona wird vorbereitet …
+      </div>
+    );
+  }
+
   if (!auth) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-4 text-slate-100 font-sans">
@@ -894,7 +968,16 @@ export default function Dashboard({
               </button>
             </form>
           ) : (
-            <form onSubmit={handleLogin} className="space-y-4">
+            <form onSubmit={awaitingTwoFactor ? (event) => { event.preventDefault(); void handleTwoFactorLogin(); } : handleLogin} className="space-y-4">
+              {awaitingTwoFactor ? (
+                <>
+                  <label htmlFor="two-factor-login" className="block text-xs font-semibold uppercase text-slate-300">Authenticator-Code</label>
+                  <input id="two-factor-login" inputMode="numeric" autoComplete="one-time-code" value={twoFactorLoginCode} onChange={(event) => setTwoFactorLoginCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="123456" required className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm" />
+                  <button type="button" disabled={twoFactorLoginCode.length !== 6} onClick={() => void handleTwoFactorLogin()} className="w-full rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50">Anmeldung bestätigen</button>
+                  <button type="button" onClick={() => { setAwaitingTwoFactor(false); setTwoFactorLoginCode(""); }} className="w-full text-xs text-slate-400">Zurück zur Anmeldung</button>
+                </>
+              ) : (
+                <>
               <div>
                 <label
                   htmlFor="support-field-5"
@@ -935,6 +1018,8 @@ export default function Dashboard({
               >
                 Sign In to Dashboard
               </button>
+                </>
+              )}
             </form>
           )}
 
@@ -1045,7 +1130,7 @@ export default function Dashboard({
                 label: "Organization Settings",
                 icon: Settings,
               },
-              { id: "profile", label: "My Profile", icon: UserCheck },
+              { id: "profile", label: "Profil-Einstellungen", icon: UserCheck },
             ]
               .filter((item) =>
                 administration
@@ -1119,10 +1204,9 @@ export default function Dashboard({
         {activeTab === "profile" && (
           <div className="mx-auto max-w-2xl space-y-6">
             <div>
-              <h1 className="text-xl font-bold text-white">My Profile</h1>
+              <h1 className="text-xl font-bold text-white">Profil-Einstellungen</h1>
               <p className="text-xs text-slate-400">
-                Manage your name, profile image, and preferred dashboard
-                language.
+                Name, Profilbild, Sprache und dein persönliches Theme verwalten.
               </p>
             </div>
             <form
@@ -1204,13 +1288,68 @@ export default function Dashboard({
                   <option value="fr">Français</option>
                 </select>
               </div>
+              <fieldset className="space-y-4 border-t border-slate-700 pt-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <legend className="text-sm font-semibold text-slate-100">Persönliches Erscheinungsbild</legend>
+                    <p className="text-xs text-slate-400">Gilt nur für dein Benutzerkonto und wird sofort als Vorschau angezeigt.</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setThemePreferences(DEFAULT_USER_THEME)} className="rounded border border-slate-700 px-3 py-2 text-xs text-slate-200">Dunkel</button>
+                    <button type="button" onClick={() => setThemePreferences(LIGHT_USER_THEME)} className="rounded border border-slate-700 px-3 py-2 text-xs text-slate-200">Hell</button>
+                  </div>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {([
+                    ["backgroundColor", "Hintergrund"],
+                    ["surfaceColor", "Flächen"],
+                    ["textColor", "Schrift"],
+                    ["mutedTextColor", "Sekundärschrift"],
+                    ["primaryColor", "Akzentfarbe"],
+                  ] as const).map(([key, label]) => (
+                    <label key={key} className="flex items-center justify-between gap-3 text-xs font-semibold text-slate-300">
+                      <span>{label}</span>
+                      <span className="flex items-center gap-2">
+                        <input type="color" aria-label={label} value={themePreferences[key]} onChange={(event) => setThemePreferences({ ...themePreferences, [key]: event.target.value })} className="h-10 w-12 rounded border border-slate-700 bg-slate-800 p-1" />
+                        <code className="w-16 text-[10px] font-normal text-slate-400">{themePreferences[key]}</code>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="text-xs font-semibold text-slate-300">
+                    Schriftart
+                    <select value={themePreferences.fontFamily} onChange={(event) => setThemePreferences({ ...themePreferences, fontFamily: event.target.value as UserThemePreferences["fontFamily"] })} className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100">
+                      <option value="sans">Sans Serif</option><option value="serif">Serif</option><option value="mono">Monospace</option>
+                    </select>
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">
+                    Abstände
+                    <select value={themePreferences.density} onChange={(event) => setThemePreferences({ ...themePreferences, density: event.target.value as UserThemePreferences["density"] })} className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100">
+                      <option value="compact">Kompakt</option><option value="comfortable">Komfortabel</option><option value="spacious">Großzügig</option>
+                    </select>
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">
+                    Schriftgröße: {themePreferences.fontSize}px
+                    <input type="range" min="12" max="20" step="1" value={themePreferences.fontSize} onChange={(event) => setThemePreferences({ ...themePreferences, fontSize: Number(event.target.value) })} className="mt-2 w-full" />
+                  </label>
+                  <label className="text-xs font-semibold text-slate-300">
+                    Eckenradius: {themePreferences.radius}px
+                    <input type="range" min="0" max="24" step="1" value={themePreferences.radius} onChange={(event) => setThemePreferences({ ...themePreferences, radius: Number(event.target.value) })} className="mt-2 w-full" />
+                  </label>
+                </div>
+              </fieldset>
               <button
                 type="submit"
                 className="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"
               >
-                Save profile
+                Profil und Theme speichern
               </button>
             </form>
+            <ProfileSecuritySettings
+              user={auth.user}
+              onUserChange={(user) => setAuth({ ...auth, user })}
+            />
           </div>
         )}
 

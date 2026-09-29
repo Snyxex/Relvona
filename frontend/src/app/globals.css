@@ -21,6 +21,8 @@
   --font-geist-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.28), 0 16px 42px rgba(0, 0, 0, 0.12);
   --shadow-elevated: 0 18px 60px rgba(0, 0, 0, 0.34);
+  --user-font-size: 16px;
+  --user-radius: 12px;
 }
 
 @theme inline {
@@ -51,6 +53,7 @@ body {
 
 html {
   background: var(--background);
+  font-size: var(--user-font-size);
 }
 
 body {
@@ -182,8 +185,8 @@ a[class*="rounded"]:active {
 }
 
 .h-screen > aside.w-64 {
-  background: rgba(9, 14, 25, 0.92) !important;
-  border-color: rgba(49, 65, 91, 0.68) !important;
+  background: color-mix(in srgb, var(--card) 92%, transparent) !important;
+  border-color: var(--border) !important;
   box-shadow: 18px 0 50px rgba(0, 0, 0, 0.16);
   backdrop-filter: blur(18px);
 }
@@ -205,8 +208,8 @@ a[class*="rounded"]:active {
 
 .h-screen > aside.w-64 nav > button:hover,
 .h-screen > aside.w-64 nav > a:hover {
-  background: rgba(30, 41, 59, 0.72) !important;
-  border-color: rgba(71, 85, 105, 0.45);
+  background: color-mix(in srgb, var(--muted) 78%, transparent) !important;
+  border-color: var(--border);
 }
 
 .h-screen > aside.w-64 nav > button.bg-blue-600 {
@@ -225,12 +228,20 @@ a[class*="rounded"]:active {
   background-color: var(--background) !important;
 }
 
+.bg-slate-50 {
+  background-color: var(--background) !important;
+}
+
+.bg-white {
+  background-color: var(--card) !important;
+}
+
 .bg-slate-900 {
-  background-color: rgba(13, 20, 34, 0.94) !important;
+  background-color: color-mix(in srgb, var(--card) 94%, transparent) !important;
 }
 
 .bg-slate-800 {
-  background-color: #172033 !important;
+  background-color: var(--muted) !important;
 }
 
 .bg-slate-800\/80,
@@ -238,10 +249,15 @@ a[class*="rounded"]:active {
 .bg-slate-800\/60,
 .bg-slate-800\/50,
 .bg-slate-800\/40 {
-  background-color: rgba(23, 32, 51, 0.72) !important;
+  background-color: color-mix(in srgb, var(--muted) 72%, transparent) !important;
 }
 
 .border-slate-800 {
+  border-color: var(--border) !important;
+}
+
+.border-slate-200,
+.border-slate-300 {
   border-color: var(--border) !important;
 }
 
@@ -251,19 +267,46 @@ a[class*="rounded"]:active {
 
 .text-slate-100,
 .text-slate-200 {
-  color: #e8edf6 !important;
+  color: var(--foreground) !important;
+}
+
+.text-slate-900,
+.text-slate-800,
+.text-slate-700 {
+  color: var(--foreground) !important;
 }
 
 .text-slate-300 {
-  color: #c5cfdd !important;
+  color: color-mix(in srgb, var(--foreground) 82%, var(--muted-foreground)) !important;
 }
 
 .text-slate-400 {
-  color: #91a0b5 !important;
+  color: var(--muted-foreground) !important;
+}
+
+.rounded:not(.rounded-full),
+.rounded-lg:not(.rounded-full),
+.rounded-xl:not(.rounded-full),
+.rounded-2xl:not(.rounded-full) {
+  border-radius: var(--user-radius) !important;
+}
+
+html[data-density="compact"] input,
+html[data-density="compact"] select,
+html[data-density="compact"] textarea,
+html[data-density="compact"] button {
+  line-height: 1.15;
+}
+
+html[data-density="spacious"] input,
+html[data-density="spacious"] select,
+html[data-density="spacious"] textarea,
+html[data-density="spacious"] button {
+  line-height: 1.65;
 }
 
 .text-slate-500 {
-  color: #69788f !important;
+  color: color-mix(in srgb, var(--muted-foreground) 86%, var(--foreground)) !important;
 }
 
 /* Cards and panels get consistent elevation without changing component markup. */

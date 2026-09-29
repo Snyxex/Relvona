@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Save,
   Shield,
+  UsersRound,
   TestTube2,
 } from "lucide-react";
 import { api } from "@/lib/api";
@@ -21,6 +22,7 @@ type Section =
   | "api-keys"
   | "github"
   | "organization"
+  | "roles"
   | "security"
   | "audit-log";
 const models = [
@@ -36,6 +38,7 @@ const nav: { id: Section; label: string; icon: typeof Bot }[] = [
   { id: "api-keys", label: "API-Schlüssel", icon: KeyRound },
   { id: "github", label: "GitHub", icon: GitBranch },
   { id: "organization", label: "Organisation", icon: Building2 },
+  { id: "roles", label: "Rollen & Rechte", icon: UsersRound },
   { id: "security", label: "Sicherheit", icon: Shield },
   { id: "audit-log", label: "Änderungsprotokoll", icon: BarChart3 },
 ];
@@ -83,9 +86,9 @@ export default function SettingsClient({
   const [usage, setUsage] = useState<any>();
   const dirty = useMemo(
     () =>
-      JSON.stringify(form) !== JSON.stringify(data?.settings || {}) ||
+      JSON.stringify(form) !== JSON.stringify(initialSection === "roles" ? data?.policies || {} : data?.settings || {}) ||
       JSON.stringify(rules) !== JSON.stringify(data?.rules || []),
-    [form, rules, data],
+    [form, rules, data, initialSection],
   );
   const change = (key: string, value: unknown) =>
     setForm((current: any) => ({ ...current, [key]: value }));
@@ -93,6 +96,13 @@ export default function SettingsClient({
     setLoading(true);
     setError("");
     try {
+      if (initialSection === "roles") {
+        const response = await api.get("/organizations/current/role-policies");
+        setData(response.data);
+        setForm(response.data.policies);
+        setRules([]);
+        return;
+      }
       const response = await api.get("/admin/settings");
       setData(response.data);
       setForm(response.data.settings);
@@ -128,6 +138,13 @@ export default function SettingsClient({
               ? "/admin/settings/github"
               : "/admin/settings/organization";
     try {
+      if (initialSection === "roles") {
+        const response = await api.put("/organizations/current/role-policies", { policies: form });
+        setData((current: any) => ({ ...current, policies: response.data.policies }));
+        setForm(response.data.policies);
+        setNotice("Rollen und Berechtigungen gespeichert");
+        return;
+      }
       const response = await api.put(
         path,
         initialSection === "ai-models" ? { ...form, rules } : form,
@@ -240,6 +257,9 @@ export default function SettingsClient({
             {initialSection === "organization" && (
               <Organization form={form} change={change} />
             )}
+            {initialSection === "roles" && (
+              <Roles form={form} setForm={setForm} catalog={data?.catalog || []} />
+            )}
             {initialSection === "security" && (
               <Security form={form} change={change} />
             )}
@@ -248,6 +268,60 @@ export default function SettingsClient({
         </section>
       </div>
     </main>
+  );
+}
+
+function Roles({ form, setForm, catalog }: any) {
+  const roles = [
+    { id: "admin", label: "Admin" },
+    { id: "agent", label: "Agent" },
+    { id: "viewer", label: "Viewer" },
+  ];
+  const toggle = (role: string, permission: string, enabled: boolean) => {
+    const current = Array.isArray(form[role]) ? form[role] : [];
+    setForm({
+      ...form,
+      [role]: enabled
+        ? [...new Set([...current, permission])]
+        : current.filter((entry: string) => entry !== permission),
+    });
+  };
+  return (
+    <div className="space-y-6">
+      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+        Owner besitzen immer Vollzugriff. Diese Sicherheitsgarantie kann nicht entfernt werden.
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[680px] text-left text-sm">
+          <thead>
+            <tr className="border-b text-slate-500">
+              <th className="p-2">Berechtigung</th>
+              {roles.map((role) => <th key={role.id} className="p-2 text-center">{role.label}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {catalog.map((group: any) => [
+              <tr key={`${group.group}-heading`} className="bg-slate-50"><th colSpan={4} className="p-2 font-semibold text-slate-700">{group.group}</th></tr>,
+              ...group.permissions.map((permission: any) => (
+                <tr key={permission.id} className="border-b border-slate-100">
+                  <td className="p-2"><span className="font-medium">{permission.label}</span><span className="ml-2 text-xs text-slate-400">{permission.id}</span></td>
+                  {roles.map((role) => (
+                    <td key={role.id} className="p-2 text-center">
+                      <input
+                        type="checkbox"
+                        aria-label={`${permission.label} für ${role.label}`}
+                        checked={Array.isArray(form[role.id]) && form[role.id].includes(permission.id)}
+                        onChange={(event) => toggle(role.id, permission.id, event.target.checked)}
+                      />
+                    </td>
+                  ))}
+                </tr>
+              )),
+            ])}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 

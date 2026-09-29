@@ -7,6 +7,8 @@ import { setLogContext } from "../observability/logger.js";
 import crypto from "crypto";
 import { getCurrentUser, getOrganizationMembership, hasOrganizationRole, type OrganizationRole } from "../auth/session.js";
 import { dashboardDomainFromRequest, organizationForVerifiedDashboardDomain } from "../services/dashboardDomainService.js";
+import { permissionsForRole, type OrganizationPermission } from "../services/organizationRbacService.js";
+import type { TwoFactorPolicy } from "../services/platformSecurityService.js";
 
 export interface AuthRequest extends Request {
   dashboardOrganizationId?: string;
@@ -16,6 +18,9 @@ export interface AuthRequest extends Request {
     name: string;
     avatarUrl: string | null;
     preferredLanguage: string;
+    themePreferences: Record<string, unknown>;
+    twoFactorEnabled: boolean;
+    twoFactorPolicy: TwoFactorPolicy;
     isPlatformAdmin: boolean;
     /** Temporary API compatibility only. Authorization must use isPlatformAdmin. */
     systemRole: "superadmin" | "user";
@@ -25,6 +30,7 @@ export interface AuthRequest extends Request {
     name: string;
     slug: string;
     role: OrganizationRole;
+    permissions: OrganizationPermission[];
   };
 }
 
@@ -42,6 +48,10 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     const user = await getCurrentUser(req);
     if (!user) return res.status(401).json({ error: "Authentication required" });
     req.user = user;
+    const profileEndpoint = req.originalUrl.startsWith("/api/v1/auth/");
+    if (user.twoFactorPolicy === "required" && !user.twoFactorEnabled && !profileEndpoint) {
+      return res.status(403).json({ error: "TWO_FACTOR_SETUP_REQUIRED", code: "TWO_FACTOR_SETUP_REQUIRED", message: "Zwei-Faktor-Authentifizierung muss zuerst in den Profil-Einstellungen eingerichtet werden." });
+    }
     next();
   } catch {
     return res.status(401).json({ error: "Authentication required" });
@@ -58,8 +68,8 @@ export async function requireOrganizationMember(req: AuthRequest, res: Response,
   if (!req.user || !req.organization) return res.status(403).json({ error: "Organization context missing" });
   const membership = await getOrganizationMembership(req.user.id, req.organization.id);
   if (!membership) return res.status(403).json({ error: "Organization membership required" });
-  req.organization = membership;
   setDatabaseTenant(membership.id);
+  req.organization = { ...membership, permissions: await permissionsForRole(membership.id, membership.role) };
   return next();
 }
 
@@ -92,30 +102,16 @@ export async function tenantContext(req: AuthRequest, res: Response, next: NextF
         name: firstMembership.org.name,
         slug: firstMembership.org.slug,
         role: firstMembership.member.role as OrganizationRole,
+        permissions: [] as OrganizationPermission[],
       };
-      req.organization = organization;
       setDatabaseTenant(organization.id);
+      organization.permissions = await permissionsForRole(organization.id, organization.role);
+      req.organization = organization;
       setLogContext({ organizationId: organization.id });
       return next();
     }
 
-    if (req.user.isPlatformAdmin && orgId) {
-      if (!/^[0-9a-f-]{36}$/i.test(orgId)) return res.status(400).json({ error: "Invalid organization ID" });
-      const supportSessionId = req.headers["x-support-session-id"] as string;
-      if (!supportSessionId || !/^[0-9a-f-]{36}$/i.test(supportSessionId)) return res.status(403).json({ error: "SUPPORT_ACCESS_REQUIRED" });
-      const [supportSession] = await db.select().from(platformSupportSessions).where(and(
-        eq(platformSupportSessions.id, supportSessionId),
-        eq(platformSupportSessions.platformAdminUserId, req.user.id),
-        eq(platformSupportSessions.organizationId, orgId),
-      )).limit(1);
-      if (!supportSession || supportSession.endedAt || supportSession.expiresAt <= new Date()) return res.status(403).json({ error: "SUPPORT_ACCESS_EXPIRED" });
-      const [org] = await db.select().from(organizations).where(eq(organizations.id, orgId)).limit(1);
-      if (!org) return res.status(404).json({ error: "Organization not found" });
-      req.organization = { id: org.id, name: org.name, slug: org.slug, role: "admin" };
-      setDatabaseTenant(org.id);
-      setLogContext({ organizationId: org.id });
-      return next();
-    }
+    if (orgId && !/^[0-9a-f-]{36}$/i.test(orgId)) return res.status(400).json({ error: "Invalid organization ID" });
 
     let targetOrgId = orgId;
     if (!targetOrgId && orgSlug) {
@@ -125,27 +121,34 @@ export async function tenantContext(req: AuthRequest, res: Response, next: NextF
 
     if (!targetOrgId) return res.status(404).json({ error: "Specified organization not found" });
 
-    const [membership] = await db
-      .select({ org: organizations, member: organizationMembers })
-      .from(organizationMembers)
-      .innerJoin(organizations, eq(organizationMembers.organizationId, organizations.id))
-      .where(and(eq(organizationMembers.organizationId, targetOrgId), eq(organizationMembers.userId, req.user.id)))
-      .limit(1);
-
-    if (!membership || membership.org.status !== "active" || membership.member.status !== "active") {
-      return res.status(403).json({ error: "Access denied: User is not a member of this organization" });
+    // A real organization membership always takes precedence over temporary
+    // platform support access. The bootstrap account is both platform admin
+    // and owner of its initial organization and must retain its owner role.
+    const membership = await getOrganizationMembership(req.user.id, targetOrgId);
+    if (membership) {
+      setDatabaseTenant(membership.id);
+      req.organization = { ...membership, permissions: await permissionsForRole(membership.id, membership.role) };
+      setLogContext({ organizationId: membership.id });
+      return next();
     }
 
-    const organization = {
-      id: membership.org.id,
-      name: membership.org.name,
-      slug: membership.org.slug,
-      role: membership.member.role as OrganizationRole,
-    };
-    req.organization = organization;
-    setDatabaseTenant(organization.id);
-    setLogContext({ organizationId: organization.id });
-    next();
+    if (req.user.isPlatformAdmin) {
+      const supportSessionId = req.headers["x-support-session-id"] as string;
+      if (!supportSessionId || !/^[0-9a-f-]{36}$/i.test(supportSessionId)) return res.status(403).json({ error: "SUPPORT_ACCESS_REQUIRED" });
+      const [supportSession] = await db.select().from(platformSupportSessions).where(and(
+        eq(platformSupportSessions.id, supportSessionId),
+        eq(platformSupportSessions.platformAdminUserId, req.user.id),
+        eq(platformSupportSessions.organizationId, targetOrgId),
+      )).limit(1);
+      if (!supportSession || supportSession.endedAt || supportSession.expiresAt <= new Date()) return res.status(403).json({ error: "SUPPORT_ACCESS_EXPIRED" });
+      const [org] = await db.select().from(organizations).where(eq(organizations.id, targetOrgId)).limit(1);
+      if (!org) return res.status(404).json({ error: "Organization not found" });
+      setDatabaseTenant(org.id);
+      req.organization = { id: org.id, name: org.name, slug: org.slug, role: "admin", permissions: await permissionsForRole(org.id, "admin") };
+      setLogContext({ organizationId: org.id });
+      return next();
+    }
+    return res.status(403).json({ error: "Access denied: User is not a member of this organization" });
   } catch {
     return res.status(500).json({ error: "Failed to resolve tenant context" });
   }
@@ -155,11 +158,49 @@ export function requireRole(allowedRoles: string[]) {
   const roles = allowedRoles as OrganizationRole[];
   return (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.organization) return res.status(403).json({ error: "Organization context missing" });
+    const permission = permissionForRequest(req);
+    if (permission) {
+      if (!req.organization.permissions.includes(permission)) return res.status(403).json({ error: "PERMISSION_REQUIRED", permission });
+      return next();
+    }
     if (!hasOrganizationRole(req.organization, roles)) {
       return res.status(403).json({ error: `Insufficient permissions. Required role: ${allowedRoles.join(" or ")}` });
     }
     next();
   };
+}
+
+export function requirePermission(permission: OrganizationPermission) {
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.organization) return res.status(403).json({ error: "Organization context missing" });
+    if (!req.organization.permissions.includes(permission)) return res.status(403).json({ error: "PERMISSION_REQUIRED", permission });
+    return next();
+  };
+}
+
+function permissionForRequest(req: AuthRequest): OrganizationPermission | undefined {
+  const path = (req.originalUrl || `${req.baseUrl}${req.path}`).split("?")[0];
+  const read = req.method === "GET" || req.method === "HEAD";
+  if (path.includes("/organizations/current/role-policies")) return "roles.manage";
+  if (path.includes("/organizations/members")) return read ? "members.view" : "members.manage";
+  if (path.includes("/organizations/invitations")) return "members.manage";
+  if (path.includes("/organizations/")) return read ? "organization.view" : "organization.manage";
+  if (path.includes("/admin/employees")) return read ? "members.view" : "members.manage";
+  if (path.includes("/admin/")) return read ? "settings.view" : "settings.manage";
+  if (path.includes("/conversations") || path.includes("/attachments")) return read ? "conversations.view" : "conversations.manage";
+  if (path.includes("/tickets")) return read ? "tickets.view" : "tickets.manage";
+  if (path.includes("/customers")) return read ? "customers.view" : "customers.manage";
+  if (path.includes("/knowledge") || path.includes("/knowledge-intelligence")) return read ? "knowledge.view" : "knowledge.manage";
+  if (path.includes("/assistants")) return read ? "assistants.view" : "assistants.manage";
+  if (path.includes("/analytics")) return read ? "analytics.view" : "analytics.manage";
+  if (path.includes("/scheduling")) return read ? "scheduling.view" : "scheduling.manage";
+  if (path.includes("/tools")) return read ? "tools.view" : "tools.manage";
+  if (path.includes("/integrations") || path.includes("/calendar-oauth")) return read ? "integrations.view" : "integrations.manage";
+  if (path.includes("/notifications")) return read ? "notifications.view" : "notifications.manage";
+  if (path.includes("/storage")) return "storage.manage";
+  if (path.includes("/visitor-memory")) return read ? "visitor_memory.view" : "visitor_memory.manage";
+  if (path.includes("/webhooks")) return "webhooks.manage";
+  return undefined;
 }
 
 export const requireOrganizationRole = requireRole;
@@ -183,7 +224,7 @@ export async function authenticateApiKey(req: AuthRequest, res: Response, next: 
   if (!org || org.status !== "active") return res.status(401).json({ error: "Invalid API Key" });
   await db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, key.id));
 
-  req.organization = { id: org.id, name: org.name, slug: org.slug, role: "admin" };
+  req.organization = { id: org.id, name: org.name, slug: org.slug, role: "admin", permissions: await permissionsForRole(org.id, "admin") };
   setLogContext({ organizationId: org.id });
   next();
 }

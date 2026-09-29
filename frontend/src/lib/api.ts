@@ -1,6 +1,9 @@
 import axios from "axios";
+import { alignLoopbackHost } from "./runtime-url";
 
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api/v1";
+export const API_BASE_URL = alignLoopbackHost(
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api/v1",
+);
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -166,13 +169,30 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
+let redirectingToLogin = false;
+let redirectingToTwoFactor = false;
+
 api.interceptors.response.use(undefined, (error) => {
   if (
     typeof window !== "undefined" &&
     error.response?.status === 401
   ) {
     localStorage.removeItem("active_org_id");
-    window.location.assign("/");
+    if (window.location.pathname !== "/" && !redirectingToLogin) {
+      redirectingToLogin = true;
+      window.location.assign("/");
+    }
+  }
+
+  if (
+    typeof window !== "undefined" &&
+    error.response?.status === 403 &&
+    error.response?.data?.code === "TWO_FACTOR_SETUP_REQUIRED" &&
+    window.location.pathname !== "/profile" &&
+    !redirectingToTwoFactor
+  ) {
+    redirectingToTwoFactor = true;
+    window.location.assign("/profile");
   }
 
   return Promise.reject(error);

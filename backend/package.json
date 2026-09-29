@@ -8,11 +8,12 @@
     "dev": "tsx watch src/index.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
-    "db:migrate": "tsx src/scripts/ensureVectorExtension.ts && drizzle-kit push && tsx src/scripts/ensureProfileAvatarUploadSchema.ts && tsx src/scripts/ensureApplicationSchema.ts && tsx src/scripts/ensureMailServerSchema.ts && tsx src/scripts/ensureEmployeeDirectorySchema.ts && tsx src/scripts/ensureWidgetIntegrationSchema.ts && tsx src/scripts/ensureIngestionSchema.ts && tsx src/scripts/ensureAgentInboxSchema.ts && tsx src/scripts/migrateLegacyPasswordHashes.ts && tsx src/scripts/migratePlatformRoles.ts && tsx src/scripts/migrateLegacyApiKeys.ts && tsx src/scripts/normalizeEmbeddingConfig.ts && tsx src/scripts/ensureVectorIndexes.ts && tsx src/scripts/ensurePerformanceIndexes.ts && tsx src/scripts/enableRls.ts && tsx src/scripts/ensureKnowledgeRetrievalTracking.ts && tsx src/scripts/ensureKnowledgeRevisionTracking.ts",
+    "db:migrate": "tsx src/scripts/ensureVectorExtension.ts && tsx src/scripts/ensureRbacSchema.ts && tsx src/scripts/ensureAuthSecuritySchema.ts && drizzle-kit push && tsx src/scripts/ensureRbacSchema.ts && tsx src/scripts/ensureAuthSecuritySchema.ts && tsx src/scripts/ensureProfileAvatarUploadSchema.ts && tsx src/scripts/ensureApplicationSchema.ts && tsx src/scripts/ensureMailServerSchema.ts && tsx src/scripts/ensureEmployeeDirectorySchema.ts && tsx src/scripts/ensureWidgetIntegrationSchema.ts && tsx src/scripts/ensureIngestionSchema.ts && tsx src/scripts/ensureAgentInboxSchema.ts && tsx src/scripts/migrateLegacyPasswordHashes.ts && tsx src/scripts/migratePlatformRoles.ts && tsx src/scripts/migrateLegacyApiKeys.ts && tsx src/scripts/normalizeEmbeddingConfig.ts && tsx src/scripts/ensureVectorIndexes.ts && tsx src/scripts/ensurePerformanceIndexes.ts && tsx src/scripts/enableRls.ts && tsx src/scripts/ensureKnowledgeRetrievalTracking.ts && tsx src/scripts/ensureKnowledgeRevisionTracking.ts",
     "db:seed": "tsx src/db/seed.ts",
     "storage:migrate-avatars": "tsx src/scripts/migrateLegacyProfileAvatars.ts",
     "storage:verify": "tsx src/scripts/verifyObjectStorageConsistency.ts",
     "test:security": "tsx src/tests/security.test.ts",
+    "test:theme": "tsx src/tests/userTheme.test.ts",
     "test:error-responses": "tsx src/tests/errorResponses.test.ts",
     "test:tenant-isolation": "tsx src/tests/tenantIsolation.integration.test.ts",
     "test:database-tenant-context": "tsx src/tests/databaseTenantContext.test.ts",
@@ -59,6 +60,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1127.0",
     "@aws-sdk/s3-request-presigner": "^3.1127.0",
+    "@better-auth/core": "1.7.2",
     "@better-auth/drizzle-adapter": "1.7.2",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/auto-instrumentations-node": "^0.80.0",
@@ -78,6 +80,7 @@
     "multer": "2.3.0",
     "pdf-parse": "^1.1.1",
     "pg": "^8.12.0",
+    "pipex": "git+https://github.com/snyxex/pipex.git#4923c168228268f1422dfd1553759ce18e250224",
     "socket.io": "^4.7.5"
   },
   "devDependencies": {

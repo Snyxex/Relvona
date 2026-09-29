@@ -7,6 +7,9 @@ import { EntraAuthService } from "../services/entraAuthService.js";
 import { LEGACY_PASSWORD_SENTINEL } from "../auth/password.js";
 import { PLATFORM_ADMIN_ROLE } from "../db/platformRoles.js";
 import { closeDatabasePool } from "../db/index.js";
+import { withDatabaseTenantContext } from "../db/tenantContext.js";
+import { tenantContext, type AuthRequest } from "../middleware/auth.js";
+import type { Response } from "express";
 
 if (process.env.AUTH_REGRESSION_DESTRUCTIVE_TESTS !== "true") {
   throw new Error("AUTH_REGRESSION_DESTRUCTIVE_TESTS=true is required; run this suite only against a disposable database");
@@ -23,11 +26,35 @@ async function rejectsCode(work: () => Promise<unknown>, code: string) {
   await assert.rejects(work, (error: unknown) => error instanceof Error && error.message === code);
 }
 
+async function evaluateTenantContext(userId: string, organizationId: string) {
+  let status = 200;
+  let body: unknown;
+  let passed = false;
+  const req = {
+    headers: { "x-organization-id": organizationId },
+    user: {
+      id: userId,
+      email: "bootstrap@example.test",
+      name: "Bootstrap Owner",
+      avatarUrl: null,
+      preferredLanguage: "de",
+      isPlatformAdmin: true,
+      systemRole: "superadmin",
+    },
+  } as unknown as AuthRequest;
+  const res = {
+    status(code: number) { status = code; return this; },
+    json(value: unknown) { body = value; return this; },
+  } as unknown as Response;
+  await withDatabaseTenantContext(() => tenantContext(req, res, () => { passed = true; }));
+  return { status, body, passed, organization: req.organization };
+}
+
 async function testPlatformBootstrapRace() {
   const suffix = randomUUID();
   const candidates = [
-    { name: "Bootstrap A", email: `bootstrap-a-${suffix}@example.test`, password: "VeryStrongPassword-123-A" },
-    { name: "Bootstrap B", email: `bootstrap-b-${suffix}@example.test`, password: "VeryStrongPassword-123-B" },
+    { name: "Bootstrap A", organizationName: "Bootstrap Organization A", email: `bootstrap-a-${suffix}@example.test`, password: "VeryStrongPassword-123-A" },
+    { name: "Bootstrap B", organizationName: "Bootstrap Organization B", email: `bootstrap-b-${suffix}@example.test`, password: "VeryStrongPassword-123-B" },
   ];
   createdEmails.push(...candidates.map((candidate) => candidate.email));
 
@@ -44,6 +71,24 @@ async function testPlatformBootstrapRace() {
   const account = await admin.query("SELECT password FROM auth_accounts WHERE user_id = $1 AND provider_id = 'credential'", [userId]);
   assert.equal(account.rowCount, 1, "Better Auth credential account must exist");
   assert.match(account.rows[0].password, /^\$2[aby]\$/, "credential must be bcrypt-hashed in Better Auth account storage");
+  const membership = await admin.query("SELECT m.organization_id, m.role FROM organization_members m WHERE m.user_id = $1", [userId]);
+  assert.equal(membership.rowCount, 1, "bootstrap owner must belong to exactly one organization");
+  assert.equal(membership.rows[0].role, "owner", "bootstrap membership must have the owner role");
+  createdOrganizations.push(membership.rows[0].organization_id);
+  const settings = await admin.query("SELECT 1 FROM organization_settings WHERE organization_id = $1", [membership.rows[0].organization_id]);
+  assert.equal(settings.rowCount, 1, "bootstrap organization settings must exist");
+
+  const ownerContext = await evaluateTenantContext(userId, membership.rows[0].organization_id);
+  assert.equal(ownerContext.status, 200);
+  assert.equal(ownerContext.passed, true, "platform admin must access its own organization through the real membership");
+  assert.equal(ownerContext.organization?.role, "owner", "platform admin must retain its real owner role");
+
+  const foreignOrganizationId = randomUUID();
+  createdOrganizations.push(foreignOrganizationId);
+  await admin.query("INSERT INTO organizations (id, name, slug, status) VALUES ($1, 'Foreign Organization', $2, 'active')", [foreignOrganizationId, `foreign-${foreignOrganizationId}`]);
+  const foreignContext = await evaluateTenantContext(userId, foreignOrganizationId);
+  assert.equal(foreignContext.status, 403);
+  assert.deepEqual(foreignContext.body, { error: "SUPPORT_ACCESS_REQUIRED" }, "foreign organization access must still require a support session");
 }
 
 async function testInvitationSingleUse() {

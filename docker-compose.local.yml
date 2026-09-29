@@ -42,7 +42,10 @@ services:
     env_file: .env.local
     environment:
       DATABASE_ADMIN_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/ai_support_db
-      DATABASE_URL: postgresql://supportai_app:${DATABASE_APP_PASSWORD}@postgres:5432/ai_support_db
+      # Every migration step runs with the one-shot admin connection. The
+      # non-owner application role is bootstrapped partway through this chain
+      # and is only used by the long-running backend and worker containers.
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/ai_support_db
     depends_on:
       postgres:
         condition: service_healthy
@@ -68,8 +71,8 @@ services:
       OBJECT_STORAGE_REGION: ${OBJECT_STORAGE_REGION:-us-east-1}
       OBJECT_STORAGE_FORCE_PATH_STYLE: "true"
       OBJECT_STORAGE_AUTO_CREATE_BUCKET: "true"
-      OBJECT_STORAGE_CORS_ALLOWED_ORIGINS: ${OBJECT_STORAGE_CORS_ALLOWED_ORIGINS:-http://localhost:3000}
-      CORS_ORIGIN: http://localhost:3000
+      OBJECT_STORAGE_CORS_ALLOWED_ORIGINS: ${OBJECT_STORAGE_CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      CORS_ORIGIN: http://localhost:3000,http://127.0.0.1:3000
       NODE_ENV: development
     ports: ["127.0.0.1:8080:8080"]
     depends_on:

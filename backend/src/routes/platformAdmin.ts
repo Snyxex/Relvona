@@ -4,10 +4,28 @@ import { db } from "../db/index.js";
 import { auditLogs, organizations, platformSupportSessions, users } from "../db/schema.js";
 import { authenticate, AuthRequest, requirePlatformAdmin } from "../middleware/auth.js";
 import { AuditService } from "../services/auditService.js";
+import { getTwoFactorPolicy, setTwoFactorPolicy, TWO_FACTOR_POLICIES } from "../services/platformSecurityService.js";
 
 const router = Router();
 router.use(authenticate, requirePlatformAdmin);
 const ipOf = (req: AuthRequest) => req.ip || req.socket.remoteAddress || null;
+
+router.get("/security-settings", async (_req, res, next) => {
+  try { return res.json({ twoFactorPolicy: await getTwoFactorPolicy() }); }
+  catch (error) { return next(error); }
+});
+
+router.put("/security-settings", async (req: AuthRequest, res, next) => {
+  const policy = req.body?.twoFactorPolicy;
+  if (!TWO_FACTOR_POLICIES.includes(policy)) return res.status(400).json({ error: "Ungültige 2FA-Richtlinie." });
+  if (policy === "required" && !req.user!.twoFactorEnabled) {
+    return res.status(409).json({ error: "Richte zuerst 2FA für dein eigenes Konto ein, bevor du sie verpflichtend machst.", code: "PLATFORM_ADMIN_2FA_REQUIRED" });
+  }
+  try {
+    const settings = await setTwoFactorPolicy(policy, req.user!.id);
+    return res.json({ twoFactorPolicy: settings.twoFactorPolicy });
+  } catch (error) { return next(error); }
+});
 
 router.get("/overview", async (_req, res, next) => {
   try {

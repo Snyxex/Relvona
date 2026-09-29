@@ -68,13 +68,13 @@ app.use(tenantContextMiddleware);
 app.use(applySecurityHeaders);
 app.use(requestLogging);
 app.use(httpMetrics);
-app.use(createRateLimiter({ keyPrefix: "global", limit: Number(process.env.GLOBAL_RATE_LIMIT_PER_MINUTE || 300), windowMs: 60_000, keyGenerator: (req) => req.ip }));
 const dashboardCors = cors({ origin: (origin, callback) => {
   if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
   void verifiedDashboardOrigins().then((origins) => callback(null, origins.includes(origin))).catch(() => callback(new Error("Dashboard domain lookup failed")));
 }, methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], credentials: true, allowedHeaders: ["Content-Type", "X-Organization-Id", "X-Organization-Slug", "X-API-Key", "X-Support-Session-Id"] });
 const widgetCors = cors({ origin: true, methods: ["GET", "POST", "OPTIONS"], allowedHeaders: ["Content-Type"] });
 app.use((req, res, next) => (req.path.startsWith("/api/v1/widget/") ? widgetCors : dashboardCors)(req, res, next));
+app.use(createRateLimiter({ keyPrefix: "global", limit: Number(process.env.GLOBAL_RATE_LIMIT_PER_MINUTE || 300), windowMs: 60_000, keyGenerator: (req) => req.ip }));
 app.use(bindDashboardDomain as (req: AuthRequest, res: express.Response, next: express.NextFunction) => void);
 app.use(requireTrustedOrigin);
 app.all("/api/auth/*", toNodeHandler(auth));

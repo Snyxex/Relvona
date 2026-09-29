@@ -25,7 +25,7 @@ const Dashboard = dynamic(() => import("@/components/dashboard"), {
   ),
 });
 
-export default function DashboardLoader({ administration = false }: { administration?: boolean }) {
+export default function DashboardLoader({ administration = false, initialTab }: { administration?: boolean; initialTab?: "profile" }) {
   const [attachmentContext, setAttachmentContext] = useState<ActiveAttachmentContext | null>(null);
   const [attachmentOpen, setAttachmentOpen] = useState(false);
   const attachmentContextRef = useRef<ActiveAttachmentContext | null>(null);
@@ -48,7 +48,7 @@ export default function DashboardLoader({ administration = false }: { administra
 
   return (
     <>
-      <Dashboard administration={administration} />
+      <Dashboard administration={administration} initialTab={initialTab} />
       {!administration && <NotificationCenter />}
       {!administration && attachmentContext && (
         <>

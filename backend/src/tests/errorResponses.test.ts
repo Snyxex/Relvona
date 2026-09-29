@@ -19,6 +19,14 @@ for (const file of routeFiles) {
 
 assert.deepEqual(offenders, [], `5xx responses must not expose raw exception messages: ${offenders.join(", ")}`);
 
+const authRoute = fs.readFileSync(path.join(routesDir, "auth.ts"), "utf8");
+const bootstrapStart = authRoute.indexOf('router.post("/setup/platform-admin"');
+const bootstrapEnd = authRoute.indexOf('router.post("/register"', bootstrapStart);
+const bootstrapRoute = authRoute.slice(bootstrapStart, bootstrapEnd);
+assert.ok(bootstrapStart >= 0 && bootstrapEnd > bootstrapStart, "platform bootstrap route must exist");
+assert.match(bootstrapRoute, /sendInternalError\(/, "unexpected bootstrap failures must use a sanitized internal error response");
+assert.doesNotMatch(bootstrapRoute, /\.json\(\{\s*error:\s*\(error as Error\)\.message/, "bootstrap responses must not expose raw database errors");
+
 const portalRoute = fs.readFileSync(path.join(routesDir, "customerPortal.ts"), "utf8");
 assert.match(portalRoute, /httpOnly:\s*true/, "customer portal session cookie must remain HttpOnly");
 assert.match(portalRoute, /secure:\s*process\.env\.NODE_ENV\s*===\s*["']production["']/, "customer portal session cookie must be Secure in production");

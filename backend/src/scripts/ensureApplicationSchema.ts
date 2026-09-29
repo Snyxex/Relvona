@@ -11,6 +11,8 @@ async function main() {
     // databases may predate columns that were added after the initial Drizzle
     // snapshot, and `drizzle-kit push` can require interactive decisions.
     await client.query("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS preferred_language text NOT NULL DEFAULT 'de'");
+    await client.query("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS theme_preferences jsonb NOT NULL DEFAULT '{}'::jsonb");
+    await client.query("ALTER TABLE public.users ADD COLUMN IF NOT EXISTS two_factor_enabled boolean NOT NULL DEFAULT false");
     await client.query("ALTER TABLE public.tickets ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'manual'");
     await client.query("ALTER TABLE public.tickets ADD COLUMN IF NOT EXISTS github_issue_number integer");
     await client.query("ALTER TABLE public.tickets ADD COLUMN IF NOT EXISTS github_issue_url text");
@@ -63,6 +65,11 @@ async function main() {
     await client.query("CREATE INDEX IF NOT EXISTS auth_account_user_idx ON public.auth_accounts (user_id)");
     await client.query("CREATE TABLE IF NOT EXISTS public.auth_verifications (id text PRIMARY KEY, identifier text NOT NULL, value text NOT NULL, expires_at timestamp NOT NULL, created_at timestamp DEFAULT now(), updated_at timestamp DEFAULT now())");
     await client.query("CREATE INDEX IF NOT EXISTS auth_verification_identifier_idx ON public.auth_verifications (identifier, expires_at)");
+    await client.query("CREATE TABLE IF NOT EXISTS public.auth_two_factors (id text PRIMARY KEY, user_id uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE, secret text NOT NULL, backup_codes text NOT NULL, verified boolean NOT NULL DEFAULT false, failed_verification_count integer NOT NULL DEFAULT 0, locked_until timestamp)");
+    await client.query("CREATE UNIQUE INDEX IF NOT EXISTS auth_two_factor_user_unique ON public.auth_two_factors (user_id)");
+    await client.query("CREATE TABLE IF NOT EXISTS public.platform_security_settings (id text PRIMARY KEY, two_factor_policy text NOT NULL DEFAULT 'recommended', updated_by_user_id uuid REFERENCES public.users(id) ON DELETE SET NULL, created_at timestamp NOT NULL DEFAULT now(), updated_at timestamp NOT NULL DEFAULT now(), CONSTRAINT platform_two_factor_policy_check CHECK (two_factor_policy IN ('required', 'recommended', 'disabled')))");
+    await client.query("DO $policy$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'platform_two_factor_policy_check') THEN ALTER TABLE public.platform_security_settings ADD CONSTRAINT platform_two_factor_policy_check CHECK (two_factor_policy IN ('required', 'recommended', 'disabled')); END IF; END $policy$");
+    await client.query("INSERT INTO public.platform_security_settings (id, two_factor_policy) VALUES ('global', 'recommended') ON CONFLICT (id) DO NOTHING");
     // Preserve existing user UUIDs and bcrypt hashes. Better Auth reads the
     // credential account from this table after the application switches its
     // middleware to Better Auth sessions.

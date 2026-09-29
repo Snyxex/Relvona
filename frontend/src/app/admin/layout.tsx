@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
+import { applyUserTheme } from "@/lib/user-theme";
 
 type Organization = { id: string; name: string };
 
@@ -14,8 +15,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    api.get("/admin/organizations").then(({ data }) => {
+    Promise.all([api.get("/admin/organizations"), api.get("/auth/me")]).then(([{ data }, me]) => {
       if (!active) return;
+      applyUserTheme(me.data.user.themePreferences);
       setOrganizations(data);
       const id = data.find((org: Organization) => org.id === localStorage.getItem("active_org_id"))?.id || data[0]?.id || "";
       if (id) localStorage.setItem("active_org_id", id);
@@ -47,9 +49,11 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         <Link href="/admin/actions" className="text-blue-300">AI Actions</Link>
         <Link href="/admin/scheduling" className="text-blue-300">Scheduling</Link>
         <Link href="/admin/notifications" className="text-blue-300">Benachrichtigungen</Link>
+        <Link href="/admin/platform-security" className="text-blue-300">Plattform-Sicherheit</Link>
         <Link href="/admin/mail-server" className="text-blue-300">Mailserver</Link>
         <Link href="/admin/integrations" className="text-blue-300">Integrationen</Link>
         <Link href="/admin/integrations/zendesk-inbound" className="text-blue-300">Zendesk Inbound</Link>
+        <Link href="/profile" className="text-blue-300">Profil-Einstellungen</Link>
         <Link href="/" className="text-blue-300">Mitarbeiter-Dashboard</Link>
       </nav>
     </header>

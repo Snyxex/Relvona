@@ -6,8 +6,9 @@ import { users, organizationMembers, organizations } from "../db/schema.js";
 import { platformRoles, PLATFORM_ADMIN_ROLE } from "../db/platformRoles.js";
 import { and, eq } from "drizzle-orm";
 import { ProfileAvatarService } from "../services/profileAvatarService.js";
+import { getTwoFactorPolicy, type TwoFactorPolicy } from "../services/platformSecurityService.js";
 
-export type AuthenticatedUser = { id: string; email: string; name: string; avatarUrl: string | null; preferredLanguage: string; isPlatformAdmin: boolean; systemRole: "superadmin" | "user"; status: string };
+export type AuthenticatedUser = { id: string; email: string; name: string; avatarUrl: string | null; preferredLanguage: string; themePreferences: Record<string, unknown>; twoFactorEnabled: boolean; twoFactorPolicy: TwoFactorPolicy; isPlatformAdmin: boolean; systemRole: "superadmin" | "user"; status: string };
 export const ORGANIZATION_ROLES = ["owner", "admin", "agent", "viewer"] as const;
 export type OrganizationRole = typeof ORGANIZATION_ROLES[number];
 export type OrganizationMembership = { id: string; name: string; slug: string; role: OrganizationRole };
@@ -31,9 +32,10 @@ export async function getCurrentUser(request: Pick<Request, "headers">): Promise
   if (!session?.user?.id) return null;
   const [user] = await db.select().from(users).where(eq(users.id, session.user.id)).limit(1);
   if (!user || user.status !== "active") return null;
-  const [platformAdmin, avatarUrl] = await Promise.all([
+  const [platformAdmin, avatarUrl, twoFactorPolicy] = await Promise.all([
     isPlatformAdmin(user.id),
     ProfileAvatarService.resolvePublicUrl(user.avatarUrl),
+    getTwoFactorPolicy(),
   ]);
   return {
     id: user.id,
@@ -41,6 +43,9 @@ export async function getCurrentUser(request: Pick<Request, "headers">): Promise
     name: user.name,
     avatarUrl,
     preferredLanguage: user.preferredLanguage,
+    themePreferences: user.themePreferences,
+    twoFactorEnabled: user.twoFactorEnabled,
+    twoFactorPolicy,
     isPlatformAdmin: platformAdmin,
     // Temporary response compatibility only. Authorization never reads users.system_role.
     systemRole: platformAdmin ? "superadmin" : "user",

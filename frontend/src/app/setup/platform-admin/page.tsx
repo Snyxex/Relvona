@@ -7,6 +7,7 @@ export default function PlatformAdminSetupPage() {
   const [ready, setReady] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const [name, setName] = useState("");
+  const [organizationName, setOrganizationName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
@@ -33,6 +34,7 @@ export default function PlatformAdminSetupPage() {
     try {
       await api.post("/auth/setup/platform-admin", {
         name,
+        organizationName,
         email,
         password,
         passwordConfirmation: confirmation,
@@ -40,9 +42,16 @@ export default function PlatformAdminSetupPage() {
       const result = await authClient.signIn.email({ email, password });
       if (result.error)
         throw new Error(result.error.message || "Anmeldung fehlgeschlagen.");
-      window.location.assign("/admin");
+      window.location.assign("/");
     } catch (e: any) {
-      setError(e.response?.data?.error || e.message || "Setup fehlgeschlagen.");
+      const responseError = e.response?.data?.error;
+      setError(
+        typeof responseError === "string"
+          ? responseError
+          : responseError?.code === "INTERNAL_ERROR"
+            ? "Die Einrichtung konnte nicht abgeschlossen werden. Bitte versuchen Sie es erneut."
+            : responseError?.message || e.message || "Setup fehlgeschlagen.",
+      );
     } finally {
       setSaving(false);
     }
@@ -50,7 +59,7 @@ export default function PlatformAdminSetupPage() {
   if (!ready)
     return (
       <main className="grid min-h-screen place-items-center bg-slate-950 text-white">
-        Setup wird geprüft …
+        Einrichtung wird geprüft …
       </main>
     );
   if (blocked)
@@ -70,9 +79,9 @@ export default function PlatformAdminSetupPage() {
         onSubmit={submit}
         className="w-full max-w-md space-y-4 rounded-xl border border-slate-700 bg-slate-900 p-8"
       >
-        <h1 className="text-2xl font-bold">Platform Admin einrichten</h1>
+        <h1 className="text-2xl font-bold">Relvona einrichten</h1>
         <p className="text-sm text-slate-400">
-          Dieses einmalige Konto verwaltet die Plattform.
+          Erstellen Sie Ihre Organisation und das erste Owner-Konto.
         </p>
         {error && (
           <p
@@ -88,6 +97,15 @@ export default function PlatformAdminSetupPage() {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Name"
+          className="w-full rounded bg-slate-800 p-3"
+        />
+        <input
+          required
+          minLength={2}
+          maxLength={120}
+          value={organizationName}
+          onChange={(e) => setOrganizationName(e.target.value)}
+          placeholder="Organisation"
           className="w-full rounded bg-slate-800 p-3"
         />
         <input
@@ -121,7 +139,7 @@ export default function PlatformAdminSetupPage() {
           disabled={saving}
           className="w-full rounded bg-blue-600 p-3 font-semibold disabled:opacity-50"
         >
-          {saving ? "Wird eingerichtet …" : "Platform Admin erstellen"}
+          {saving ? "Wird eingerichtet …" : "Organisation und Owner erstellen"}
         </button>
       </form>
     </main>

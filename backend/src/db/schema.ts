@@ -25,6 +25,8 @@ export const users = pgTable("users", {
   name: text("name").notNull(),
   avatarUrl: text("avatar_url"),
   preferredLanguage: text("preferred_language").default("de").notNull(),
+  themePreferences: jsonb("theme_preferences").$type<Record<string, unknown>>().default({}).notNull(),
+  twoFactorEnabled: boolean("two_factor_enabled").default(false).notNull(),
   systemRole: text("system_role").default("user").notNull(), // 'superadmin' | 'user'
   status: text("status").default("active").notNull(),
   tokenVersion: integer("token_version").default(0).notNull(),
@@ -43,6 +45,19 @@ export const organizationMembers = pgTable("organization_members", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   orgUserIdx: uniqueIndex("org_user_unique").on(table.organizationId, table.userId),
+}));
+
+// Per-tenant RBAC policies for configurable built-in roles. Owners always
+// retain every permission and therefore cannot lock the organization out.
+export const organizationRolePolicies = pgTable("organization_role_policies", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(),
+  role: text("role").notNull(),
+  permissions: jsonb("permissions").$type<string[]>().default([]).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  organizationRoleUnique: uniqueIndex("organization_role_policy_unique").on(table.organizationId, table.role),
 }));
 
 // A verified dashboard hostname is an authentication boundary, not display
@@ -479,6 +494,25 @@ export const authAccounts = pgTable("auth_accounts", {
 export const authVerifications = pgTable("auth_verifications", {
   id: text("id").primaryKey(), identifier: text("identifier").notNull(), value: text("value").notNull(), expiresAt: timestamp("expires_at").notNull(), createdAt: timestamp("created_at").defaultNow(), updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({ authVerificationIdentifierIdx: index("auth_verification_identifier_idx").on(table.identifier, table.expiresAt) }));
+
+export const authTwoFactors = pgTable("auth_two_factors", {
+  id: text("id").primaryKey(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  secret: text("secret").notNull(),
+  backupCodes: text("backup_codes").notNull(),
+  verified: boolean("verified").default(false).notNull(),
+  failedVerificationCount: integer("failed_verification_count").default(0).notNull(),
+  lockedUntil: timestamp("locked_until"),
+}, (table) => ({ authTwoFactorUserIdx: uniqueIndex("auth_two_factor_user_unique").on(table.userId) }));
+
+// Global authentication policy controlled by platform administrators.
+export const platformSecuritySettings = pgTable("platform_security_settings", {
+  id: text("id").primaryKey(),
+  twoFactorPolicy: text("two_factor_policy").default("recommended").notNull(),
+  updatedByUserId: uuid("updated_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
 
 export const organizationInvitations = pgTable("organization_invitations", {
   id: uuid("id").primaryKey().defaultRandom(), organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(), email: text("email").notNull(), role: text("role").notNull(), tokenHash: text("token_hash").notNull().unique(), invitedByUserId: uuid("invited_by_user_id").references(() => users.id, { onDelete: "set null" }), expiresAt: timestamp("expires_at").notNull(), acceptedAt: timestamp("accepted_at"), revokedAt: timestamp("revoked_at"), createdAt: timestamp("created_at").defaultNow().notNull(), updatedAt: timestamp("updated_at").defaultNow().notNull(),

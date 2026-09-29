@@ -7,14 +7,26 @@ import { users, organizationMembers, organizations } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { createRateLimiter } from "../middleware/security.js";
 import { ProfileAvatarService } from "../services/profileAvatarService.js";
+import { sendInternalError } from "../utils/httpErrors.js";
+import { normalizeUserTheme } from "../services/userThemeService.js";
 
 const router = Router();
 
 router.get("/bootstrap-status", async (_req, res) => res.json({ required: await AuthService.platformBootstrapRequired() }));
 router.post("/setup/platform-admin", createRateLimiter({ keyPrefix: "platform-bootstrap", limit: 5, windowMs: 60 * 60_000, keyGenerator: req => req.ip }), async (req, res) => {
-  const { name, email, password, passwordConfirmation } = req.body || {};
-  if (typeof name !== "string" || name.trim().length < 2 || name.length > 100 || typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || typeof password !== "string" || password.length < 12 || password.length > 256 || password !== passwordConfirmation) return res.status(400).json({ error: "Invalid setup data" });
-  try { return res.status(201).json(await AuthService.bootstrapPlatformAdmin({ name, email, password })); } catch (error) { return res.status((error as Error).message === "PLATFORM_ADMIN_ALREADY_EXISTS" ? 409 : 400).json({ error: (error as Error).message }); }
+  const { name, email, password, passwordConfirmation, organizationName } = req.body || {};
+  if (typeof name !== "string" || name.trim().length < 2 || name.length > 100 || typeof organizationName !== "string" || organizationName.trim().length < 2 || organizationName.length > 120 || typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || typeof password !== "string" || password.length < 12 || password.length > 256 || password !== passwordConfirmation) return res.status(400).json({ error: "Invalid setup data" });
+  try {
+    return res.status(201).json(await AuthService.bootstrapPlatformAdmin({ name, email, password, organizationName }));
+  } catch (error) {
+    if ((error as Error).message === "PLATFORM_ADMIN_ALREADY_EXISTS") {
+      return res.status(409).json({ error: "Die Ersteinrichtung wurde bereits abgeschlossen.", code: "PLATFORM_ADMIN_ALREADY_EXISTS" });
+    }
+    return sendInternalError(req, res, error, {
+      code: "PLATFORM_BOOTSTRAP_FAILED",
+      message: "Die Einrichtung konnte nicht abgeschlossen werden. Bitte versuchen Sie es erneut.",
+    });
+  }
 });
 
 router.post("/register", (_req, res) => res.status(403).json({ error: "PUBLIC_REGISTRATION_DISABLED" }));
@@ -92,11 +104,14 @@ router.delete("/me/avatar", authenticate, createRateLimiter({ keyPrefix: "profil
 });
 
 router.patch("/me/preferences", authenticate, async (req: AuthRequest, res) => {
-  const { preferredLanguage, name, avatarUrl } = req.body || {};
+  const { preferredLanguage, name, avatarUrl, themePreferences } = req.body || {};
   if (preferredLanguage !== undefined && !['de', 'en', 'es', 'fr'].includes(preferredLanguage)) return res.status(400).json({ error: "Unsupported preferred language" });
   if (name !== undefined && (typeof name !== "string" || name.trim().length < 2 || name.trim().length > 100)) return res.status(400).json({ error: "Name must contain between 2 and 100 characters" });
   const validAvatar = avatarUrl === undefined || avatarUrl === null || (typeof avatarUrl === "string" && avatarUrl.length <= 2048 && /^https:\/\//.test(avatarUrl));
   if (!validAvatar) return res.status(400).json({ error: "Profile image must be uploaded using the avatar upload endpoint" });
+  const [currentUser] = themePreferences === undefined ? [] : await db.select({ themePreferences: users.themePreferences }).from(users).where(eq(users.id, req.user!.id)).limit(1);
+  const normalizedTheme = themePreferences === undefined ? undefined : normalizeUserTheme(themePreferences, currentUser?.themePreferences);
+  if (themePreferences !== undefined && !normalizedTheme) return res.status(400).json({ error: "Ungültige Theme-Einstellungen." });
 
   let nextAvatar: string | null | undefined = undefined;
   if (avatarUrl === null) {
@@ -106,8 +121,8 @@ router.patch("/me/preferences", authenticate, async (req: AuthRequest, res) => {
     nextAvatar = avatarUrl;
   }
 
-  const [user] = await db.update(users).set({ preferredLanguage: preferredLanguage ?? undefined, name: typeof name === "string" ? name.trim() : undefined, avatarUrl: nextAvatar, updatedAt: new Date() }).where(eq(users.id, req.user!.id)).returning();
-  return res.json({ id: user.id, name: user.name, email: user.email, avatarUrl: await ProfileAvatarService.resolvePublicUrl(user.avatarUrl), preferredLanguage: user.preferredLanguage, isPlatformAdmin: req.user!.isPlatformAdmin, systemRole: req.user!.systemRole });
+  const [user] = await db.update(users).set({ preferredLanguage: preferredLanguage ?? undefined, name: typeof name === "string" ? name.trim() : undefined, avatarUrl: nextAvatar, themePreferences: normalizedTheme ?? undefined, updatedAt: new Date() }).where(eq(users.id, req.user!.id)).returning();
+  return res.json({ id: user.id, name: user.name, email: user.email, avatarUrl: await ProfileAvatarService.resolvePublicUrl(user.avatarUrl), preferredLanguage: user.preferredLanguage, themePreferences: user.themePreferences, twoFactorEnabled: user.twoFactorEnabled, twoFactorPolicy: req.user!.twoFactorPolicy, isPlatformAdmin: req.user!.isPlatformAdmin, systemRole: req.user!.systemRole });
 });
 
 export default router;

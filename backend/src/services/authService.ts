@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { eq, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { authAccounts, users } from "../db/schema.js";
+import { authAccounts, organizationMembers, organizationSettings, organizations, users } from "../db/schema.js";
 import { hashPassword, LEGACY_PASSWORD_SENTINEL } from "../auth/password.js";
 import { platformRoles, PLATFORM_ADMIN_ROLE } from "../db/platformRoles.js";
 
@@ -11,7 +11,7 @@ export class AuthService {
     return !role;
   }
 
-  static async bootstrapPlatformAdmin(data: { name: string; email: string; password: string }) {
+  static async bootstrapPlatformAdmin(data: { name: string; email: string; password: string; organizationName: string }) {
     return db.transaction(async (tx) => {
       // PostgreSQL advisory locking is intentionally the only raw statement in
       // this flow. It serializes the one-time bootstrap across all instances.
@@ -47,6 +47,34 @@ export class AuthService {
         userId: user.id,
         password: credentialHash,
       });
+
+      const slugBase = data.organizationName
+        .trim()
+        .toLowerCase()
+        .normalize("NFKD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 48) || "organization";
+      const [organization] = await tx.insert(organizations).values({
+        name: data.organizationName.trim(),
+        slug: `${slugBase}-${crypto.randomBytes(3).toString("hex")}`,
+      }).returning({
+        id: organizations.id,
+        name: organizations.name,
+        slug: organizations.slug,
+      });
+
+      await tx.insert(organizationMembers).values({
+        organizationId: organization.id,
+        userId: user.id,
+        role: "owner",
+      });
+
+      // organization_settings is protected by forced tenant RLS. Scope the
+      // remaining transaction to the organization that was just created.
+      await tx.execute(sql`SELECT set_config('app.organization_id', ${organization.id}, true)`);
+      await tx.insert(organizationSettings).values({ organizationId: organization.id });
       await tx.insert(platformRoles).values({ userId: user.id, role: PLATFORM_ADMIN_ROLE });
 
       return {
@@ -55,7 +83,7 @@ export class AuthService {
           isPlatformAdmin: true,
           systemRole: "superadmin" as const,
         },
-        organizations: [],
+        organizations: [{ ...organization, role: "owner" as const }],
       };
     });
   }

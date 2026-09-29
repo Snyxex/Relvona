@@ -1,13 +1,14 @@
 import { Router } from "express";
-import { authenticate, tenantContext, requireRole, requirePlatformAdmin, AuthRequest } from "../middleware/auth.js";
-import { db, pool } from "../db/index.js";
-import { organizations, organizationMembers, users, apiKeys, organizationInvitations, organizationSettings, organizationDashboardDomains } from "../db/schema.js";
+import { authenticate, tenantContext, requireRole, requirePlatformAdmin, requirePermission, AuthRequest } from "../middleware/auth.js";
+import { db, pool, withTenantTransaction } from "../db/index.js";
+import { organizations, organizationMembers, users, apiKeys, organizationInvitations, organizationSettings, organizationDashboardDomains, organizationRolePolicies } from "../db/schema.js";
 import { eq, and, isNull } from "drizzle-orm";
 import crypto from "crypto";
 import { encryptSecret } from "../utils/crypto.js";
 import { AuditService } from "../services/auditService.js";
 import { newDashboardDomainVerificationToken, normalizeDashboardDomain, verifyDashboardDomain } from "../services/dashboardDomainService.js";
 import { sendInternalError } from "../utils/httpErrors.js";
+import { CONFIGURABLE_ORGANIZATION_ROLES, ORGANIZATION_PERMISSIONS, PERMISSION_CATALOG, normalizePermissions, policiesForOrganization } from "../services/organizationRbacService.js";
 
 const router = Router();
 const ipOf = (req: AuthRequest) => req.ip || req.socket.remoteAddress || null;
@@ -15,7 +16,7 @@ router.use(authenticate);
 router.use(tenantContext);
 
 // GET /api/v1/organizations/current
-router.get("/current", async (req: AuthRequest, res) => {
+router.get("/current", requirePermission("organization.view"), async (req: AuthRequest, res) => {
   try {
     const [org] = await db.select().from(organizations).where(eq(organizations.id, req.organization!.id)).limit(1);
     return res.json({ organization: org, userRole: req.organization!.role });
@@ -60,7 +61,7 @@ router.post("/api-key", requireRole(["owner", "admin"]), async (req: AuthRequest
 });
 
 // GET /api/v1/organizations/members
-router.get("/members", async (req: AuthRequest, res) => {
+router.get("/members", requirePermission("members.view"), async (req: AuthRequest, res) => {
   try {
     const members = await db
       .select({
@@ -81,6 +82,41 @@ router.get("/members", async (req: AuthRequest, res) => {
     return res.json(members);
   } catch (error) {
     return sendInternalError(req, res, error, { code: "ORGANIZATION_MEMBERS_LOAD_FAILED", message: "Unable to load organization members" });
+  }
+});
+
+router.get("/current/role-policies", requirePermission("roles.manage"), async (req: AuthRequest, res) => {
+  try {
+    return res.json({
+      organization: { id: req.organization!.id, name: req.organization!.name, role: req.organization!.role },
+      owner: { immutable: true, permissions: [...ORGANIZATION_PERMISSIONS] },
+      policies: await policiesForOrganization(req.organization!.id),
+      catalog: PERMISSION_CATALOG,
+    });
+  } catch (error) {
+    return sendInternalError(req, res, error, { code: "ROLE_POLICIES_LOAD_FAILED", message: "Rollen konnten nicht geladen werden." });
+  }
+});
+
+router.put("/current/role-policies", requirePermission("roles.manage"), async (req: AuthRequest, res) => {
+  const submitted = req.body?.policies;
+  if (!submitted || typeof submitted !== "object" || Array.isArray(submitted)) return res.status(400).json({ error: "Ungültige Rollenrichtlinien." });
+  const policies = CONFIGURABLE_ORGANIZATION_ROLES.map((role) => ({ role, permissions: normalizePermissions(submitted[role]) }));
+  if (policies.some((policy) => policy.permissions === null)) return res.status(400).json({ error: "Eine Rollenrichtlinie enthält unbekannte Berechtigungen." });
+  try {
+    await withTenantTransaction(req.organization!.id, async (tx) => {
+      for (const policy of policies) {
+        await tx.insert(organizationRolePolicies).values({ organizationId: req.organization!.id, role: policy.role, permissions: policy.permissions! })
+          .onConflictDoUpdate({
+            target: [organizationRolePolicies.organizationId, organizationRolePolicies.role],
+            set: { permissions: policy.permissions!, updatedAt: new Date() },
+          });
+      }
+    });
+    await AuditService.logAction({ organizationId: req.organization!.id, actorUserId: req.user!.id, action: "organization.rbac.updated", resourceType: "organization_role_policy", metadata: { roles: CONFIGURABLE_ORGANIZATION_ROLES }, ipAddress: ipOf(req) });
+    return res.json({ policies: await policiesForOrganization(req.organization!.id) });
+  } catch (error) {
+    return sendInternalError(req, res, error, { code: "ROLE_POLICIES_UPDATE_FAILED", message: "Rollen konnten nicht gespeichert werden." });
   }
 });
 
