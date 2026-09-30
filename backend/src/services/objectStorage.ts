@@ -41,7 +41,7 @@ export interface ObjectStorage {
 }
 
 function safePath(root: string, key: string) {
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9/_-]*$/.test(key) || key.includes("..")) {
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9/_.-]*$/.test(key) || key.includes("..")) {
     throw new Error("Invalid storage key");
   }
   const target = path.resolve(root, key);

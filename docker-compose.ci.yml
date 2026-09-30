@@ -1,0 +1,147 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16@sha256:ccc6e83d6e35e931dc7c5def2022729d5a6c370318d099181995567ff1fb4d6b
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  rustfs:
+    image: rustfs/rustfs:latest@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff
+    command: ["/data"]
+    environment:
+      RUSTFS_ACCESS_KEY: ${OBJECT_STORAGE_ACCESS_KEY:?set OBJECT_STORAGE_ACCESS_KEY}
+      RUSTFS_SECRET_KEY: ${OBJECT_STORAGE_SECRET_KEY:?set OBJECT_STORAGE_SECRET_KEY}
+      RUSTFS_REGION: ${OBJECT_STORAGE_REGION:-us-east-1}
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_CONSOLE_ENABLE: "false"
+      RUSTFS_OBS_LOGGER_LEVEL: error
+    tmpfs:
+      - /data:uid=10001,gid=10001,mode=0700
+
+  ci:
+    image: node:22-bookworm@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7
+    working_dir: /workspace
+    user: ${CI_UID:-1000}:${CI_GID:-1000}
+    volumes:
+      - .:/workspace
+    environment:
+      HOME: /tmp/relvona-ci-home
+      npm_config_cache: /tmp/relvona-npm-cache
+      NODE_ENV: test
+      DATABASE_ADMIN_URL: ${DATABASE_ADMIN_URL:?set DATABASE_ADMIN_URL}
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+      DATABASE_APP_USER: ${DATABASE_APP_USER:?set DATABASE_APP_USER}
+      DATABASE_APP_PASSWORD: ${DATABASE_APP_PASSWORD:?set DATABASE_APP_PASSWORD}
+      REDIS_URL: redis://redis:6379
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET}
+      BETTER_AUTH_URL: http://backend:8080
+      APP_PUBLIC_URL: http://frontend:3000
+      CORS_ORIGIN: http://frontend:3000
+      ENCRYPTION_SECRET_CURRENT: ${ENCRYPTION_SECRET_CURRENT:?set ENCRYPTION_SECRET_CURRENT}
+      WIDGET_SESSION_SECRET: ${WIDGET_SESSION_SECRET:?set WIDGET_SESSION_SECRET}
+      VISITOR_IDENTITY_SECRET: ${VISITOR_IDENTITY_SECRET:?set VISITOR_IDENTITY_SECRET}
+      PORTAL_TOKEN_SECRET: ${PORTAL_TOKEN_SECRET:?set PORTAL_TOKEN_SECRET}
+      AUTH_REGRESSION_DESTRUCTIVE_TESTS: "true"
+      METRICS_TOKEN: ${METRICS_TOKEN:?set METRICS_TOKEN}
+      OBJECT_STORAGE_ENABLED: "true"
+      OBJECT_STORAGE_PROVIDER: rustfs
+      OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
+      OBJECT_STORAGE_PUBLIC_ENDPOINT: https://objects.invalid
+      OBJECT_STORAGE_BUCKET: relvona-ci
+      OBJECT_STORAGE_ACCESS_KEY: ${OBJECT_STORAGE_ACCESS_KEY:?set OBJECT_STORAGE_ACCESS_KEY}
+      OBJECT_STORAGE_SECRET_KEY: ${OBJECT_STORAGE_SECRET_KEY:?set OBJECT_STORAGE_SECRET_KEY}
+      OBJECT_STORAGE_REGION: ${OBJECT_STORAGE_REGION:-us-east-1}
+      OBJECT_STORAGE_FORCE_PATH_STYLE: "true"
+      OBJECT_STORAGE_AUTO_CREATE_BUCKET: "true"
+      OBJECT_STORAGE_CORS_ALLOWED_ORIGINS: https://frontend.invalid
+      GIT_CONFIG_COUNT: "2"
+      GIT_CONFIG_KEY_0: url.https://github.com/.insteadOf
+      GIT_CONFIG_VALUE_0: ssh://git@github.com/
+      GIT_CONFIG_KEY_1: safe.directory
+      GIT_CONFIG_VALUE_1: /workspace
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rustfs:
+        condition: service_started
+
+  backend:
+    build:
+      context: ./backend
+    entrypoint: []
+    command: ["node", "dist/index.js"]
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+      REDIS_URL: redis://redis:6379
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET}
+      BETTER_AUTH_URL: http://backend:8080
+      APP_PUBLIC_URL: http://frontend:3000
+      CORS_ORIGIN: http://frontend:3000
+      ENCRYPTION_SECRET_CURRENT: ${ENCRYPTION_SECRET_CURRENT:?set ENCRYPTION_SECRET_CURRENT}
+      WIDGET_SESSION_SECRET: ${WIDGET_SESSION_SECRET:?set WIDGET_SESSION_SECRET}
+      VISITOR_IDENTITY_SECRET: ${VISITOR_IDENTITY_SECRET:?set VISITOR_IDENTITY_SECRET}
+      METRICS_TOKEN: ${METRICS_TOKEN:?set METRICS_TOKEN}
+      OBJECT_STORAGE_ENABLED: "true"
+      OBJECT_STORAGE_PROVIDER: rustfs
+      OBJECT_STORAGE_ENDPOINT: http://rustfs:9000
+      OBJECT_STORAGE_PUBLIC_ENDPOINT: https://objects.invalid
+      OBJECT_STORAGE_BUCKET: relvona-ci
+      OBJECT_STORAGE_ACCESS_KEY: ${OBJECT_STORAGE_ACCESS_KEY:?set OBJECT_STORAGE_ACCESS_KEY}
+      OBJECT_STORAGE_SECRET_KEY: ${OBJECT_STORAGE_SECRET_KEY:?set OBJECT_STORAGE_SECRET_KEY}
+      OBJECT_STORAGE_REGION: ${OBJECT_STORAGE_REGION:-us-east-1}
+      OBJECT_STORAGE_FORCE_PATH_STYLE: "true"
+      OBJECT_STORAGE_AUTO_CREATE_BUCKET: "true"
+      OBJECT_STORAGE_CORS_ALLOWED_ORIGINS: https://frontend.invalid
+      OBJECT_STORAGE_ALLOW_INSECURE_HTTP: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rustfs:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://backend:8080/api/v1
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: http://backend:8080/api/v1
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s

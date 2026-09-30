@@ -78,7 +78,7 @@ RAG, Embeddings und LLM-Anbieter
 | Infisical CLI | Geheimnisse zur Laufzeit in Produktionsumgebungen |
 | npm | Paketverwaltung und Skripte |
 | ESLint | Code-Qualitätsprüfung im Frontend |
-| GitHub Actions | CI mit Build, Sicherheitschecks, Audit und CodeQL |
+| Jenkins Multibranch Pipeline | Zentrale CI mit Build, Tests, Sicherheitschecks, Audit, Docker-Validierung und Artefakten; bestehende GitHub Actions bleiben bis zum ersten erfolgreichen Jenkins-Lauf als Übergangsschutz erhalten |
 
 ## Lokale Ports
 

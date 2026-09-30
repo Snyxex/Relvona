@@ -28,6 +28,14 @@ async function main() {
     }
     assert.equal(Buffer.concat(chunks).toString(), "private tenant data");
 
+    const processedKey = "organizations/tenant-a/knowledge/source-a/revisions/1/processed/extracted.txt";
+    await storage.putObject(processedKey, {
+      body: Buffer.from("processed text"),
+      contentLength: 14,
+      contentType: "text/plain",
+    });
+    assert.equal(await storage.objectExists(processedKey), true, "Generated processed-text keys with file extensions must be valid");
+
     await assert.rejects(storage.getObject("../tenant-b/object"), /Invalid storage key/);
     await assert.rejects(storage.putObject("organizations/tenant-a/../../escape", {
       body: Buffer.from("x"),

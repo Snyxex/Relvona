@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import type { Response } from "express";
 import { requirePlatformAdmin, requireRole, type AuthRequest } from "../middleware/auth.js";
 import { ORGANIZATION_PERMISSIONS, normalizePermissions } from "../services/organizationRbacService.js";
+import { closeDatabasePool } from "../db/index.js";
+import { auth } from "../auth/betterAuth.js";
 
 function evaluate(role: string | undefined, allowed: string[]) {
   let status = 200; let passed = false;
@@ -42,3 +44,7 @@ assert.deepEqual(evaluatePermission("agent", ["settings.manage"], "PUT", "/api/v
 assert.deepEqual(evaluatePermission("owner", [...ORGANIZATION_PERMISSIONS], "PUT", "/api/v1/organizations/current/role-policies"), { status: 200, passed: true, body: undefined });
 assert.equal(normalizePermissions(["settings.view", "unknown.permission"]), null);
 console.log("Tenant, platform, and organization RBAC authorization: 12 cases passed.");
+auth.$context.then(() => closeDatabasePool()).catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

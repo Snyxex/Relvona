@@ -4,11 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "typecheck": "tsc --noEmit",
     "build": "next build",
     "start": "next start",
     "lint": "biome lint .",
+    "lint:ci": "node scripts/run-biome-changed.mjs lint",
     "format": "biome format --write .",
-    "format:check": "biome format ."
+    "format:check": "biome format .",
+    "format:ci": "node scripts/run-biome-changed.mjs format"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",
