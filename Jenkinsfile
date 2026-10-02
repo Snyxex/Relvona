@@ -155,7 +155,11 @@ pipeline {
                         }
                         stage('Security Tests') {
                             steps {
-                                sh 'docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix backend run test:ci:security'
+                                sh '''
+                                    docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix backend run test:ci:security
+                                    docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix frontend run test:security
+                                    docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix frontend run test:security:integration
+                                '''
                             }
                         }
                     }
