@@ -11,7 +11,9 @@
     "lint:ci": "node scripts/run-biome-changed.mjs lint",
     "format": "biome format --write .",
     "format:check": "biome format .",
-    "format:ci": "node scripts/run-biome-changed.mjs format"
+    "format:ci": "node scripts/run-biome-changed.mjs format",
+    "test:security": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types scripts/test-server-page-auth.mjs",
+    "test:security:integration": "node scripts/test-server-page-auth-integration.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",
