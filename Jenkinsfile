@@ -1,5 +1,5 @@
 pipeline {
-    agent { label 'docker' }
+    agent { label 'linux && docker' }
 
     options {
         skipDefaultCheckout(true)
