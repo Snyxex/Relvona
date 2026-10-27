@@ -1,7 +1,7 @@
-import { and, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lte, or } from "drizzle-orm";
 import { db, withTenantTransaction } from "../db/index.js";
 import { organizationMembers, tickets } from "../db/schema.js";
-import { ticketCaseMetadata, ticketCaseEvents } from "../db/extendedCustomerExperienceSchema.js";
+import { ticketCaseMetadata } from "../db/extendedCustomerExperienceSchema.js";
 import { notifications } from "../db/notificationSchema.js";
 import { supportTeams, supportTeamMembers, ticketRouting } from "../db/teamRoutingSchema.js";
 import { TeamRoutingService } from "./teamRoutingService.js";
@@ -30,10 +30,7 @@ export class SlaEscalationService {
       const [created]=await tx.insert(notifications).values({organizationId:org,recipientUserId,type:`sla.${category}`,severity:breached?"warning":"info",title:breached?"SLA überschritten":"SLA läuft bald ab",message:`Ticket #${ticket.ticketNumber}: ${check.kind==="first_response"?"Erstantwort":"Lösung"} – ${ticket.subject}`,resourceType:"ticket",resourceId:ticket.id,dedupeKey:`sla:${ticket.id}:${check.kind}:${category}:${check.due.toISOString()}`}).onConflictDoNothing({target:[notifications.organizationId,notifications.recipientUserId,notifications.dedupeKey]}).returning({id:notifications.id});
       if(created){if(breached)breaches++;else warnings++;}
      }
-     if(breached){
-      const [event]=await tx.insert(ticketCaseEvents).values({organizationId:org,ticketId:ticket.id,type:`sla.${check.kind}.breached`,metadata:{dueAt:check.due.toISOString()}}).onConflictDoNothing().returning();
-      void event;
-     }
+
     });
    }
   }
