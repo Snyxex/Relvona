@@ -17,7 +17,7 @@ router.get("/bootstrap-status", async (_req, res) => res.json({ required: await 
 router.post("/setup/platform-admin", createRateLimiter({ keyPrefix: "platform-bootstrap", limit: 5, windowMs: 60 * 60_000, keyGenerator: req => req.ip }), async (req, res) => {
   if (!isBootstrapTokenAuthorized(req.get("x-platform-bootstrap-token"))) return res.status(403).json({ error: "PLATFORM_BOOTSTRAP_NOT_AUTHORIZED" });
   const { name, email, password, passwordConfirmation, organizationName } = req.body || {};
-  if (typeof name !== "string" || name.trim().length < 2 || name.length > 100 || typeof organizationName !== "string" || organizationName.trim().length < 2 || organizationName.length > 120 || typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || typeof password !== "string" || password.length < 12 || password.length > 256 || password !== passwordConfirmation) return res.status(400).json({ error: "Invalid setup data" });
+  if (typeof name !== "string" || name.trim().length < 2 || name.length > 100 || typeof organizationName !== "string" || organizationName.trim().length < 2 || organizationName.length > 120 || typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || typeof password !== "string" || [...password].length < 15 || [...password].length > 128 || password !== passwordConfirmation) return res.status(400).json({ error: "Invalid setup data" });
   try {
     return res.status(201).json(await AuthService.bootstrapPlatformAdmin({ name, email, password, organizationName }));
   } catch (error) {
@@ -45,7 +45,7 @@ router.post("/invitations/:token/accept", createRateLimiter({ keyPrefix: "invite
     const invite = await InvitationService.getActive(req.params.token);
     const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
     const password = req.body?.password;
-    if (name.length < 2 || name.length > 100 || typeof password !== "string" || password.length < 12 || password.length > 256) return res.status(400).json({ error: "Invalid invitation acceptance" });
+    if (name.length < 2 || name.length > 100 || typeof password !== "string" || [...password].length < 15 || [...password].length > 128) return res.status(400).json({ error: "Invalid invitation acceptance" });
     const result = await InvitationService.accept(req.params.token, { email: invite.email }, { name, password });
     return res.status(201).json(result);
   } catch (error) {
