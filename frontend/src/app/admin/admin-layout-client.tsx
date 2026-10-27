@@ -98,6 +98,7 @@ export default function AdminLayoutClient({
           <Link href="/admin/employees" className="text-blue-300">
             Mitarbeiter
           </Link>
+          <Link href="/admin/support-automations" className="text-blue-300">Automationen</Link>
           <Link href="/admin/support-analytics" className="text-blue-300">Support-Analytics</Link>
           <Link href="/admin/analytics" className="text-blue-300">
             Analytics

@@ -95,16 +95,20 @@ export class TicketCaseService {
     let caseRow = await this.ensureCase(data.organizationId, data.ticketId);
 
     if (data.previous.priority !== data.current.priority) {
-      const policy = await this.policyFor(data.organizationId, data.current.priority);
-      const [ticket] = await db.select({ createdAt: tickets.createdAt }).from(tickets)
+      // Ticket automations may change priority during the update event before this
+      // synchronizer runs. Always use the committed priority, not the stale
+      // response snapshot supplied by the original HTTP update.
+      const [ticket] = await db.select({ createdAt: tickets.createdAt, priority: tickets.priority }).from(tickets)
         .where(and(eq(tickets.organizationId, data.organizationId), eq(tickets.id, data.ticketId))).limit(1);
+      const effectivePriority = ticket?.priority || data.current.priority;
+      const policy = await this.policyFor(data.organizationId, effectivePriority);
       const started = ticket?.createdAt || now;
       [caseRow] = await db.update(ticketCaseMetadata).set({
         firstResponseDueAt: caseRow.firstRespondedAt ? caseRow.firstResponseDueAt : new Date(started.getTime() + policy.firstResponseMinutes * 60_000),
         resolutionDueAt: new Date(started.getTime() + policy.resolutionMinutes * 60_000),
         updatedAt: now,
       }).where(and(eq(ticketCaseMetadata.organizationId, data.organizationId), eq(ticketCaseMetadata.ticketId, data.ticketId))).returning();
-      await this.recordTransition({ organizationId: data.organizationId, ticketId: data.ticketId, actorUserId: data.actorUserId, type: "priority.changed", fromValue: data.previous.priority, toValue: data.current.priority });
+      await this.recordTransition({ organizationId: data.organizationId, ticketId: data.ticketId, actorUserId: data.actorUserId, type: "priority.changed", fromValue: data.previous.priority, toValue: effectivePriority });
     }
 
     if (data.previous.status !== data.current.status) {

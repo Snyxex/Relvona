@@ -89,6 +89,11 @@ jobs:
           WIDGET_SESSION_SECRET: ci-widget-session-secret-long-enough-for-tests
         run: npm run build
 
+      - name: Test support automations
+        working-directory: backend
+        env: *backend-test-env
+        run: npm run test:support-automations
+
       - name: Test support operations analytics
         working-directory: backend
         env: *backend-test-env

@@ -17,6 +17,7 @@ import { KnowledgeRecrawlService } from "./services/knowledgeRecrawlService.js";
 import { NotificationService } from "./services/notificationService.js";
 import { SlaEscalationService } from "./services/slaEscalationService.js";
 import { SupportCoverageService } from "./services/supportCoverageService.js";
+import { SupportAutomationService } from "./services/supportAutomationService.js";
 import { closeQueues, publishIngestion } from "./services/queueService.js";
 import type { IngestionInput, IngestionReference } from "./services/ingestionTypes.js";
 import { logger, withLogContext, setLogContext } from "./observability/logger.js";
@@ -182,6 +183,8 @@ function scheduleNotificationSweep() {
           const coverage = await SupportCoverageService.sweepOrganization(tenant.id);
           if (coverage.redistributed || coverage.assigned) logger.info("support.coverage_sweep", { organizationId: tenant.id, ...coverage });
           await SlaEscalationService.sweepOrganization(tenant.id);
+          const automations = await SupportAutomationService.sweepIdle(tenant.id);
+          if (automations.applied) logger.info("support.automation_idle_sweep", { organizationId: tenant.id, ...automations });
         });
       } catch (error) {
         logger.warn("support.coverage_sweep_failed", { organizationId: tenant.id, message: (error as Error).message });
