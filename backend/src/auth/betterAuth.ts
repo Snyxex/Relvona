@@ -23,7 +23,7 @@ export const auth = betterAuth({
   account: { modelName: "authAccounts" },
   verification: { modelName: "authVerifications" },
   emailAndPassword: {
-    enabled: true, disableSignUp: true, minPasswordLength: 12, maxPasswordLength: 128,
+    enabled: true, disableSignUp: true, minPasswordLength: 15, maxPasswordLength: 128,
     password: { hash: hashPassword, verify: async ({ hash, password }) => verifyPassword(hash, password) },
     revokeSessionsOnPasswordReset: true,
   },
