@@ -118,7 +118,8 @@ export default function Dashboard({
   const [inboxSort, setInboxSort] = useState("newest");
   const [inboxTags, setInboxTags] = useState<any[]>([]);
   const [inboxAgents, setInboxAgents] = useState<any[]>([]);
-  const [agentPresence, setAgentPresence] = useState("ONLINE");
+  const [agentPresence, setAgentPresence] = useState("OFFLINE");
+  const [presenceLoaded, setPresenceLoaded] = useState(false);
   const [inboxTagId, setInboxTagId] = useState("");
   const [inboxTimeline, setInboxTimeline] = useState<any[]>([]);
   const [inboxHandoff, setInboxHandoff] = useState<any | null>(null);
@@ -221,6 +222,35 @@ export default function Dashboard({
       active = false;
     };
   }, [administration]);
+
+  // A visible, authenticated dashboard provides the freshness signal for routing.
+  // Persisted AWAY/OFFLINE values are never overridden by a heartbeat.
+  useEffect(() => {
+    const userId = auth?.user?.id;
+    if (administration || !userId || !activeOrg?.id) return;
+    let mounted = true;
+    setPresenceLoaded(false);
+    void api.get("/conversations/meta/agents").then(({ data }) => {
+      if (!mounted) return;
+      const status = data.find((agent: { id: string; presence?: string }) => agent.id === userId)?.presence;
+      setAgentPresence(["ONLINE", "AWAY", "OFFLINE"].includes(status) ? status : "OFFLINE");
+      setPresenceLoaded(true);
+    }).catch(() => {
+      if (mounted) { setAgentPresence("OFFLINE"); setPresenceLoaded(false); }
+    });
+    return () => { mounted = false; };
+  }, [administration, auth?.user?.id, activeOrg?.id]);
+
+  useEffect(() => {
+    if (administration || !presenceLoaded || agentPresence !== "ONLINE" || !activeOrg?.id) return;
+    const heartbeat = () => {
+      if (document.visibilityState !== "visible") return;
+      void api.put("/conversations/meta/presence", { status: "ONLINE" }).catch(() => undefined);
+    };
+    heartbeat();
+    const id = window.setInterval(heartbeat, 60_000);
+    return () => window.clearInterval(id);
+  }, [administration, presenceLoaded, agentPresence, activeOrg?.id]);
 
   useEffect(() => {
     applyUserTheme(themePreferences);
@@ -633,6 +663,7 @@ export default function Dashboard({
     try {
       await api.put("/conversations/meta/presence", { status });
       setAgentPresence(status);
+      setPresenceLoaded(true);
       showNotify(`Presence: ${status}`);
     } catch (err: any) {
       showNotify(
