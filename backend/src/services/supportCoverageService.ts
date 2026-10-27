@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { agentPresence, organizationMembers, tickets, users } from "../db/schema.js";
 import { notifications } from "../db/notificationSchema.js";
@@ -138,18 +138,21 @@ export class SupportCoverageService {
         lte(supportAbsences.startsAt, now), gt(supportAbsences.endsAt, now))),
     ]);
     let redistributed = 0, warnings = 0, assigned = 0;
-    for (const schedule of schedules) {
-      if (!isAbsent(absences.filter(a => a.userId === schedule.userId), now) && isWithinScheduledHours(schedule, now)) continue;
+    const owners = new Set([...schedules.map(s => s.userId), ...absences.map(a => a.userId)]);
+    for (const userId of owners) {
+      const schedule = schedules.find(s => s.userId === userId);
+      const absent = isAbsent(absences.filter(a => a.userId === userId), now);
+      if (!absent && (!schedule || isWithinScheduledHours(schedule, now))) continue;
       const existing = await db.select().from(tickets).where(and(
-        eq(tickets.organizationId, organizationId), eq(tickets.assignedAgentId, schedule.userId),
+        eq(tickets.organizationId, organizationId), eq(tickets.assignedAgentId, userId),
         inArray(tickets.status, ["open", "in_progress"]),
       )).orderBy(tickets.createdAt).limit(100);
       for (const ticket of existing) {
         const result = await TeamRoutingService.routeTicket(organizationId, ticket.id, undefined, {
-          expectedAssignedUserId: schedule.userId, preferredBackupUserId: schedule.backupUserId || undefined,
+          expectedAssignedUserId: userId, preferredBackupUserId: schedule?.backupUserId || undefined,
         });
         if (result.assigned) redistributed++;
-        else if (result.reason === "no_available_team_member") { await this.coverageWarning(organizationId, ticket, "absent"); warnings++; }
+        else if ("reason" in result && result.reason === "no_available_team_member") { await this.coverageWarning(organizationId, ticket, absent ? "absent" : "off_shift"); warnings++; }
       }
     }
     // Tickets that arrived while no one was online can be assigned once coverage becomes available.
@@ -160,7 +163,7 @@ export class SupportCoverageService {
     for (const ticket of unassigned) {
       const result = await TeamRoutingService.routeTicket(organizationId, ticket.id);
       if (result.assigned) assigned++;
-      else if (result.reason === "no_available_team_member") { await this.coverageWarning(organizationId, ticket, "unassigned"); warnings++; }
+      else if ("reason" in result && result.reason === "no_available_team_member") { await this.coverageWarning(organizationId, ticket, "unassigned"); warnings++; }
     }
     return { redistributed, assigned, warnings };
   }
