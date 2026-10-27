@@ -8,6 +8,9 @@ import { tickets } from "../db/schema.js";
 import { notifications } from "../db/notificationSchema.js";
 import { supportAutomationRules, supportAutomationRuns } from "../db/supportAutomationSchema.js";
 import { SupportAutomationService } from "../services/supportAutomationService.js";
+import { TicketCaseService } from "../services/ticketCaseService.js";
+import { TicketService } from "../services/ticketService.js";
+import { ticketCaseMetadata } from "../db/extendedCustomerExperienceSchema.js";
 
 const adminUrl = process.env.DATABASE_ADMIN_URL;
 if (!adminUrl) throw new Error("DATABASE_ADMIN_URL required");
@@ -64,6 +67,26 @@ async function main() {
       await assert.rejects(SupportAutomationService.preview(org,otherTicket,{
         name:"Foreign",enabled:false,trigger:"ticket.created",conditions:{},actions:[{type:"add_tag",tag:"x"}],
       }),/Ticket not found/);
+      // The user's HTTP update may arrive before the automation update is
+      // observed by the SLA synchronizer. Stale snapshots must not undo the
+      // automation's effective priority.
+      await TicketCaseService.ensureCase(org, ticketId);
+      const manual = await TicketService.updateTicket({ organizationId: org, ticketId, priority: "normal" });
+      assert.equal(manual?.priority, "normal");
+      await SupportAutomationService.save(org,owner,{
+        name:"Priority escalation",enabled:true,trigger:"ticket.updated",idleMinutes:null,
+        conditions:{ statuses:["open"] },actions:[{ type:"set_priority",priority:"urgent" }],
+      });
+      assert.equal((await SupportAutomationService.handleTicketEvent(org,ticketId,"ticket.updated",new Date())).applied,1);
+      await TicketCaseService.syncTicketUpdate({organizationId:org,ticketId,
+        previous:{status:"open",priority:"high",assignedAgentId:agent},
+        current:{status:"open",priority:"normal",assignedAgentId:agent}});
+      const [actualTicket]=await db.select().from(tickets).where(eq(tickets.id,ticketId));
+      const [slaCase]=await db.select().from(ticketCaseMetadata).where(eq(ticketCaseMetadata.ticketId,ticketId));
+      assert.equal(actualTicket.priority,"urgent");
+      assert.equal(slaCase.resolutionDueAt?.getTime(),actualTicket.createdAt.getTime()+120*60_000,
+        "SLA synchronizer must preserve the automation's committed urgent policy");
+
       const idles = await SupportAutomationService.save(org,owner,{
         name:"Idle alert",enabled:true,trigger:"ticket.idle",idleMinutes:120,conditions:{subjectIncludes:"Idle"},
         actions:[{type:"notify_admins",message:"Ticket unbearbeitet"}],
@@ -72,9 +95,9 @@ async function main() {
       assert.equal((await SupportAutomationService.sweepIdle(org)).applied, 1);
       assert.equal((await SupportAutomationService.sweepIdle(org)).applied, 0);
       const count = await db.select().from(supportAutomationRuns).where(eq(supportAutomationRuns.organizationId,org));
-      assert.equal(count.length,2,"idle sweep must not duplicate execution log");
+      assert.equal(count.length,3,"idle sweep must not duplicate execution log");
       await SupportAutomationService.remove(org,saved.id);
-      assert.equal((await SupportAutomationService.list(org)).length,1);
+      assert.equal((await SupportAutomationService.list(org)).length,2);
       const foreign = await db.select().from(supportAutomationRules).where(eq(supportAutomationRules.organizationId,otherOrg));
       assert.equal(foreign.length,0);
     });
