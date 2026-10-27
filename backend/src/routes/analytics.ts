@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { authenticate, tenantContext, requireRole, AuthRequest } from "../middleware/auth.js";
 import { AnalyticsService } from "../services/analyticsService.js";
+import { SupportOperationsAnalyticsService } from "../services/supportOperationsAnalyticsService.js";
 import { KnowledgeGapDiscoveryService } from "../services/knowledgeGapDiscoveryService.js";
 import { sendInternalError } from "../utils/httpErrors.js";
 
@@ -23,6 +24,16 @@ router.get("/support", requireRole(["owner", "admin", "agent", "viewer"]), async
     return res.json(await AnalyticsService.getSupportMetrics(req.organization!.id, days));
   } catch (error) {
     return sendInternalError(req, res, error, { code: "SUPPORT_ANALYTICS_FAILED", message: "Unable to load support analytics" });
+  }
+});
+
+router.get("/support-operations", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
+  try {
+    const days = typeof req.query.days === "string" ? Number(req.query.days) : 30;
+    if (!Number.isInteger(days) || days < 1 || days > 365) return res.status(400).json({ error: "Invalid report range (1-365 days)" });
+    return res.json(await SupportOperationsAnalyticsService.report(req.organization!.id, days));
+  } catch (error) {
+    return sendInternalError(req, res, error, { code: "SUPPORT_OPERATIONS_ANALYTICS_FAILED", message: "Unable to load support operations analytics" });
   }
 });
 
