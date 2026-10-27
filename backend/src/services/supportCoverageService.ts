@@ -133,14 +133,15 @@ export class SupportCoverageService {
   static async sweepOrganization(organizationId: string) {
     const now = new Date();
     const [schedules, absences] = await Promise.all([
-      db.select().from(supportSchedules).where(and(eq(supportSchedules.organizationId, organizationId), eq(supportSchedules.autoRedistribute, true))),
+      db.select().from(supportSchedules).where(eq(supportSchedules.organizationId, organizationId)),
       db.select().from(supportAbsences).where(and(eq(supportAbsences.organizationId, organizationId),
         lte(supportAbsences.startsAt, now), gt(supportAbsences.endsAt, now))),
     ]);
     let redistributed = 0, warnings = 0, assigned = 0;
-    const owners = new Set([...schedules.map(s => s.userId), ...absences.map(a => a.userId)]);
+    const owners = new Set([...schedules.filter(s => s.autoRedistribute).map(s => s.userId), ...absences.map(a => a.userId)]);
     for (const userId of owners) {
       const schedule = schedules.find(s => s.userId === userId);
+      if (schedule && !schedule.autoRedistribute) continue;
       const absent = isAbsent(absences.filter(a => a.userId === userId), now);
       if (!absent && (!schedule || isWithinScheduledHours(schedule, now))) continue;
       const existing = await db.select().from(tickets).where(and(
