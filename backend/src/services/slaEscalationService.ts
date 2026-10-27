@@ -19,15 +19,16 @@ export class SlaEscalationService {
   for(const {caseRow,ticket} of cases){
    const checks=[{kind:"first_response",due:caseRow.firstResponseDueAt,done:Boolean(caseRow.firstRespondedAt)},{kind:"resolution",due:caseRow.resolutionDueAt,done:Boolean(caseRow.resolvedAt)}];
    for(const check of checks){
-    if(check.done||!check.due||check.due>soon)continue;
-    const breached=check.due<=now;
+    const due=check.due;
+    if(check.done||!due||due>soon)continue;
+    const breached=due<=now;
     const category=breached?"breached":"warning";
     const lead=leads.find(l=>l.ticketId===ticket.id)?.userId;
     const recipients=[...new Set([ticket.assignedAgentId,lead,...(breached?admins.map(a=>a.userId):[])].filter((s):s is string=>Boolean(s)))];
     if(!recipients.length)recipients.push(...admins.map(a=>a.userId));
     await withTenantTransaction(org,async tx=>{
      for(const recipientUserId of recipients){
-      const [created]=await tx.insert(notifications).values({organizationId:org,recipientUserId,type:`sla.${category}`,severity:breached?"warning":"info",title:breached?"SLA überschritten":"SLA läuft bald ab",message:`Ticket #${ticket.ticketNumber}: ${check.kind==="first_response"?"Erstantwort":"Lösung"} – ${ticket.subject}`,resourceType:"ticket",resourceId:ticket.id,dedupeKey:`sla:${ticket.id}:${check.kind}:${category}:${check.due.toISOString()}`}).onConflictDoNothing({target:[notifications.organizationId,notifications.recipientUserId,notifications.dedupeKey]}).returning({id:notifications.id});
+      const [created]=await tx.insert(notifications).values({organizationId:org,recipientUserId,type:`sla.${category}`,severity:breached?"warning":"info",title:breached?"SLA überschritten":"SLA läuft bald ab",message:`Ticket #${ticket.ticketNumber}: ${check.kind==="first_response"?"Erstantwort":"Lösung"} – ${ticket.subject}`,resourceType:"ticket",resourceId:ticket.id,dedupeKey:`sla:${ticket.id}:${check.kind}:${category}:${due.toISOString()}`}).onConflictDoNothing({target:[notifications.organizationId,notifications.recipientUserId,notifications.dedupeKey]}).returning({id:notifications.id});
       if(created){if(breached)breaches++;else warnings++;}
      }
 
