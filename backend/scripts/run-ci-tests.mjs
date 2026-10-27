@@ -7,6 +7,7 @@ const groups = {
     "activeDirectoryService.test.ts",
     "bookingAccess.test.ts",
     "conversationLifecycle.test.ts",
+    "entraPkce.test.ts",
     "errorResponses.test.ts",
     "githubIssueService.test.ts",
     "knowledgeRetrievalTriggerShape.test.ts",
