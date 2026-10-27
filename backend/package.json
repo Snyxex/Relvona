@@ -43,6 +43,7 @@
     "test:integration-inbound": "tsx src/tests/integrationInbound.integration.test.ts",
     "test:auth-regression": "tsx src/tests/authRegression.integration.test.ts",
     "test:tools": "tsx src/tests/toolRegistry.test.ts",
+    "test:routing-availability": "tsx src/tests/routingAvailability.test.ts",
     "test:streaming": "tsx src/tests/streaming.test.ts",
     "test:ingestion": "tsx src/tests/ingestion.test.ts",
     "test:storage": "tsx src/tests/objectStorage.test.ts",

@@ -89,6 +89,11 @@ jobs:
           WIDGET_SESSION_SECRET: ci-widget-session-secret-long-enough-for-tests
         run: npm run build
 
+      - name: Test routing availability
+        working-directory: backend
+        env: *backend-test-env
+        run: npm run test:routing-availability
+
       - name: Test knowledge gap discovery
         working-directory: backend
         env: *backend-test-env
