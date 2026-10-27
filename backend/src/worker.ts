@@ -16,6 +16,7 @@ import { BookingCalendarSyncService } from "./services/bookingCalendarSyncServic
 import { KnowledgeRecrawlService } from "./services/knowledgeRecrawlService.js";
 import { NotificationService } from "./services/notificationService.js";
 import { SlaEscalationService } from "./services/slaEscalationService.js";
+import { SupportCoverageService } from "./services/supportCoverageService.js";
 import { closeQueues, publishIngestion } from "./services/queueService.js";
 import type { IngestionInput, IngestionReference } from "./services/ingestionTypes.js";
 import { logger, withLogContext, setLogContext } from "./observability/logger.js";
@@ -165,13 +166,26 @@ function scheduleNotificationSweep() {
     let ticketNotifications = 0;
     for (const tenant of tenants) {
       if (shuttingDown) return;
-      const result = await withDatabaseTenantContext(async () => {
-        setDatabaseTenant(tenant.id);
-        return NotificationService.sweepOrganization(tenant.id);
-      });
-      bookingNotifications += result.bookingNotifications;
-      ticketNotifications += result.ticketNotifications;
-      await withDatabaseTenantContext(async () => { setDatabaseTenant(tenant.id); await SlaEscalationService.sweepOrganization(tenant.id); });
+      try {
+        const result = await withDatabaseTenantContext(async () => {
+          setDatabaseTenant(tenant.id);
+          return NotificationService.sweepOrganization(tenant.id);
+        });
+        bookingNotifications += result.bookingNotifications;
+        ticketNotifications += result.ticketNotifications;
+      } catch (error) {
+        logger.warn("notifications.tenant_sweep_failed", { organizationId: tenant.id, message: (error as Error).message });
+      }
+      try {
+        await withDatabaseTenantContext(async () => {
+          setDatabaseTenant(tenant.id);
+          const coverage = await SupportCoverageService.sweepOrganization(tenant.id);
+          if (coverage.redistributed || coverage.assigned) logger.info("support.coverage_sweep", { organizationId: tenant.id, ...coverage });
+          await SlaEscalationService.sweepOrganization(tenant.id);
+        });
+      } catch (error) {
+        logger.warn("support.coverage_sweep_failed", { organizationId: tenant.id, message: (error as Error).message });
+      }
     }
     if (bookingNotifications || ticketNotifications) logger.info("notifications.sweep", { bookingNotifications, ticketNotifications });
   })().catch(() => logger.warn("notifications.sweep_failed")).finally(() => { notificationSweeping = undefined; });

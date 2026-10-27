@@ -93,6 +93,7 @@ export default function AdminLayoutClient({
           <Link href="/admin/agents" className="text-blue-300">
             Agent-Versionen
           </Link>
+          <Link href="/admin/support-coverage" className="text-blue-300">Arbeitszeiten</Link>
           <Link href="/admin/support-teams" className="text-blue-300">Teams & SLA</Link>
           <Link href="/admin/employees" className="text-blue-300">
             Mitarbeiter
