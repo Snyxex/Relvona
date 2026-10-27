@@ -6,6 +6,7 @@ const groups = {
   unit: [
     "activeDirectoryService.test.ts",
     "bookingAccess.test.ts",
+    "bootstrapGuard.test.ts",
     "conversationLifecycle.test.ts",
     "entraPkce.test.ts",
     "errorResponses.test.ts",
