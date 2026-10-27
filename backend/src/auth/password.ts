@@ -25,7 +25,7 @@ export const NEW_PASSWORD_MAX_LENGTH = 128;
 export function requireNewPasswordPolicy(password: unknown): asserts password is string {
   if (typeof password !== "string" ||
       [...password].length < NEW_PASSWORD_MIN_LENGTH ||
-      [...password].length > NEW_PASSWORD_MAX_LENGTH) {
+      [...password].length > NEW_PASSWORD_MAX_LENGTH || password.length > NEW_PASSWORD_MAX_LENGTH) {
     throw new Error("INVALID_PASSWORD_POLICY");
   }
 }
