@@ -12,10 +12,12 @@ import {
   users,
 } from "../db/schema.js";
 import { LEGACY_PASSWORD_SENTINEL } from "../auth/password.js";
+import { encryptSecret } from "../utils/crypto.js";
 
 export type EntraLoginContext = {
   organizationId: string;
   nonce: string;
+  pkceVerifierEncrypted: string;
   tenantId: string;
   clientId: string;
   clientSecretEncrypted: string;
@@ -42,8 +44,14 @@ export class EntraAuthService {
     });
   }
 
-  static async createLoginState(organizationId: string, stateHash: string, nonce: string) {
-    await db.insert(ssoLoginStates).values({ organizationId, stateHash, nonce, expiresAt: new Date(Date.now() + 10 * 60_000) });
+  static async createLoginState(organizationId: string, stateHash: string, nonce: string, pkceVerifier: string) {
+    if (!/^[A-Za-z0-9._~-]{43,128}$/.test(pkceVerifier)) throw new Error("SSO_INVALID_PKCE");
+    const pkceVerifierEncrypted = encryptSecret(pkceVerifier);
+    if (!pkceVerifierEncrypted) throw new Error("SSO_PKCE_STORAGE_FAILED");
+    await db.insert(ssoLoginStates).values({
+      organizationId, stateHash, nonce, pkceVerifierEncrypted,
+      expiresAt: new Date(Date.now() + 10 * 60_000),
+    });
   }
 
   static async consumeLoginState(stateHash: string): Promise<EntraLoginContext> {
@@ -51,8 +59,11 @@ export class EntraAuthService {
     const [state] = await db.update(ssoLoginStates)
       .set({ consumedAt: now })
       .where(and(eq(ssoLoginStates.stateHash, stateHash), isNull(ssoLoginStates.consumedAt), gt(ssoLoginStates.expiresAt, now)))
-      .returning({ organizationId: ssoLoginStates.organizationId, nonce: ssoLoginStates.nonce });
+      .returning({ organizationId: ssoLoginStates.organizationId, nonce: ssoLoginStates.nonce,
+        pkceVerifierEncrypted: ssoLoginStates.pkceVerifierEncrypted });
     if (!state) throw new Error("SSO_INVALID_STATE");
+    // Pre-upgrade states do not have PKCE and must be restarted rather than downgraded.
+    if (!state.pkceVerifierEncrypted) throw new Error("SSO_PKCE_REQUIRED");
 
     return withTenantTransaction(state.organizationId, async (tx) => {
       const [record] = await tx.select({
@@ -73,6 +84,7 @@ export class EntraAuthService {
       return {
         organizationId: state.organizationId,
         nonce: state.nonce,
+        pkceVerifierEncrypted: state.pkceVerifierEncrypted,
         tenantId: record.tenantId,
         clientId: record.clientId,
         clientSecretEncrypted: record.clientSecretEncrypted,
