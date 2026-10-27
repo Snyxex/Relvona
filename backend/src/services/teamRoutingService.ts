@@ -1,6 +1,7 @@
-import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, withTenantTransaction } from "../db/index.js";
-import { agentPresence, organizationMembers, tickets } from "../db/schema.js";
+import { agentPresence, organizationMembers, tickets, users } from "../db/schema.js";
+import { isAvailableForAutomaticRouting } from "./routingAvailability.js";
 import { employeeDirectory } from "../db/employeeDirectorySchema.js";
 import { supportTeams, supportTeamMembers, ticketRouting, slaEscalationSettings } from "../db/teamRoutingSchema.js";
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -41,32 +42,32 @@ export class TeamRoutingService {
   const [ticket]=await db.select().from(tickets).where(and(eq(tickets.organizationId,org),eq(tickets.id,ticketId))).limit(1);
   if(!ticket)throw new Error("Ticket not found");
   if(ticket.assignedAgentId)return {assigned:false,reason:"already_assigned"};
+  if(!["open","in_progress"].includes(ticket.status))return {assigned:false,reason:"ticket_not_open"};
   const teams=await db.select().from(supportTeams).where(and(eq(supportTeams.organizationId,org),eq(supportTeams.enabled,true)));
   const eligibleTeams=preferredTeamId?teams.filter(t=>t.id===preferredTeamId):teams;
   if(preferredTeamId&&!eligibleTeams.length)throw new Error("Team not found");
-  const members=await db.select({teamId:supportTeamMembers.teamId,userId:supportTeamMembers.userId,role:organizationMembers.role,status:organizationMembers.status}).from(supportTeamMembers).innerJoin(organizationMembers,and(eq(organizationMembers.organizationId,org),eq(organizationMembers.userId,supportTeamMembers.userId))).where(eq(supportTeamMembers.organizationId,org));
-  const directory=await db.select().from(employeeDirectory).where(and(eq(employeeDirectory.organizationId,org),eq(employeeDirectory.enabled,true)));
+  const members=await db.select({teamId:supportTeamMembers.teamId,userId:supportTeamMembers.userId,role:organizationMembers.role,status:organizationMembers.status,userStatus:users.status}).from(supportTeamMembers).innerJoin(organizationMembers,and(eq(organizationMembers.organizationId,org),eq(organizationMembers.userId,supportTeamMembers.userId))).innerJoin(users,eq(users.id,supportTeamMembers.userId)).where(eq(supportTeamMembers.organizationId,org));
+  const directory=await db.select().from(employeeDirectory).where(eq(employeeDirectory.organizationId,org));
   const presence=await db.select().from(agentPresence).where(eq(agentPresence.organizationId,org));
   const load=await db.select({userId:tickets.assignedAgentId,count:sql<number>`count(*)::int`}).from(tickets).where(and(eq(tickets.organizationId,org),inArray(tickets.status,["open","in_progress"]))).groupBy(tickets.assignedAgentId);
   const terms=[ticket.subject,ticket.description||"",...(Array.isArray(ticket.tags)?ticket.tags.filter((t):t is string=>typeof t==="string"):[])].join(" ").toLowerCase();
   const scored=eligibleTeams.flatMap(team=>{
    const skills=Array.isArray(team.requiredSkills)?team.requiredSkills:[];
    const teamFit=skills.filter(s=>terms.includes(s.toLowerCase())).length;
-   return members.filter(m=>m.teamId===team.id&&m.status==="active"&&["owner","admin","agent"].includes(m.role)).map(member=>{
+   return members.filter(m=>m.teamId===team.id&&m.status==="active"&&m.userStatus==="active"&&["owner","admin","agent"].includes(m.role)).flatMap(member=>{
     const emp=directory.find(e=>e.userId===member.userId);
+    const currentPresence=presence.find(p=>p.userId===member.userId);
+    if((emp&&!emp.enabled)||!isAvailableForAutomaticRouting(currentPresence?.status,currentPresence?.updatedAt))return [];
     const personal=Array.isArray(emp?.skills)?emp.skills.filter((s):s is string=>typeof s==="string"): [];
     const match=personal.filter(s=>terms.includes(s.toLowerCase())).length;
-    const state=presence.find(p=>p.userId===member.userId)?.status;
-    const online=state==="ONLINE"||state==="AVAILABLE";
-    const busy=state==="BUSY";
     const count=load.find(l=>l.userId===member.userId)?.count||0;
-    return {userId:member.userId,teamId:team.id,score:teamFit*20+match*30+(online?15:busy?-15:0)-count*5,load:count};
+    return [{userId:member.userId,teamId:team.id,score:teamFit*20+match*30+15-count*5,load:count}];
    });
   }).sort((a,b)=>b.score-a.score||a.load-b.load||a.userId.localeCompare(b.userId));
-  if(!scored.length)return {assigned:false,reason:"no_eligible_team_member"};
+  if(!scored.length)return {assigned:false,reason:"no_available_team_member"};
   const winner=scored[0];
   const assigned=await withTenantTransaction(org,async tx=>{
-   const [row]=await tx.update(tickets).set({assignedAgentId:winner.userId,updatedAt:new Date()}).where(and(eq(tickets.organizationId,org),eq(tickets.id,ticketId),sql`${tickets.assignedAgentId} is null`)).returning({id:tickets.id});
+   const [row]=await tx.update(tickets).set({assignedAgentId:winner.userId,updatedAt:new Date()}).where(and(eq(tickets.organizationId,org),eq(tickets.id,ticketId),sql`${tickets.assignedAgentId} is null`,inArray(tickets.status,["open","in_progress"]))).returning({id:tickets.id});
    if(!row)return false;
    await tx.insert(ticketRouting).values({organizationId:org,ticketId,teamId:winner.teamId,routingReason:"skills_presence_workload"}).onConflictDoUpdate({target:ticketRouting.ticketId,set:{teamId:winner.teamId,routingReason:"skills_presence_workload",updatedAt:new Date()}});
    return true;
