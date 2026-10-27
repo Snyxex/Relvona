@@ -13,3 +13,19 @@ export async function hashPassword(password: string) {
 export async function verifyPassword(hash: string, password: string) {
   return bcrypt.compare(password, hash);
 }
+
+
+/**
+ * NIST-inspired minimum for password-only authentication. This applies to
+ * newly created/changed credentials, not existing logins during migration.
+ */
+export const NEW_PASSWORD_MIN_LENGTH = 15;
+export const NEW_PASSWORD_MAX_LENGTH = 128;
+
+export function requireNewPasswordPolicy(password: unknown): asserts password is string {
+  if (typeof password !== "string" ||
+      [...password].length < NEW_PASSWORD_MIN_LENGTH ||
+      [...password].length > NEW_PASSWORD_MAX_LENGTH) {
+    throw new Error("INVALID_PASSWORD_POLICY");
+  }
+}
