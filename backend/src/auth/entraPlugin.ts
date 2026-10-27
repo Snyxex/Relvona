@@ -5,6 +5,7 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import crypto from "crypto";
 import { decryptSecret } from "../utils/crypto.js";
 import { EntraAuthService } from "../services/entraAuthService.js";
+import { createEntraPkce } from "./entraPkce.js";
 
 const hash = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
 const random = () => crypto.randomBytes(32).toString("base64url");
@@ -26,7 +27,8 @@ export const entraPlugin = () => ({
         const settings = await EntraAuthService.startConfiguration(organizationId);
         const state = random();
         const nonce = random();
-        await EntraAuthService.createLoginState(organizationId, hash(state), nonce);
+        const pkce = createEntraPkce();
+        await EntraAuthService.createLoginState(organizationId, hash(state), nonce, pkce.verifier);
 
         const callback = `${ctx.context.baseURL}/entra/callback`;
         const authorize = new URL(`https://login.microsoftonline.com/${settings.tenantId}/oauth2/v2.0/authorize`);
@@ -37,6 +39,8 @@ export const entraPlugin = () => ({
         authorize.searchParams.set("scope", "openid profile email");
         authorize.searchParams.set("state", state);
         authorize.searchParams.set("nonce", nonce);
+        authorize.searchParams.set("code_challenge", pkce.challenge);
+        authorize.searchParams.set("code_challenge_method", pkce.method);
         throw ctx.redirect(authorize.toString());
       } catch (error) {
         if (error instanceof Response) throw error;
@@ -52,6 +56,8 @@ export const entraPlugin = () => ({
 
       try {
         const login = await EntraAuthService.consumeLoginState(hash(state));
+        const codeVerifier = decryptSecret(login.pkceVerifierEncrypted);
+        if (!codeVerifier || !/^[A-Za-z0-9._~-]{43,128}$/.test(codeVerifier)) throw new Error("SSO_INVALID_PKCE");
         const callback = `${ctx.context.baseURL}/entra/callback`;
         const tokenResponse = await fetch(`https://login.microsoftonline.com/${login.tenantId}/oauth2/v2.0/token`, {
           method: "POST",
@@ -60,6 +66,7 @@ export const entraPlugin = () => ({
             client_id: login.clientId,
             client_secret: decryptSecret(login.clientSecretEncrypted) || "",
             code,
+            code_verifier: codeVerifier,
             grant_type: "authorization_code",
             redirect_uri: callback,
           }),
