@@ -129,7 +129,8 @@ export default function PlatformAdminSetupPage() {
         />
         <input
           required
-          minLength={12}
+          minLength={15}
+          maxLength={128}
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -138,7 +139,8 @@ export default function PlatformAdminSetupPage() {
         />
         <input
           required
-          minLength={12}
+          minLength={15}
+          maxLength={128}
           type="password"
           value={confirmation}
           onChange={(e) => setConfirmation(e.target.value)}
