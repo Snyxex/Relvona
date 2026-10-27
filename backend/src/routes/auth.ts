@@ -9,11 +9,13 @@ import { createRateLimiter } from "../middleware/security.js";
 import { ProfileAvatarService } from "../services/profileAvatarService.js";
 import { sendInternalError } from "../utils/httpErrors.js";
 import { normalizeUserTheme } from "../services/userThemeService.js";
+import { isBootstrapTokenAuthorized } from "../auth/bootstrapGuard.js";
 
 const router = Router();
 
 router.get("/bootstrap-status", async (_req, res) => res.json({ required: await AuthService.platformBootstrapRequired() }));
 router.post("/setup/platform-admin", createRateLimiter({ keyPrefix: "platform-bootstrap", limit: 5, windowMs: 60 * 60_000, keyGenerator: req => req.ip }), async (req, res) => {
+  if (!isBootstrapTokenAuthorized(req.get("x-platform-bootstrap-token"))) return res.status(403).json({ error: "PLATFORM_BOOTSTRAP_NOT_AUTHORIZED" });
   const { name, email, password, passwordConfirmation, organizationName } = req.body || {};
   if (typeof name !== "string" || name.trim().length < 2 || name.length > 100 || typeof organizationName !== "string" || organizationName.trim().length < 2 || organizationName.length > 120 || typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || typeof password !== "string" || password.length < 12 || password.length > 256 || password !== passwordConfirmation) return res.status(400).json({ error: "Invalid setup data" });
   try {
