@@ -523,7 +523,7 @@ export const platformSupportSessions = pgTable("platform_support_sessions", {
 }, (table) => ({ supportSessionIdx: index("support_session_idx").on(table.platformAdminUserId, table.organizationId, table.expiresAt) }));
 
 export const ssoLoginStates = pgTable("sso_login_states", {
-  id: uuid("id").primaryKey().defaultRandom(), organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(), stateHash: text("state_hash").notNull().unique(), nonce: text("nonce").notNull(), expiresAt: timestamp("expires_at").notNull(), consumedAt: timestamp("consumed_at"), createdAt: timestamp("created_at").defaultNow().notNull(),
+  id: uuid("id").primaryKey().defaultRandom(), organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(), stateHash: text("state_hash").notNull().unique(), nonce: text("nonce").notNull(), pkceVerifierEncrypted: text("pkce_verifier_encrypted"), expiresAt: timestamp("expires_at").notNull(), consumedAt: timestamp("consumed_at"), createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({ ssoStateExpiryIdx: index("sso_state_expiry_idx").on(table.expiresAt) }));
 
 export const userExternalIdentities = pgTable("user_external_identities", {

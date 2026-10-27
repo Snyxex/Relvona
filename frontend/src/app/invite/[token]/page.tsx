@@ -93,7 +93,8 @@ export default function InvitePage({
           />
           <input
             required
-            minLength={12}
+            minLength={15}
+            maxLength={128}
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}

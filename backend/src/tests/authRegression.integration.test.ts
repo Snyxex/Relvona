@@ -5,6 +5,7 @@ import { AuthService } from "../services/authService.js";
 import { InvitationService } from "../services/invitationService.js";
 import { EntraAuthService } from "../services/entraAuthService.js";
 import { LEGACY_PASSWORD_SENTINEL } from "../auth/password.js";
+import { decryptSecret } from "../utils/crypto.js";
 import { PLATFORM_ADMIN_ROLE } from "../db/platformRoles.js";
 import { closeDatabasePool } from "../db/index.js";
 import { withDatabaseTenantContext } from "../db/tenantContext.js";
@@ -124,10 +125,14 @@ async function testSsoStateAndAccountLinking() {
 
   const state = crypto.randomBytes(32).toString("base64url");
   const stateHash = sha256(state);
-  await EntraAuthService.createLoginState(organizationId, stateHash, "nonce-value");
+  const pkceVerifier = crypto.randomBytes(32).toString("base64url");
+  await EntraAuthService.createLoginState(organizationId, stateHash, "nonce-value", pkceVerifier);
   const consumed = await EntraAuthService.consumeLoginState(stateHash);
   assert.equal(consumed.organizationId, organizationId);
   assert.equal(consumed.tenantId, tenantId);
+  assert.notEqual(consumed.pkceVerifierEncrypted, pkceVerifier, "PKCE secret must be encrypted at rest");
+  assert.match(consumed.pkceVerifierEncrypted, /^enc:/);
+  assert.equal(decryptSecret(consumed.pkceVerifierEncrypted), pkceVerifier);
   await rejectsCode(() => EntraAuthService.consumeLoginState(stateHash), "SSO_INVALID_STATE");
 
   const email = `unlinked-${randomUUID()}@example.test`;
