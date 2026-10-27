@@ -89,6 +89,11 @@ jobs:
           WIDGET_SESSION_SECRET: ci-widget-session-secret-long-enough-for-tests
         run: npm run build
 
+      - name: Test support coverage integration
+        working-directory: backend
+        env: *backend-test-env
+        run: npm run test:support-coverage
+
       - name: Test schedule and absence policy
         working-directory: backend
         env: *backend-test-env
