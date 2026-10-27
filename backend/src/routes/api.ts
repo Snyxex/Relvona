@@ -18,6 +18,7 @@ import adminSettingsRouter from "./adminSettings.js";
 import mailServerSettingsRouter from "./mailServerSettings.js";
 import employeeDirectoryRouter from "./employeeDirectory.js";
 import notificationsRouter from "./notifications.js";
+import supportTeamsRouter from "./supportTeams.js";
 import toolsRouter from "./tools.js";
 import platformAdminRouter from "./platformAdmin.js";
 import visitorMemoryRouter from "./visitorMemory.js";
@@ -34,10 +35,12 @@ import storageRouter from "./storage.js";
 import { registerWebhookDomainBridge } from "../services/webhookDomainBridge.js";
 import { registerIntegrationSyncBridge } from "../services/integrationSyncBridge.js";
 import { registerBookingEmailNotificationBridge } from "../services/bookingEmailNotificationBridge.js";
+import { registerTeamRoutingBridge } from "../services/teamRoutingBridge.js";
 
 registerWebhookDomainBridge();
 registerIntegrationSyncBridge();
 registerBookingEmailNotificationBridge();
+registerTeamRoutingBridge();
 
 const apiRouter = Router();
 
@@ -55,6 +58,7 @@ apiRouter.use("/v1/customers", customersRouter);
 apiRouter.use("/v1/agents", agentsRouter);
 apiRouter.use("/v1/analytics", analyticsRouter);
 apiRouter.use("/v1/notifications", notificationsRouter);
+apiRouter.use("/v1/support-teams", supportTeamsRouter);
 apiRouter.use("/v1/widget/privacy", widgetPrivacyRouter);
 apiRouter.use("/v1/widget", widgetRouter);
 apiRouter.use("/v1/customer-portal", customerPortalAttachmentsRouter);

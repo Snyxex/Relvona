@@ -15,6 +15,7 @@ import { IntegrationInboundService } from "./services/integrationInboundService.
 import { BookingCalendarSyncService } from "./services/bookingCalendarSyncService.js";
 import { KnowledgeRecrawlService } from "./services/knowledgeRecrawlService.js";
 import { NotificationService } from "./services/notificationService.js";
+import { SlaEscalationService } from "./services/slaEscalationService.js";
 import { closeQueues, publishIngestion } from "./services/queueService.js";
 import type { IngestionInput, IngestionReference } from "./services/ingestionTypes.js";
 import { logger, withLogContext, setLogContext } from "./observability/logger.js";
@@ -170,6 +171,7 @@ function scheduleNotificationSweep() {
       });
       bookingNotifications += result.bookingNotifications;
       ticketNotifications += result.ticketNotifications;
+      await withDatabaseTenantContext(async () => { setDatabaseTenant(tenant.id); await SlaEscalationService.sweepOrganization(tenant.id); });
     }
     if (bookingNotifications || ticketNotifications) logger.info("notifications.sweep", { bookingNotifications, ticketNotifications });
   })().catch(() => logger.warn("notifications.sweep_failed")).finally(() => { notificationSweeping = undefined; });
