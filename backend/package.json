@@ -46,6 +46,7 @@
     "test:routing-availability": "tsx src/tests/routingAvailability.test.ts",
     "test:support-schedules": "tsx src/tests/supportSchedulePolicy.test.ts",
     "test:support-coverage": "tsx src/tests/supportCoverage.integration.test.ts",
+    "test:support-analytics": "tsx src/tests/supportOperationsMath.test.ts && tsx src/tests/supportOperationsAnalytics.integration.test.ts",
     "test:streaming": "tsx src/tests/streaming.test.ts",
     "test:ingestion": "tsx src/tests/ingestion.test.ts",
     "test:storage": "tsx src/tests/objectStorage.test.ts",
