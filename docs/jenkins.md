@@ -4,7 +4,7 @@
 
 `Jenkinsfile` is the primary CI definition for Relvona. It performs checkout, locked dependency installation, static checks, builds, all backend tests, PipeX and Orbis compatibility gates, dependency and secret scans, Docker/Compose validation, application smoke tests, and artifact packaging. It deliberately stops at **build + test + package**. It does not publish packages or images and does not deploy.
 
-The existing files in `.github/workflows/` are intentionally retained until the Jenkins Multibranch job has completed successfully at least once. **Remove after first successful Jenkins build.** Before removal, configure the Jenkins status check as a required branch-protection check and compare the first Jenkins result with the mapping below.
+**CI provider: Jenkins only.** The former GitHub Actions workflows (`knowledge-intelligence.yml` and `secret-scan.yml`) have been removed from `.github/workflows/` by request. The existing Jenkinsfile is the single source of CI verification. Jenkins runs unit, AI, security, integration, support routing/schedule/analytics/automation regressions, builds, full-history secret scanning, dependency audits, and Docker validation. GitHub remains the source-code host and may receive Jenkins commit/PR statuses through GitHub Branch Source; it does not execute GitHub Actions workflows.
 
 ## Detected project stack
 
@@ -77,7 +77,7 @@ Node does not need to be installed on the agent. Node commands run inside the di
 
 The unconditional post action stops containers, removes networks, volumes and locally built images for the CI project, then deletes the Jenkins workspace. Cleanup also runs after failures.
 
-## GitHub Actions to Jenkins mapping
+## Previous GitHub Actions checks and Jenkins replacements
 
 | Existing GitHub workflow/check | Jenkins replacement |
 | --- | --- |
@@ -93,6 +93,16 @@ The unconditional post action stops containers, removes networks, volumes and lo
 | Gitleaks full-history scan | Secret Scan |
 
 Jenkins additionally covers frontend lint/format, all other tracked backend tests, AI streaming/tool/ingestion regressions, PipeX import compatibility, Orbis detection, high-severity audits, every Compose model, Docker image builds, runtime health checks, and packaged artifacts.
+
+## Jenkins-only cutover checklist
+
+1. Configure the Relvona Jenkins **Multibranch Pipeline** to build both branch pushes and pull requests against `Jenkinsfile`. Use the GitHub webhook to trigger builds; a webhook is not GitHub Actions.
+2. On the repository's GitHub branch-protection rule/ruleset for `main`, **remove obsolete required checks** from `Knowledge Intelligence` and `Secret Scan` and require the Jenkins-published PR status **after** the exact Jenkins check context has been observed on a successful build.
+3. Ensure the chosen Jenkins agent satisfies the Jenkinsfile's `linux && docker` label and has a working Docker Engine + Compose v2. The rootless-Podman `node01-linux-build` agent **cannot be assumed compatible** with the current Docker CLI pipeline without a separately tested adapter and Compose provider.
+4. Run one Jenkins PR build and one branch build to verify the full test matrix, including `supportAutomation.integration.test.ts`, `supportCoverage.integration.test.ts`, `supportOperationsAnalytics.integration.test.ts` and their unit counterparts. The test runner rejects unclassified test files.
+5. Verify that Jenkins reports the intended status back to GitHub and archives the built artifacts. No deployment stage is enabled.
+
+Removing workflow source files disables future executions from those files, but historical GitHub Actions runs remain in GitHub's history. Changes to GitHub repository Actions settings or required status checks are separate GitHub administration operations and are **not** performed by editing repository files.
 
 ## Credentials and pull-request trust
 
