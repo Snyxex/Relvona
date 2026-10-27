@@ -97,6 +97,7 @@ The repository includes wiki-style documentation under [`docs/`](docs/index.md).
 | [User guide](docs/user-guide.md) | Daily use for support teams and administrators |
 | [Integrations](docs/integrations.md) | CRM, ticketing, calendars, webhooks, and synchronization |
 | [Security and privacy](docs/security.md) | Security model and operational guidance |
+| [IAM security assessment](docs/security/implementation-plan.md) | Authentication threat model, remediation roadmap and compliance evidence |
 | [Platform administration](docs/platform-administration.md) | Deployment-wide administration |
 | [Production operations](docs/production-operations.md) | Deployment, backup, restore, monitoring, rollback, and incidents |
 | [Object storage](docs/object-storage.md) | S3-compatible attachment storage |
@@ -164,6 +165,7 @@ Before a production deployment:
 - use HTTPS;
 - inject secrets at runtime rather than committing `.env` files;
 - generate unique high-entropy production secrets;
+- set a strong server-side `PLATFORM_BOOTSTRAP_TOKEN` before initial production setup, and revoke it after creating the first owner;
 - use a non-owner PostgreSQL application role;
 - keep PostgreSQL and Redis off the public internet;
 - configure restrictive CORS and widget origins;
