@@ -35,10 +35,12 @@ import storageRouter from "./storage.js";
 import { registerWebhookDomainBridge } from "../services/webhookDomainBridge.js";
 import { registerIntegrationSyncBridge } from "../services/integrationSyncBridge.js";
 import { registerBookingEmailNotificationBridge } from "../services/bookingEmailNotificationBridge.js";
+import { registerTeamRoutingBridge } from "../services/teamRoutingBridge.js";
 
 registerWebhookDomainBridge();
 registerIntegrationSyncBridge();
 registerBookingEmailNotificationBridge();
+registerTeamRoutingBridge();
 
 const apiRouter = Router();
 
