@@ -166,12 +166,16 @@ function scheduleNotificationSweep() {
     let ticketNotifications = 0;
     for (const tenant of tenants) {
       if (shuttingDown) return;
-      const result = await withDatabaseTenantContext(async () => {
-        setDatabaseTenant(tenant.id);
-        return NotificationService.sweepOrganization(tenant.id);
-      });
-      bookingNotifications += result.bookingNotifications;
-      ticketNotifications += result.ticketNotifications;
+      try {
+        const result = await withDatabaseTenantContext(async () => {
+          setDatabaseTenant(tenant.id);
+          return NotificationService.sweepOrganization(tenant.id);
+        });
+        bookingNotifications += result.bookingNotifications;
+        ticketNotifications += result.ticketNotifications;
+      } catch (error) {
+        logger.warn("notifications.tenant_sweep_failed", { organizationId: tenant.id, message: (error as Error).message });
+      }
       try {
         await withDatabaseTenantContext(async () => {
           setDatabaseTenant(tenant.id);
