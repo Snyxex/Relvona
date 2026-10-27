@@ -65,7 +65,10 @@ export class TeamRoutingService {
   const now=new Date();
   const load=await db.select({userId:tickets.assignedAgentId,count:sql<number>`count(*)::int`}).from(tickets).where(and(eq(tickets.organizationId,org),inArray(tickets.status,["open","in_progress"]))).groupBy(tickets.assignedAgentId);
   const terms=[ticket.subject,ticket.description||"",...(Array.isArray(ticket.tags)?ticket.tags.filter((t):t is string=>typeof t==="string"):[])].join(" ").toLowerCase();
-  const scored=eligibleTeams.flatMap(team=>{
+  const scopedTeams=ticket.assignedAgentId && !teamFilter
+    ?eligibleTeams.filter(team=>members.some(m=>m.teamId===team.id&&m.userId===ticket.assignedAgentId))
+    :eligibleTeams;
+  const scored=scopedTeams.flatMap(team=>{
    const skills=Array.isArray(team.requiredSkills)?team.requiredSkills:[];
    const teamFit=skills.filter(s=>terms.includes(s.toLowerCase())).length;
    return members.filter(m=>m.teamId===team.id&&m.status==="active"&&m.userStatus==="active"&&["owner","admin","agent"].includes(m.role)).flatMap(member=>{
