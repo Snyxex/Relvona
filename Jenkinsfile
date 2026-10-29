@@ -29,8 +29,21 @@ pipeline {
             steps {
                 sh '''
                     set -eu
-                    docker version
-                    docker compose version
+                    # Only the rootless container engine owned by this Jenkins agent is allowed.
+                    # A Jenkins node label does not change which user or socket the CLI uses.
+                    command -v podman >/dev/null 2>&1 || {
+                      echo 'ERROR: podman is not installed on the selected Jenkins agent' >&2
+                      exit 1
+                    }
+                    podman version
+                    if [ "$(podman info --format '{{.Host.Security.Rootless}}')" != "true" ]; then
+                      echo 'ERROR: Jenkins CI requires rootless Podman; refusing host/rootful Docker' >&2
+                      exit 1
+                    fi
+                    podman compose version || {
+                      echo 'ERROR: Podman Compose provider is unavailable (install docker-compose v2 or podman-compose for the Jenkins agent)' >&2
+                      exit 1
+                    }
                     printf 'Commit: %s\n' "$(git rev-parse HEAD)"
                     printf 'Branch: %s\n' "${BRANCH_NAME:-detached}"
                     printf 'Build: %s\n' "${BUILD_NUMBER}"
@@ -67,8 +80,8 @@ pipeline {
                       printf 'OBJECT_STORAGE_PUBLIC_ENDPOINT=https://objects.invalid\n'
                       printf 'OBJECT_STORAGE_CORS_ALLOWED_ORIGINS=https://frontend.invalid\n'
                     } > "${CI_ENV_FILE}"
-                    docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" config --quiet
-                    docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci sh -lc 'node --version && npm --version && git --version'
+                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" config --quiet
+                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci sh -lc 'node --version && npm --version && git --version'
                 '''
             }
         }
@@ -78,7 +91,7 @@ pipeline {
             steps {
                 sh '''
                     set -eu
-                    docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci sh -lc \
+                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci sh -lc \
                       'npm --prefix backend ci && npm --prefix frontend ci'
                 '''
             }
@@ -88,22 +101,22 @@ pipeline {
             parallel {
                 stage('Backend Typecheck') {
                     steps {
-                        sh 'docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix backend run typecheck'
+                        sh 'podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix backend run typecheck'
                     }
                 }
                 stage('Frontend Typecheck') {
                     steps {
-                        sh 'docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix frontend run typecheck'
+                        sh 'podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix frontend run typecheck'
                     }
                 }
                 stage('Frontend Lint') {
                     steps {
-                        sh 'docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps -e CHANGE_TARGET="${CHANGE_TARGET:-}" ci npm --prefix frontend run lint:ci'
+                        sh 'podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps -e CHANGE_TARGET="${CHANGE_TARGET:-}" ci npm --prefix frontend run lint:ci'
                     }
                 }
                 stage('Frontend Format') {
                     steps {
-                        sh 'docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps -e CHANGE_TARGET="${CHANGE_TARGET:-}" ci npm --prefix frontend run format:ci'
+                        sh 'podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps -e CHANGE_TARGET="${CHANGE_TARGET:-}" ci npm --prefix frontend run format:ci'
                     }
                 }
             }
@@ -113,12 +126,12 @@ pipeline {
             parallel {
                 stage('Backend Build') {
                     steps {
-                        sh 'docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix backend run build'
+                        sh 'podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix backend run build'
                     }
                 }
                 stage('Frontend Build') {
                     steps {
-                        sh 'docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix frontend run build'
+                        sh 'podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix frontend run build'
                     }
                 }
             }
@@ -129,10 +142,10 @@ pipeline {
             steps {
                 sh '''
                     set -eu
-                    docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" up -d --wait postgres redis rustfs
-                    docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci node -e \
+                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" up -d --wait postgres redis rustfs
+                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci node -e \
                       "let attempts=0; const wait=async()=>{ try { await fetch('http://rustfs:9000'); console.log('RustFS is reachable'); } catch(error) { if (++attempts >= 30) throw error; await new Promise(resolve=>setTimeout(resolve,1000)); return wait(); } }; wait().catch(error=>{ console.error(error); process.exit(1); });"
-                    docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm ci sh -lc \
+                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm ci sh -lc \
                       'DATABASE_URL="$DATABASE_ADMIN_URL" npm --prefix backend run db:migrate'
                 '''
             }
@@ -144,21 +157,21 @@ pipeline {
                     parallel {
                         stage('Unit Tests') {
                             steps {
-                                sh 'docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix backend run test:ci:unit'
+                                sh 'podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix backend run test:ci:unit'
                             }
                         }
                         stage('AI Engine Tests') {
                             options { timeout(time: 12, unit: 'MINUTES') }
                             steps {
-                                sh 'docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix backend run test:ci:ai'
+                                sh 'podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix backend run test:ci:ai'
                             }
                         }
                         stage('Security Tests') {
                             steps {
                                 sh '''
-                                    docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix backend run test:ci:security
-                                    docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix frontend run test:security
-                                    docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix frontend run test:security:integration
+                                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix backend run test:ci:security
+                                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix frontend run test:security
+                                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix frontend run test:security:integration
                                 '''
                             }
                         }
@@ -167,7 +180,7 @@ pipeline {
                 stage('Integration Tests') {
                     options { timeout(time: 20, unit: 'MINUTES') }
                     steps {
-                        sh 'docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix backend run test:ci:integration'
+                        sh 'podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix backend run test:ci:integration'
                     }
                 }
             }
@@ -175,13 +188,13 @@ pipeline {
 
         stage('PipeX Validation') {
             steps {
-                sh 'docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix backend run test:pipex'
+                sh 'podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix backend run test:pipex'
             }
         }
 
         stage('Orbis Compatibility') {
             steps {
-                sh 'docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci node backend/scripts/check-orbis-compat.mjs'
+                sh 'podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci node backend/scripts/check-orbis-compat.mjs'
             }
         }
 
@@ -189,12 +202,12 @@ pipeline {
             parallel {
                 stage('Backend Audit') {
                     steps {
-                        sh 'docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix backend audit --audit-level=high'
+                        sh 'podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix backend audit --audit-level=high'
                     }
                 }
                 stage('Frontend Audit') {
                     steps {
-                        sh 'docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix frontend audit --audit-level=high'
+                        sh 'podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix frontend audit --audit-level=high'
                     }
                 }
             }
@@ -204,7 +217,7 @@ pipeline {
             options { timeout(time: 10, unit: 'MINUTES') }
             steps {
                 sh '''
-                    docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+                    podman run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
                       --tmpfs /tmp:rw,noexec,nosuid,size=64m --volume "${PWD}:/repo:ro" \
                       zricethezav/gitleaks@sha256:cdbb7c955abce02001a9f6c9f602fb195b7fadc1e812065883f695d1eeaba854 \
                       detect --source=/repo --config=/repo/.gitleaks.toml --log-opts=--all --redact --no-banner
@@ -212,16 +225,16 @@ pipeline {
             }
         }
 
-        stage('Docker Validation') {
+        stage('Container Validation') {
             options { timeout(time: 20, unit: 'MINUTES') }
             steps {
                 sh '''
                     set -eu
-                    docker compose --env-file "${CI_ENV_FILE}" -f docker-compose.yml config --quiet
-                    docker compose --env-file "${CI_ENV_FILE}" -f docker-compose.local.yml config --quiet
-                    docker compose --env-file "${CI_ENV_FILE}" -f docker-compose.prod.yml config --quiet
-                    docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" up -d --build --wait backend frontend
-                    docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci node -e \
+                    podman compose --env-file "${CI_ENV_FILE}" -f docker-compose.yml config --quiet
+                    podman compose --env-file "${CI_ENV_FILE}" -f docker-compose.local.yml config --quiet
+                    podman compose --env-file "${CI_ENV_FILE}" -f docker-compose.prod.yml config --quiet
+                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" up -d --build --wait backend frontend
+                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci node -e \
                       "Promise.all([fetch('http://backend:8080/health/live'), fetch('http://backend:8080/health/ready'), fetch('http://frontend:3000')]).then(rs => { if (rs.some(r => !r.ok)) process.exit(1); console.log('Backend and frontend smoke checks passed'); }).catch(error => { console.error(error); process.exit(1); })"
                 '''
             }
@@ -234,7 +247,7 @@ pipeline {
                     mkdir -p artifacts
                     tar -czf artifacts/relvona-backend.tgz -C backend dist package.json package-lock.json
                     tar -czf artifacts/relvona-frontend.tgz -C frontend .next/standalone .next/static public package.json package-lock.json
-                    docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" images --format json > artifacts/docker-images.json
+                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" images --format json > artifacts/container-images.json
                     sha256sum artifacts/*.tgz > artifacts/SHA256SUMS
                 '''
                 archiveArtifacts artifacts: 'artifacts/**', fingerprint: true, onlyIfSuccessful: true
@@ -246,7 +259,7 @@ pipeline {
         always {
             sh '''
                 if [ -f "${CI_ENV_FILE}" ]; then
-                  docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" down --volumes --remove-orphans --rmi local || true
+                  podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" down --volumes --remove-orphans --rmi local || true
                 fi
             '''
             deleteDir()
