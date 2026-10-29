@@ -28,6 +28,9 @@ pipeline {
         stage('Environment Validation') {
             steps {
                 sh '''
+                    # Jenkins runs shell scripts with xtrace by default. Generated CI
+                    # credentials must never appear in the Jenkins console log.
+                    set +x
                     set -eu
                     # Only the rootless container engine owned by this Jenkins agent is allowed.
                     # A Jenkins node label does not change which user or socket the CLI uses.
@@ -81,7 +84,7 @@ pipeline {
                       printf 'OBJECT_STORAGE_CORS_ALLOWED_ORIGINS=https://frontend.invalid\n'
                     } > "${CI_ENV_FILE}"
                     podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" config --quiet
-                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci sh -lc 'node --version && npm --version && git --version'
+                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci sh -lc 'node --version && npm --version && git --version && touch /workspace/.ci-write-test && rm /workspace/.ci-write-test'
                 '''
             }
         }
