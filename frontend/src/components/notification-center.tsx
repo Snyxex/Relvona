@@ -58,7 +58,7 @@ export default function NotificationCenter() {
   }
 
   return (
-    <div className="fixed right-5 top-5 z-[60]">
+    <div className="relvona-notification-center fixed right-5 top-5 z-[60]">
       <button type="button" onClick={() => { setOpen((value) => !value); if (!open) void load(); }} className="relative grid h-11 w-11 place-items-center rounded-full border border-slate-700 bg-slate-950 text-slate-200 shadow-xl transition hover:bg-slate-900" aria-label="Benachrichtigungen">
         <Bell className="h-5 w-5" />
         {unread > 0 && <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-500 px-1.5 py-0.5 text-center text-[10px] font-bold text-white">{unread > 99 ? "99+" : unread}</span>}
