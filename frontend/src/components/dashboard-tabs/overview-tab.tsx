@@ -3,7 +3,7 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import {
   Activity, ArrowDownRight, ArrowRight, ArrowUpRight, CalendarDays, CheckCircle2,
-  Clock3, Headphones, MessageSquareText, Search, Sparkles, Star, Ticket, Users,
+  Clock3, Headphones, Search, Sparkles, Star, Ticket,
 } from "lucide-react";
 import { api } from "@/lib/api";
 
