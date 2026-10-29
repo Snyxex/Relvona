@@ -22,6 +22,8 @@ import {
   RefreshCw,
   Sliders,
   BookOpen,
+  CalendarDays,
+  Workflow,
 } from "lucide-react";
 import KnowledgeSources from "@/components/knowledge-sources";
 import ProfileSecuritySettings from "@/components/profile-security-settings";
@@ -1076,7 +1078,7 @@ export default function Dashboard({
 
   // --- Main SaaS Dashboard Layout ---
   return (
-    <div className="flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">
+    <div className={`relvona-workspace flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden ${activeTab === "overview" ? "relvona-workspace--overview" : ""}`}>
       {notification && (
         <div className="fixed top-4 right-4 z-50 bg-blue-600 text-white px-4 py-2.5 rounded-lg shadow-xl text-sm flex items-center gap-2 animate-bounce">
           <CheckCircle className="w-4 h-4" />
@@ -1084,16 +1086,14 @@ export default function Dashboard({
         </div>
       )}
 
-      <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between shrink-0">
+      <aside className="rv-sidebar w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between shrink-0">
         <div>
           <div className="p-4 border-b border-slate-800 flex items-center justify-between">
             <div className="flex items-center gap-2.5 overflow-hidden">
-              <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-white shrink-0">
-                <Bot className="w-5 h-5" />
-              </div>
+              <div className="rv-brand-mark w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-white shrink-0">R</div>
               <div className="truncate">
                 <h2 className="text-sm font-bold truncate text-white">
-                  {activeOrg?.name || "Organization"}
+                  Relvona
                 </h2>
                 <span className="text-[10px] bg-blue-950 text-blue-400 px-1.5 py-0.5 rounded font-mono border border-blue-800">
                   {activeOrg?.role || "member"}
@@ -1126,7 +1126,7 @@ export default function Dashboard({
             </div>
           )}
 
-          <nav className="p-3 space-y-1">
+          <nav className="rv-main-nav p-3 space-y-1">
             {administration && (
               <a href="/admin" className="block p-3 text-sm text-blue-400">
                 Plattformverwaltung
@@ -1138,21 +1138,21 @@ export default function Dashboard({
               </a>
             )}
             {[
-              { id: "overview", label: "Overview", icon: BarChart3 },
+              { id: "overview", label: "Dashboard", icon: BarChart3 },
               {
                 id: "conversations",
-                label: "Conversations Inbox",
+                label: "Unterhaltungen",
                 icon: MessageSquare,
               },
-              { id: "tickets", label: "Support Tickets", icon: Ticket },
-              { id: "knowledge", label: "Knowledge Bases", icon: BookOpen },
-              { id: "websites", label: "Web Crawler", icon: Globe },
+              { id: "tickets", label: "Tickets", icon: Ticket },
+              { id: "knowledge", label: "Wissensdatenbank", icon: BookOpen },
+              { id: "websites", label: "Web-Crawler", icon: Globe },
               { id: "assistant", label: "AI Assistant Settings", icon: Bot },
               { id: "agents", label: "Support Agents", icon: Users },
-              { id: "customers", label: "Customer Directory", icon: UserCheck },
+              { id: "customers", label: "Kunden", icon: UserCheck },
               {
                 id: "analytics",
-                label: "Analytics & Insights",
+                label: "Analytics",
                 icon: Sparkles,
               },
               { id: "widget", label: "Widget Designer", icon: Sliders },
@@ -1195,6 +1195,15 @@ export default function Dashboard({
                   </button>
                 );
               })}
+            {!administration && auth.user.systemRole === "superadmin" && (
+              <div className="rv-nav-secondary">
+                <p>Workspace</p>
+                <a href="/admin/scheduling"><CalendarDays size={16}/> Termine</a>
+                <a href="/admin/support-automations"><Workflow size={16}/> AI-Automationen</a>
+                <a href="/admin/employees"><Users size={16}/> Mitarbeiter</a>
+                <a href="/admin/integrations"><Globe size={16}/> Integrationen</a>
+              </div>
+            )}
           </nav>
         </div>
 
@@ -1231,7 +1240,7 @@ export default function Dashboard({
         </div>
       </aside>
 
-      <main className="flex-1 bg-slate-950 overflow-y-auto p-6">
+      <main className={activeTab === "overview" ? "rv-main rv-main--overview flex-1 overflow-y-auto" : "rv-main flex-1 bg-slate-950 overflow-y-auto p-6"}>
         {activeTab === "profile" && (
           <div className="mx-auto max-w-2xl space-y-6">
             <div>
@@ -1385,7 +1394,20 @@ export default function Dashboard({
         )}
 
         {activeTab === "overview" && (
-          <LazyOverviewTab overviewMetrics={overviewMetrics} />
+          <LazyOverviewTab
+            organizationId={activeOrg?.id}
+            user={auth.user}
+            canManage={auth.user.systemRole === "superadmin"}
+            onNavigate={(tab) => setActiveTab(tab)}
+            onOpenTicket={(ticket) => {
+              setActiveTab("tickets");
+              void api.get("/tickets").then(({data}) => {
+                setTicketsList(data);
+                const fullTicket = data.find((candidate: any) => candidate.id === ticket.id);
+                if (fullTicket) void handleSelectTicket(fullTicket);
+              }).catch(() => showNotify("Ticketliste konnte nicht geladen werden."));
+            }}
+          />
         )}
 
         {activeTab === "analytics" && (

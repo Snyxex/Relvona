@@ -41,6 +41,7 @@ const groups = {
     "conversationAutoClose.integration.test.ts",
     "customerPortalMagicLink.integration.test.ts",
     "customerToolIsolation.integration.test.ts",
+    "dashboardOverview.integration.test.ts",
     "databaseTenantContext.test.ts",
     "ingestion.integration.test.ts",
     "integrationConnections.integration.test.ts",

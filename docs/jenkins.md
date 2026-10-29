@@ -2,7 +2,7 @@
 
 ## Scope and current status
 
-`Jenkinsfile` is the primary CI definition for Relvona. It performs checkout, locked dependency installation, static checks, builds, all backend tests, PipeX and Orbis compatibility gates, dependency and secret scans, Docker/Compose validation, application smoke tests, and artifact packaging. It deliberately stops at **build + test + package**. It does not publish packages or images and does not deploy.
+`Jenkinsfile` is the primary CI definition for Relvona. It performs checkout, locked dependency installation, static checks, builds, all backend tests, PipeX and Orbis compatibility gates, dependency and secret scans, Podman/Compose validation, application smoke tests, and artifact packaging. It deliberately stops at **build + test + package**. It does not publish packages or images and does not deploy.
 
 **CI provider: Jenkins only.** The former GitHub Actions workflows (`knowledge-intelligence.yml` and `secret-scan.yml`) have been removed from `.github/workflows/` by request. The existing Jenkinsfile is the single source of CI verification. Jenkins runs unit, AI, security, integration, support routing/schedule/analytics/automation regressions, builds, full-history secret scanning, dependency audits, and Docker validation. GitHub remains the source-code host and may receive Jenkins commit/PR statuses through GitHub Branch Source; it does not execute GitHub Actions workflows.
 
@@ -13,7 +13,7 @@
 - PostgreSQL 16 with pgvector, Redis/BullMQ, RustFS object storage, and a separate backend worker entrypoint
 - custom TypeScript test programs executed with `tsx`
 - PipeX 1.0.1 from a commit-pinned public Git dependency
-- Docker multi-stage images and separate base, local, production, and CI Compose definitions
+- OCI-compatible multi-stage images and separate base, local, production, and CI Compose definitions
 - provider-neutral application AI gateway supporting configured OpenAI-compatible and other provider adapters
 
 No Orbis package or source import exists at the time of this migration. Jenkins therefore reports the Orbis gate as not applicable. `backend/scripts/check-orbis-compat.mjs` fails closed if an Orbis dependency/import appears without a `test:orbis` script, and executes that script once it exists.
@@ -44,25 +44,49 @@ The job cancels an older build of the same branch when a newer commit arrives. T
 - GitHub Branch Source
 - Credentials Binding (reserved for later trusted release/deployment stages)
 
-Docker Pipeline is not required by the current file because it calls the Docker CLI directly on a Docker-labelled agent. It may be installed if the Jenkins installation standardizes agent provisioning through that plugin.
+Docker Pipeline is not required: the Jenkinsfile calls **rootless `podman` and `podman compose`** directly on the selected `podman-test` agent. A Jenkins label does not alter the agent process identity or Docker socket.
 
 ## Agent requirements
 
-The Jenkins node label must be `docker` and provide:
+The Jenkins node label must be **`podman-test`** and provide:
 
 - Linux with `/proc/sys/kernel/random/uuid`, POSIX shell, `tar`, and `sha256sum`
 - Git
-- Docker Engine with the Compose v2 plugin
-- permission for the Jenkins agent identity to use Docker
+- The Jenkins agent's **rootless Podman** executable (`podman version`, `podman info` with `Host.Security.Rootless=true`) and a working **`podman compose`** provider
+- A working rootless Podman connection for the Jenkins agent's exact identity. If the Compose provider needs an API socket, configure its user-owned Podman socket; never grant access to `/var/run/docker.sock` or add the CI user to the rootful Docker group
 - outbound HTTPS access to GitHub, npm, and the pinned container registries
-- enough disk for Node dependency trees and Docker layers; at least 4 GiB RAM is recommended
+- enough disk for Node dependency trees and container image layers; at least 4 GiB RAM is recommended
 
 Node does not need to be installed on the agent. Node commands run inside the digest-pinned `node:22-bookworm` CI service. The CI pgvector, Redis, and RustFS images are digest-pinned as well. PostgreSQL, Redis, RustFS, backend, and frontend run in a unique Compose project per build. The project uses no fixed host ports, so Multibranch jobs remain isolated.
+
+## Rootless Podman troubleshooting
+
+The `podman-test` Jenkins label alone did **not** select a Podman executable: the 2026-10-29 PR #62 log still ran `docker version` on `node01-linux-build` and failed against `/var/run/docker.sock`. The Jenkinsfile now executes `podman` explicitly and verifies `podman info --format '{{.Host.Security.Rootless}}'` reports `true`, then verifies `podman compose version`. If this check fails, verify that the Jenkins **agent service account**, not an interactive SSH user, can execute both commands and that a Compose provider (`docker-compose` or `podman-compose`) is installed. Do not broaden `/var/run/docker.sock` permissions.
+
+Check this on the executor using the same identity as the Jenkins agent:
+
+```sh
+id
+command -v podman
+podman version
+podman info --format '{{.Host.Security.Rootless}}'
+podman compose version
+```
+
+Podman's `compose` subcommand delegates to an installed external Compose provider. Check provider support for `--env-file`, `up -d --wait`, `run --rm --no-deps`, `config --quiet`, and cleanup `down --volumes --remove-orphans --rmi local` before treating the full pipeline as passing. A successful preflight is not a substitute for Jenkins build/test evidence.
+
+## Rootless workspace write permissions
+
+The 2026-10-29 PR #62 Jenkins build #9 passed Podman/Compose validation but failed during `npm ci` with `EACCES: permission denied, mkdir '/workspace/backend/node_modules'`. The CI image ran as Jenkins host UID/GID (996:993), but rootless Podman mapped those nonzero container IDs to subordinate host IDs. The bind-mounted Jenkins workspace is owned by the unprivileged host agent instead.
+
+The `ci` Compose service now sets `userns_mode: keep-id` while retaining `user: ${CI_UID}:${CI_GID}`. With Podman user-namespace mapping, the container user matches the Jenkins host UID/GID and can write to the workspace. The `Environment Validation` stage checks write access with a temporary file before installing dependencies. If the Compose provider rejects `keep-id`, validate that the installed Podman API compatibility layer supports `userns_mode`; do not use `chmod 777` or `chown -R` across the Jenkins host to bypass the error.
+
+Jenkins shell tracing is disabled before CI credentials are generated. Build #9 printed disposable credentials due to the prior tracing behavior; they belong only to its isolated test environment and must not be reused.
 
 ## Pipeline stages
 
 1. **Checkout** checks out the Multibranch revision and fetches branch/tag history for the full-history secret scan. Only this external operation is retried.
-2. **Environment Validation** verifies Docker/Compose, records non-sensitive build metadata, generates random disposable CI credentials with mode `0600`, validates the CI Compose model, and reports the containerized Node/npm/Git versions.
+2. **Environment Validation** verifies rootless Podman/Compose, records non-sensitive build metadata, generates random disposable CI credentials with mode `0600`, validates the CI Compose model, and reports the containerized Node/npm/Git versions.
 3. **Install Dependencies** runs `npm ci` independently against the backend and frontend lockfiles. A process-only Git rewrite allows the pinned PipeX Git dependency to use HTTPS when SSH port 22 is unavailable.
 4. **Quality Checks** runs backend/frontend TypeScript checks plus strict Biome lint and format checks for every frontend file changed by the current PR or push commit. The comparison base is the trusted PR target (`CHANGE_TARGET`) or the first parent on a branch build.
 5. **Build** builds backend and frontend in parallel.
@@ -72,8 +96,8 @@ Node does not need to be installed on the agent. Node commands run inside the di
 9. **Orbis Compatibility** runs the absence/presence guard described above.
 10. **Dependency Audit** runs backend and frontend `npm audit --audit-level=high` in parallel. High and critical findings fail the build; there is no blanket allowlist.
 11. **Secret Scan** runs digest-pinned Gitleaks against all fetched Git history using `.gitleaks.toml`, with redaction enabled. The scanner has a read-only repository mount, no network, a read-only root filesystem, no Linux capabilities, and a small isolated tmpfs.
-12. **Docker Validation** validates every Compose file, builds the actual backend/frontend Dockerfiles, starts both images, and checks backend live/ready plus frontend HTTP health.
-13. **Artifacts** archives backend distribution output, the Next.js standalone runtime/static files, Docker image metadata, and SHA-256 checksums. It never archives `node_modules`, dotenv files, databases, or service logs.
+12. **Container Validation** validates every Compose file, builds the actual backend/frontend Dockerfiles, starts both images, and checks backend live/ready plus frontend HTTP health.
+13. **Artifacts** archives backend distribution output, the Next.js standalone runtime/static files, container image metadata, and SHA-256 checksums. It never archives `node_modules`, dotenv files, databases, or service logs.
 
 The unconditional post action stops containers, removes networks, volumes and locally built images for the CI project, then deletes the Jenkins workspace. Cleanup also runs after failures.
 
@@ -92,13 +116,13 @@ The unconditional post action stops containers, removes networks, volumes and lo
 | `secret-scan.yml`: full checkout/ref fetch | Checkout |
 | Gitleaks full-history scan | Secret Scan |
 
-Jenkins additionally covers frontend lint/format, all other tracked backend tests, AI streaming/tool/ingestion regressions, PipeX import compatibility, Orbis detection, high-severity audits, every Compose model, Docker image builds, runtime health checks, and packaged artifacts.
+Jenkins additionally covers frontend lint/format, all other tracked backend tests, AI streaming/tool/ingestion regressions, PipeX import compatibility, Orbis detection, high-severity audits, every Compose model, OCI image builds, runtime health checks, and packaged artifacts.
 
 ## Jenkins-only cutover checklist
 
 1. Configure the Relvona Jenkins **Multibranch Pipeline** to build both branch pushes and pull requests against `Jenkinsfile`. Use the GitHub webhook to trigger builds; a webhook is not GitHub Actions.
 2. On the repository's GitHub branch-protection rule/ruleset for `main`, **remove obsolete required checks** from `Knowledge Intelligence` and `Secret Scan` and require the Jenkins-published PR status **after** the exact Jenkins check context has been observed on a successful build.
-3. Ensure the chosen Jenkins agent satisfies the Jenkinsfile's `linux && docker` label and has a working Docker Engine + Compose v2. The rootless-Podman `node01-linux-build` agent **cannot be assumed compatible** with the current Docker CLI pipeline without a separately tested adapter and Compose provider.
+3. Ensure that the `podman-test` agent is online and `podman` and `podman compose` run under the exact Jenkins service account. Check `podman version`, `podman info --format '{{.Host.Security.Rootless}}'`, and `podman compose version`. The former `linux && docker` selector led to a host Docker socket permission error; the new pipeline refuses rootful runtimes.
 4. Run one Jenkins PR build and one branch build to verify the full test matrix, including `supportAutomation.integration.test.ts`, `supportCoverage.integration.test.ts`, `supportOperationsAnalytics.integration.test.ts` and their unit counterparts. The test runner rejects unclassified test files.
 5. Verify that Jenkins reports the intended status back to GitHub and archives the built artifacts. No deployment stage is enabled.
 
