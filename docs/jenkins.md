@@ -44,16 +44,16 @@ The job cancels an older build of the same branch when a newer commit arrives. T
 - GitHub Branch Source
 - Credentials Binding (reserved for later trusted release/deployment stages)
 
-Docker Pipeline is not required by the current file because it calls the Docker CLI directly on a Docker-labelled agent. It may be installed if the Jenkins installation standardizes agent provisioning through that plugin.
+Docker Pipeline is not required by the current file because it calls the `docker`-compatible CLI directly on the existing `podman-test` Jenkins agent. It may be installed if the Jenkins installation standardizes agent provisioning through that plugin.
 
 ## Agent requirements
 
-The Jenkins node label must be `docker` and provide:
+The Jenkins node label must be **`podman-test`** and provide:
 
 - Linux with `/proc/sys/kernel/random/uuid`, POSIX shell, `tar`, and `sha256sum`
 - Git
-- Docker Engine with the Compose v2 plugin
-- permission for the Jenkins agent identity to use Docker
+- The Jenkins agent's existing **rootless Podman** environment, exposing `docker`-compatible commands and a working `docker compose` interface (Podman-backed provider)
+- A reachable **rootless** Podman API socket for the Jenkins agent's identity; no `/var/run/docker.sock` host socket permission or `docker` group membership should be required
 - outbound HTTPS access to GitHub, npm, and the pinned container registries
 - enough disk for Node dependency trees and Docker layers; at least 4 GiB RAM is recommended
 
@@ -98,7 +98,7 @@ Jenkins additionally covers frontend lint/format, all other tracked backend test
 
 1. Configure the Relvona Jenkins **Multibranch Pipeline** to build both branch pushes and pull requests against `Jenkinsfile`. Use the GitHub webhook to trigger builds; a webhook is not GitHub Actions.
 2. On the repository's GitHub branch-protection rule/ruleset for `main`, **remove obsolete required checks** from `Knowledge Intelligence` and `Secret Scan` and require the Jenkins-published PR status **after** the exact Jenkins check context has been observed on a successful build.
-3. Ensure the chosen Jenkins agent satisfies the Jenkinsfile's `linux && docker` label and has a working Docker Engine + Compose v2. The rootless-Podman `node01-linux-build` agent **cannot be assumed compatible** with the current Docker CLI pipeline without a separately tested adapter and Compose provider.
+3. Ensure that the `podman-test` agent is online and its `docker` compatibility commands and Compose provider work under the exact Jenkins agent service account. Check `docker version`, `docker compose version`, `docker compose -f docker-compose.ci.yml config`, and rootless socket access. The former `linux && docker` selector could run on `node01-linux-build` without Docker socket permission; that selector has been replaced by `podman-test`.
 4. Run one Jenkins PR build and one branch build to verify the full test matrix, including `supportAutomation.integration.test.ts`, `supportCoverage.integration.test.ts`, `supportOperationsAnalytics.integration.test.ts` and their unit counterparts. The test runner rejects unclassified test files.
 5. Verify that Jenkins reports the intended status back to GitHub and archives the built artifacts. No deployment stage is enabled.
 
