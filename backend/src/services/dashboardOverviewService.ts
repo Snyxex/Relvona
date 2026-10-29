@@ -47,7 +47,7 @@ export class DashboardOverviewService {
         .from(tickets).where(eq(tickets.organizationId, organizationId)).groupBy(tickets.status),
       db.select({ name: sql<string>`${categoryExpression}`, total: sql<number>`count(*)::int` })
         .from(tickets).where(and(eq(tickets.organizationId, organizationId), gte(tickets.createdAt, from)))
-        .groupBy(categoryExpression).orderBy(desc(sql`count(*)`)).limit(6),
+        .groupBy(categoryExpression).orderBy(desc(sql`count(*)`)).limit(5),
       db.select({ day: sql<string>`${ticketDay}`, total: sql<number>`count(*)::int` })
         .from(tickets).where(and(eq(tickets.organizationId, organizationId), gte(tickets.createdAt, from)))
         .groupBy(ticketDay),
@@ -91,7 +91,8 @@ export class DashboardOverviewService {
     ]);
 
     const statusTotal = statusCounts.reduce((sum, x) => sum + toNumber(x.total), 0);
-    const categoryTotal = categoryCounts.reduce((sum, x) => sum + toNumber(x.total), 0);
+    const categoryTotal = toNumber(counts?.tickets);
+    const displayedCategoryCount = categoryCounts.reduce((sum, x) => sum + toNumber(x.total), 0);
     const positive = toNumber(feedback?.positive);
     const negative = toNumber(feedback?.negative);
     return {
@@ -111,8 +112,12 @@ export class DashboardOverviewService {
         },
       },
       volume: dailySeries(days, now, ticketBuckets, conversationBuckets),
-      categories: categoryCounts.map(x => ({ name: x.name, total: toNumber(x.total),
-        share: categoryTotal ? toNumber(x.total) / categoryTotal : 0 })),
+      categories: [
+        ...categoryCounts.map(x => ({ name: x.name, total: toNumber(x.total),
+          share: categoryTotal ? toNumber(x.total) / categoryTotal : 0 })),
+        ...(categoryTotal > displayedCategoryCount ? [{ name: "Weitere", total: categoryTotal - displayedCategoryCount,
+          share: (categoryTotal - displayedCategoryCount) / categoryTotal }] : []),
+      ],
       categoriesTotal: categoryTotal,
       status: statusCounts.map(x => ({ status: x.status, total: toNumber(x.total),
         share: statusTotal ? toNumber(x.total) / statusTotal : 0 })),
