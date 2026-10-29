@@ -1,6 +1,6 @@
-import { and, desc, eq, gte, lte, sql, asc } from "drizzle-orm";
+import { and, desc, eq, gte, sql, asc } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { analyticsEvents, conversations, customers, messageFeedback, tickets } from "../db/schema.js";
+import { analyticsEvents, conversations, customers, messageFeedback, organizations, tickets } from "../db/schema.js";
 import { bookings, meetingTypes, ticketCaseMetadata } from "../db/extendedCustomerExperienceSchema.js";
 
 type Bucket = { day: string; total: number };
@@ -37,12 +37,12 @@ export class DashboardOverviewService {
         tickets: sql<number>`(select count(*)::int from tickets where organization_id = ${organizationId} and created_at >= ${from} and created_at <= ${now})`,
         conversations: sql<number>`(select count(*)::int from conversations where organization_id = ${organizationId} and created_at >= ${from} and created_at <= ${now})`,
         appointments: sql<number>`(select count(*)::int from bookings where organization_id = ${organizationId} and created_at >= ${from} and created_at <= ${now})`,
-      }).from(sql`(select 1) as dashboard_counts`),
+      }).from(organizations).where(eq(organizations.id,organizationId)),
       db.select({
         tickets: sql<number>`(select count(*)::int from tickets where organization_id = ${organizationId} and created_at >= ${previousFrom} and created_at < ${from})`,
         conversations: sql<number>`(select count(*)::int from conversations where organization_id = ${organizationId} and created_at >= ${previousFrom} and created_at < ${from})`,
         appointments: sql<number>`(select count(*)::int from bookings where organization_id = ${organizationId} and created_at >= ${previousFrom} and created_at < ${from})`,
-      }).from(sql`(select 1) as previous_counts`),
+      }).from(organizations).where(eq(organizations.id,organizationId)),
       db.select({ status: tickets.status, total: sql<number>`count(*)::int` })
         .from(tickets).where(eq(tickets.organizationId, organizationId)).groupBy(tickets.status),
       db.select({ name: sql<string>`${categoryExpression}`, total: sql<number>`count(*)::int` })
