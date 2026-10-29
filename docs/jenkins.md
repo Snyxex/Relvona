@@ -75,6 +75,14 @@ podman compose version
 
 Podman's `compose` subcommand delegates to an installed external Compose provider. Check provider support for `--env-file`, `up -d --wait`, `run --rm --no-deps`, `config --quiet`, and cleanup `down --volumes --remove-orphans --rmi local` before treating the full pipeline as passing. A successful preflight is not a substitute for Jenkins build/test evidence.
 
+## Rootless workspace write permissions
+
+The 2026-10-29 PR #62 Jenkins build #9 passed Podman/Compose validation but failed during `npm ci` with `EACCES: permission denied, mkdir '/workspace/backend/node_modules'`. The CI image ran as Jenkins host UID/GID (996:993), but rootless Podman mapped those nonzero container IDs to subordinate host IDs. The bind-mounted Jenkins workspace is owned by the unprivileged host agent instead.
+
+The `ci` Compose service now sets `userns_mode: keep-id` while retaining `user: ${CI_UID}:${CI_GID}`. With Podman user-namespace mapping, the container user matches the Jenkins host UID/GID and can write to the workspace. The `Environment Validation` stage checks write access with a temporary file before installing dependencies. If the Compose provider rejects `keep-id`, validate that the installed Podman API compatibility layer supports `userns_mode`; do not use `chmod 777` or `chown -R` across the Jenkins host to bypass the error.
+
+Jenkins shell tracing is disabled before CI credentials are generated. Build #9 printed disposable credentials due to the prior tracing behavior; they belong only to its isolated test environment and must not be reused.
+
 ## Pipeline stages
 
 1. **Checkout** checks out the Multibranch revision and fetches branch/tag history for the full-history secret scan. Only this external operation is retried.
