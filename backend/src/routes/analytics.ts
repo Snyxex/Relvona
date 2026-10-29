@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { authenticate, tenantContext, requireRole, AuthRequest } from "../middleware/auth.js";
 import { AnalyticsService } from "../services/analyticsService.js";
+import { DashboardOverviewService } from "../services/dashboardOverviewService.js";
 import { SupportOperationsAnalyticsService } from "../services/supportOperationsAnalyticsService.js";
 import { KnowledgeGapDiscoveryService } from "../services/knowledgeGapDiscoveryService.js";
 import { sendInternalError } from "../utils/httpErrors.js";
@@ -8,6 +9,16 @@ import { sendInternalError } from "../utils/httpErrors.js";
 const router = Router();
 router.use(authenticate);
 router.use(tenantContext);
+
+router.get("/dashboard", requireRole(["owner","admin","agent","viewer"]), async (req: AuthRequest, res) => {
+  try {
+    const days = typeof req.query.days === "string" ? Number(req.query.days) : 30;
+    if (![7, 30, 90].includes(days)) return res.status(400).json({ error: "Invalid dashboard range" });
+    return res.json(await DashboardOverviewService.get(req.organization!.id, days));
+  } catch (error) {
+    return sendInternalError(req, res, error, { code: "ANALYTICS_DASHBOARD_FAILED", message: "Unable to load dashboard" });
+  }
+});
 
 router.get("/overview", async (req: AuthRequest, res) => {
   try {
