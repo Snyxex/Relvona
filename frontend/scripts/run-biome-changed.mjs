@@ -51,7 +51,9 @@ if (files.length === 0) {
 console.log(`Biome ${mode} base: ${base}`);
 console.log(files.join("\n"));
 const biomeEntrypoint = require.resolve("@biomejs/biome/bin/biome");
-const result = spawnSync(process.execPath, [biomeEntrypoint, mode, ...files], {
+// Keep lint errors visible even when legacy CSS produces hundreds of advisory warnings.
+const lintArgs = mode === "lint" ? ["--diagnostic-level=error", "--max-diagnostics=100"] : [];
+const result = spawnSync(process.execPath, [biomeEntrypoint, mode, ...lintArgs, ...files], {
   env: process.env,
   stdio: "inherit",
 });
