@@ -83,6 +83,23 @@ The `ci` Compose service now sets `userns_mode: keep-id` while retaining `user: 
 
 Jenkins shell tracing is disabled before CI credentials are generated. Build #9 printed disposable credentials due to the prior tracing behavior; they belong only to its isolated test environment and must not be reused.
 
+## Biome formatting remediation for PR #62
+
+The dashboard PR's first successful dependency install exposed Biome format mismatches in the five changed frontend files. The PR pipeline temporarily generates an **exact** `artifacts/frontend-biome-format.patch` from the project's own pinned Biome version. It formats a disposable Jenkins workspace, archives the patch even if later quality checks fail, and restores the checkout before enforcing the real format/lint checks. It **does not** silently waive the formatting gate or push commits from CI.
+
+In the Jenkins PR build, download the artifact and apply it to the branch through a reviewed commit:
+
+```sh
+git switch feat/relvona-modern-dashboard-20261029
+git apply --check frontend-biome-format.patch
+git apply frontend-biome-format.patch
+git add frontend
+git commit -m "style(frontend): apply Biome formatting to dashboard"
+git push
+```
+
+The lint command now restricts diagnostics to actual errors rather than overflowing Jenkins logs with existing CSS `!important` warnings. After the formatting patch is applied and committed, remove the temporary patch-generation stage once the checks pass.
+
 ## Pipeline stages
 
 1. **Checkout** checks out the Multibranch revision and fetches branch/tag history for the full-history secret scan. Only this external operation is retried.
