@@ -100,6 +100,27 @@ pipeline {
             }
         }
 
+        // One-off diagnostic: produce an exact formatter patch without altering
+        // the source files used for quality gates. The patch can be applied as a
+        // normal reviewed commit and is archived even when checks fail.
+        stage('Biome Formatting Patch') {
+            when { changeRequest() }
+            steps {
+                sh '''
+                    set -eu
+                    mkdir -p artifacts
+                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps \
+                      -e CHANGE_TARGET="${CHANGE_TARGET:-main}" ci \
+                      node frontend/scripts/run-biome-changed.mjs format-write
+                    git diff --binary -- frontend > artifacts/frontend-biome-format.patch
+                    git restore -- frontend
+                    if [ -s artifacts/frontend-biome-format.patch ]; then
+                      echo 'Biome formatting patch is available as a Jenkins build artifact.'
+                    fi
+                '''
+            }
+        }
+
         stage('Quality Checks') {
             parallel {
                 stage('Backend Typecheck') {
@@ -260,6 +281,7 @@ pipeline {
 
     post {
         always {
+            archiveArtifacts artifacts: 'artifacts/frontend-biome-format.patch', allowEmptyArchive: true
             sh '''
                 if [ -f "${CI_ENV_FILE}" ]; then
                   podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" down --volumes --remove-orphans --rmi local || true
