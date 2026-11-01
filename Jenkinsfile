@@ -111,7 +111,7 @@ pipeline {
                     mkdir -p artifacts
                     podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps \
                       -e CHANGE_TARGET="${CHANGE_TARGET:-main}" ci \
-                      node frontend/scripts/run-biome-changed.mjs format-write
+                      sh -lc 'cd frontend && node scripts/run-biome-changed.mjs format-write'
                     git diff --binary -- frontend > artifacts/frontend-biome-format.patch
                     git restore -- frontend
                     if [ -s artifacts/frontend-biome-format.patch ]; then
