@@ -80,7 +80,6 @@ type Props = {
   setInboxSort: SetString;
   inboxTagId: string;
   setInboxTagId: SetString;
-  fetchTenantData: () => Promise<void>;
   handleSelectConversation: (conversation: InboxConversation) => Promise<void>;
   handleSendAgentMessage: FormEventHandler<HTMLFormElement>;
   handleResolveConversation: (conversationId: string) => Promise<void>;
@@ -94,7 +93,7 @@ type Props = {
 
 /** Presentational inbox; socket and API ownership remain in the controller. */
 export default function ConversationsWorkspace({
-  conversationsList, selectedConv, convMessages, agentMsgInput, setAgentMsgInput, internalNoteInput, setInternalNoteInput, inboxState, setInboxState, inboxPriority, setInboxPriority, inboxAgentId, setInboxAgentId, inboxFrom, setInboxFrom, inboxTo, setInboxTo, inboxSearch, setInboxSearch, inboxSort, setInboxSort, inboxTags, inboxAgents, agentPresence, inboxTagId, setInboxTagId, inboxTimeline, inboxHandoff, suggestion, setSuggestion, suggesting, connected, translations, preferredLanguage, currentUserId, fetchTenantData, handleSelectConversation, handleSendAgentMessage, handleResolveConversation, handleTranslateMessage, handlePresenceChange, handleInboxAction, handleToggleConversationTag, handleAddInternalNote, handleSuggestReply
+  conversationsList, selectedConv, convMessages, agentMsgInput, setAgentMsgInput, internalNoteInput, setInternalNoteInput, inboxState, setInboxState, inboxPriority, setInboxPriority, inboxAgentId, setInboxAgentId, inboxFrom, setInboxFrom, inboxTo, setInboxTo, inboxSearch, setInboxSearch, inboxSort, setInboxSort, inboxTags, inboxAgents, agentPresence, inboxTagId, setInboxTagId, inboxTimeline, inboxHandoff, suggestion, setSuggestion, suggesting, connected, translations, preferredLanguage, currentUserId, handleSelectConversation, handleSendAgentMessage, handleResolveConversation, handleTranslateMessage, handlePresenceChange, handleInboxAction, handleToggleConversationTag, handleAddInternalNote, handleSuggestReply
 }: Props) {
   return (
     <div className="rv-inbox-layout h-full flex gap-4 max-w-7xl mx-auto">
@@ -104,9 +103,6 @@ export default function ConversationsWorkspace({
                     <input
                       value={inboxSearch}
                       onChange={(event) => setInboxSearch(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") void fetchTenantData();
-                      }}
                       placeholder="Kunde, E-Mail, ID oder Nachricht"
                       aria-label="Unterhaltungen durchsuchen"
                       className="w-full rounded bg-slate-800 px-2 py-1.5 text-xs"
