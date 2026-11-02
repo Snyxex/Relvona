@@ -1220,3 +1220,15 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* The modern workspaces use the same accessibility and motion rules as Overview. */
+@media (prefers-reduced-motion: reduce) {
+  .rv-main--modern .rv-modern-skeleton .animate-pulse {
+    animation: none;
+  }
+  .rv-main--modern .rv-section-page,
+  .rv-main--modern .rv-inbox-layout,
+  .rv-main--modern .rv-ticket-workspace {
+    scroll-behavior: auto;
+  }
+}
