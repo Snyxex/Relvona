@@ -137,7 +137,7 @@ export class IntegrationInboundService {
   private static async localTicketIdForZendesk(organizationId: string, connectionId: string, externalId: string) {
     const [link] = await db.select({ ticketId: integrationSyncExecutions.entityId })
       .from(integrationSyncExecutions)
-      .innerJoin(integrationSyncRules, eq(integrationSyncExecutions.ruleId, integrationSyncRules.id))
+      .innerJoin(integrationSyncRules, and(eq(integrationSyncExecutions.ruleId, integrationSyncRules.id), eq(integrationSyncRules.organizationId, organizationId)))
       .where(and(
         eq(integrationSyncExecutions.organizationId, organizationId),
         eq(integrationSyncExecutions.externalId, externalId),
@@ -155,6 +155,12 @@ export class IntegrationInboundService {
 
   private static async ingestZendeskComment(organizationId: string, connectionId: string, ticketId: string, payload: ZendeskCommentCreatedPayload) {
     if (payload.comment.author.role !== "end-user") return "ignored" as const;
+
+    // Resolve the actual local ticket in the same organization before inserting
+    // an external actor or comment. A linked external ID is not ownership proof.
+    const [localTicket] = await db.select({ id: tickets.id }).from(tickets)
+      .where(and(eq(tickets.id, ticketId), eq(tickets.organizationId, organizationId))).limit(1);
+    if (!localTicket) throw new Error("Linked local ticket not found");
 
     const [actor] = await db.insert(externalActors).values({
       organizationId,
