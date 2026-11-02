@@ -38,10 +38,11 @@ services:
   ci:
     image: node:22-bookworm@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7
     working_dir: /workspace
-    # Rootless Podman maps host UID to container UID 0 by default. Keep the
-    # Jenkins UID/GID unchanged so the CI user can write to the bind mount.
-    userns_mode: keep-id
-    user: ${CI_UID:-1000}:${CI_GID:-1000}
+    # Rootless Podman's container UID 0 maps to the unprivileged Jenkins UID
+    # on the host. Use the default namespace mapping (no keep-id/newuidmap)
+    # so npm can write to the bind-mounted Jenkins-owned workspace.
+    # This is not host root; the Jenkins agent itself must remain rootless.
+    user: "0:0"
     volumes:
       - .:/workspace
     environment:
