@@ -159,9 +159,20 @@ export class IntegrationSyncService {
 
   static async processPending(organizationId: string, limit = 25) {
     const staleBefore = new Date(Date.now() - PROCESSING_STALE_MS);
+    // A stale "processing" job may have completed its remote side effect before
+    // the worker died. Never dispatch it again without reconciliation.
+    await db.update(integrationSyncExecutions).set({
+      status: "needs_review",
+      error: "Worker interrupted during remote operation; reconcile with provider before replay",
+      updatedAt: new Date(),
+    }).where(and(
+      eq(integrationSyncExecutions.organizationId, organizationId),
+      eq(integrationSyncExecutions.status, "processing"),
+      lt(integrationSyncExecutions.updatedAt, staleBefore),
+    ));
     const candidates = await db.select().from(integrationSyncExecutions).where(and(
       eq(integrationSyncExecutions.organizationId, organizationId),
-      or(eq(integrationSyncExecutions.status, "pending"), and(eq(integrationSyncExecutions.status, "processing"), lt(integrationSyncExecutions.updatedAt, staleBefore))),
+      eq(integrationSyncExecutions.status, "pending"),
     )).orderBy(integrationSyncExecutions.createdAt).limit(limit);
 
     let succeeded = 0;
@@ -170,10 +181,11 @@ export class IntegrationSyncService {
       const [claimed] = await db.update(integrationSyncExecutions).set({ status: "processing", updatedAt: new Date() }).where(and(
         eq(integrationSyncExecutions.organizationId, organizationId),
         eq(integrationSyncExecutions.id, candidate.id),
-        or(eq(integrationSyncExecutions.status, "pending"), and(eq(integrationSyncExecutions.status, "processing"), lt(integrationSyncExecutions.updatedAt, staleBefore))),
+        eq(integrationSyncExecutions.status, "pending"),
       )).returning();
       if (!claimed) continue;
 
+      let remoteAttempted = false;
       try {
         const [rule] = await db.select().from(integrationSyncRules).where(and(
           eq(integrationSyncRules.organizationId, organizationId),
@@ -199,6 +211,7 @@ export class IntegrationSyncService {
           if (!comment) throw new Error("Public local ticket comment not found");
           const linkedId = await this.linkedZendeskTicketId(organizationId, rule.connectionId, comment.ticketId);
           if (!linkedId) throw new Error("Zendesk ticket link not found; create sync must succeed first");
+          remoteAttempted = true;
           await ZendeskExtendedAdapter.addComment(organizationId, { ticketId: linkedId, body: comment.content, public: true }, rule.connectionId);
           externalId = linkedId;
         } else {
@@ -208,6 +221,7 @@ export class IntegrationSyncService {
           if (!row) throw new Error("Local ticket not found");
 
           if (rule.eventType === "ticket.created" && rule.action === "zendesk.create_ticket") {
+            remoteAttempted = true;
             const result = await ZendeskAdapter.createTicket(organizationId, {
               subject: row.ticket.subject,
               body: row.ticket.description || `Support ticket #${row.ticket.ticketNumber}`,
@@ -221,6 +235,7 @@ export class IntegrationSyncService {
           } else {
             const linkedId = await this.linkedZendeskTicketId(organizationId, rule.connectionId, claimed.entityId);
             if (!linkedId) throw new Error("Zendesk ticket link not found; create sync must succeed first");
+            remoteAttempted = true;
             await ZendeskExtendedAdapter.updateTicket(organizationId, {
               ticketId: linkedId,
               status: zendeskStatus(row.ticket.status),
@@ -234,7 +249,11 @@ export class IntegrationSyncService {
           .where(and(eq(integrationSyncExecutions.organizationId, organizationId), eq(integrationSyncExecutions.id, claimed.id)));
         succeeded += 1;
       } catch (error) {
-        await db.update(integrationSyncExecutions).set({ status: "failed", error: (error as Error).message.slice(0, 1000), updatedAt: new Date() })
+        await db.update(integrationSyncExecutions).set({
+          status: remoteAttempted ? "needs_review" : "failed",
+          error: remoteAttempted ? "Remote side effect may have succeeded; reconcile before retry" : (error as Error).message.slice(0, 1000),
+          updatedAt: new Date(),
+        })
           .where(and(eq(integrationSyncExecutions.organizationId, organizationId), eq(integrationSyncExecutions.id, claimed.id)));
         failed += 1;
       }
