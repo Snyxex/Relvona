@@ -549,17 +549,20 @@ export default function Dashboard({
     const organizationId = activeOrgIdRef.current;
     if (!organizationId || (conv.organizationId && conv.organizationId !== organizationId)) return;
     const requestId = ++conversationDetailRequestId.current;
-    suggestionRequestId.current += 1;
+    const changedConversation = selectedConversationId.current !== conv.id;
     selectedConversationId.current = conv.id;
     setSelectedConv(conv);
-    setConvMessages([]);
-    setInboxTimeline([]);
-    setInboxHandoff(null);
-    setSuggestion(null);
-    setSuggesting(false);
-    setTranslations({});
-    setAgentMsgInput("");
-    setInternalNoteInput("");
+    if (changedConversation) {
+      suggestionRequestId.current += 1;
+      setConvMessages([]);
+      setInboxTimeline([]);
+      setInboxHandoff(null);
+      setSuggestion(null);
+      setSuggesting(false);
+      setTranslations({});
+      setAgentMsgInput("");
+      setInternalNoteInput("");
+    }
     const valid = () =>
       conversationDetailRequestId.current === requestId &&
       activeOrgIdRef.current === organizationId &&
@@ -571,7 +574,20 @@ export default function Dashboard({
         api.get(`/conversations/${conv.id}/handoff`).catch(() => null),
       ]);
       if (!valid()) return;
-      setConvMessages(messages.data);
+      setConvMessages((current) => {
+        const latest = new Map<string, any>();
+        for (const message of messages.data) {
+          if (message.conversationId === conv.id) latest.set(message.id, message);
+        }
+        if (!changedConversation) {
+          for (const message of current) {
+            if (message.conversationId === conv.id) latest.set(message.id, message);
+          }
+        }
+        return [...latest.values()].sort(
+          (a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
+        );
+      });
       setInboxTimeline(timeline.data);
       setInboxHandoff(handoff?.data || null);
     } catch {
