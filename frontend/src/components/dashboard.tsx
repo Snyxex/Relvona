@@ -710,49 +710,61 @@ export default function Dashboard({
     }
   };
 
-  const handleTranslateMessage = async (message: any) => {
+  const handleTranslateMessage = async (message: { id: string }) => {
     if (!selectedConv || translations[message.id]) return;
+    const conversationId = selectedConv.id;
+    const organizationId = activeOrgIdRef.current;
+    const targetLanguage = preferredLanguage;
     try {
-      const res = await api.post(
-        `/conversations/${selectedConv.id}/messages/${message.id}/translation`,
-        { targetLanguage: preferredLanguage },
+      const { data } = await api.post(
+        `/conversations/${conversationId}/messages/${message.id}/translation`,
+        { targetLanguage },
       );
-      setTranslations((current) => ({
-        ...current,
-        [message.id]: res.data.translatedContent,
-      }));
+      if (selectedConversationId.current !== conversationId ||
+          activeOrgIdRef.current !== organizationId) return;
+      setTranslations((current) => ({ ...current, [message.id]: data.translatedContent }));
     } catch (err: any) {
-      showNotify(err.response?.data?.error || "Translation failed");
+      if (selectedConversationId.current === conversationId &&
+          activeOrgIdRef.current === organizationId) {
+        showNotify(err.response?.data?.error || "Übersetzung fehlgeschlagen.");
+      }
     }
   };
 
   const handleSendAgentMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedConv || !agentMsgInput) return;
+    if (!selectedConv || !agentMsgInput.trim()) return;
+    const conversationId = selectedConv.id;
+    const organizationId = activeOrgIdRef.current;
+    const content = agentMsgInput.trim();
+    const current = () =>
+      selectedConversationId.current === conversationId &&
+      activeOrgIdRef.current === organizationId;
     try {
-      const res = await api.post(`/conversations/${selectedConv.id}/messages`, {
-        content: agentMsgInput,
-      });
-      if (selectedConversationId.current === res.data.conversationId) {
-        setConvMessages((current) =>
-          current.some((message) => message.id === res.data.id)
-            ? current
-            : [...current, res.data],
-        );
-        setAgentMsgInput("");
-      }
-      showNotify("Response sent to customer");
+      const { data } = await api.post(`/conversations/${conversationId}/messages`, { content });
+      if (!current()) return;
+      setConvMessages((messages) =>
+        messages.some((message) => message.id === data.id) ? messages : [...messages, data],
+      );
+      setAgentMsgInput((value) => value === content ? "" : value);
+      showNotify("Antwort an Kunden gesendet.");
     } catch (err: any) {
-      showNotify(err.response?.data?.error || "Failed to send message");
+      if (current()) showNotify(err.response?.data?.error || "Antwort konnte nicht gesendet werden.");
     }
   };
 
   const handleResolveConversation = async (convId: string) => {
+    const organizationId = activeOrgIdRef.current;
     try {
       await api.post(`/conversations/${convId}/resolve`);
-      showNotify("Conversation resolved");
+      if (activeOrgIdRef.current !== organizationId) return;
+      showNotify("Unterhaltung gelöst.");
       void fetchTenantData();
-    } catch (err) {}
+    } catch (err: any) {
+      if (activeOrgIdRef.current === organizationId) {
+        showNotify(err.response?.data?.error || "Unterhaltung konnte nicht gelöst werden.");
+      }
+    }
   };
 
   const handleSaveAssistantSettings = async (e: React.FormEvent) => {
