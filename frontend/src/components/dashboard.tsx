@@ -1455,7 +1455,6 @@ export default function Dashboard({
             connected={connected}
             translations={translations}
             preferredLanguage={preferredLanguage}
-            fetchTenantData={fetchTenantData}
             handleSelectConversation={handleSelectConversation}
             handleSendAgentMessage={handleSendAgentMessage}
             handleResolveConversation={handleResolveConversation}
