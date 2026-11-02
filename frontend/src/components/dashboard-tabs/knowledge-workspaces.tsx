@@ -5,7 +5,7 @@ import { BookOpen, FileText, Globe, Plus, RefreshCw, Upload } from "lucide-react
 import KnowledgeSources, { type KnowledgeSource } from "@/components/knowledge-sources";
 import { WorkspaceHeader, WorkspaceMetric } from "./workspace-primitives";
 
-type KnowledgeBase = { id: string; name: string };
+export type KnowledgeBase = { id: string; name: string };
 
 type CommonProps = {
   organizationId?: string;
