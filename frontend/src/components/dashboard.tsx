@@ -2024,8 +2024,14 @@ export default function Dashboard({
                           </span>
                         </td>
                         <td className="p-3">
-                          <span className="px-2 py-0.5 bg-blue-950 text-blue-400 rounded text-[10px] border border-blue-800 uppercase font-semibold">
-                            {tk.status}
+                          <span className={`rv-ticket-status-pill rv-ticket-status-pill--${tk.status} px-2 py-0.5 rounded text-[10px] border uppercase font-semibold`}>
+                            {({
+                              open: "Offen",
+                              in_progress: "In Bearbeitung",
+                              pending: "Wartend",
+                              resolved: "Gelöst",
+                              closed: "Geschlossen",
+                            } as Record<string, string>)[tk.status] ?? tk.status}
                           </span>
                         </td>
                         <td className="p-3 text-slate-500">
