@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { io } from "socket.io-client";
 import {
   Bot,
   Globe,
@@ -20,6 +19,7 @@ import WidgetDesigner from "@/components/dashboard-tabs/widget-designer";
 import AssistantSettings from "@/components/dashboard-tabs/assistant-settings";
 import TicketsWorkspace from "@/components/dashboard-tabs/tickets-workspace";
 import ConversationsWorkspace from "@/components/dashboard-tabs/conversations-workspace";
+import { useConversationRealtime } from "@/hooks/use-conversation-realtime";
 import { KnowledgeWorkspace, WebsiteCrawlerWorkspace, type KnowledgeBase } from "@/components/dashboard-tabs/knowledge-workspaces";
 import type { KnowledgeSource } from "@/components/knowledge-sources";
 import { WorkspaceEmpty, WorkspaceHeader } from "@/components/dashboard-tabs/workspace-primitives";
@@ -29,7 +29,7 @@ import {
   LazyCustomersTab,
   LazyOverviewTab,
 } from "@/components/dashboard-tabs/lazy-tabs";
-import { api, API_BASE_URL } from "@/lib/api";
+import { api } from "@/lib/api";
 import { type DashboardTab, dashboardNavigation } from "@/lib/dashboard-navigation";
 import { authClient } from "@/lib/auth-client";
 import {
@@ -237,70 +237,16 @@ export default function Dashboard({
     return () => observer.disconnect();
   }, [preferredLanguage]);
 
-  useEffect(() => {
-    setSuggestion(null);
-    if (
-      !auth ||
-      !activeOrg?.id ||
-      !selectedConv?.id ||
-      selectedConv.organizationId !== activeOrg.id
-    )
-      return;
-    let active = true;
-    const conversationId = selectedConv.id;
-    const socket = io(new URL(API_BASE_URL, window.location.origin).origin, {
-      withCredentials: true,
-    });
-    socket.on("connect", () => {
-      setConnected(true);
-      socket.emit("join_room", {
-        organizationId: activeOrg.id,
-        conversationId,
-      });
-      void api
-        .get(`/conversations/${conversationId}/messages`)
-        .then((response) => {
-          if (active)
-            setConvMessages((current) => {
-              const byId = new Map(
-                response.data.map((message: any) => [message.id, message]),
-              );
-              for (const message of current)
-                if (message.conversationId === conversationId)
-                  byId.set(message.id, message);
-              return [...byId.values()].sort(
-                (a: any, b: any) =>
-                  a.createdAt.localeCompare(b.createdAt) ||
-                  a.id.localeCompare(b.id),
-              );
-            });
-        })
-        .catch(() => {
-          if (active)
-            setNotification("Nachrichten konnten nicht aktualisiert werden.");
-        });
-    });
-    socket.on("new_message", (message) => {
-      if (message.conversationId !== conversationId) return;
-      setConvMessages((current) =>
-        current.some((item) => item.id === message.id)
-          ? current
-          : [...current, message].sort(
-              (a, b) =>
-                a.createdAt.localeCompare(b.createdAt) ||
-                a.id.localeCompare(b.id),
-            ),
-      );
-    });
-    socket.on("disconnect", () => setConnected(false));
-    socket.on("connect_error", () => setConnected(false));
-    socket.on("error", () => setConnected(false));
-    return () => {
-      active = false;
-      socket.disconnect();
-      setConnected(false);
-    };
-  }, [auth, activeOrg?.id, selectedConv?.id, selectedConv?.organizationId]);
+  useConversationRealtime({
+    enabled: Boolean(auth),
+    organizationId: activeOrg?.id,
+    conversationId: selectedConv?.id,
+    conversationOrganizationId: selectedConv?.organizationId,
+    setMessages: setConvMessages,
+    setConnected,
+    setNotification,
+  });
+
 
   const showNotify = (msg: string) => {
     setNotification(msg);
