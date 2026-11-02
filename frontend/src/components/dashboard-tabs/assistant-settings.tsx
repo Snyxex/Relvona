@@ -11,6 +11,7 @@ export type ModelProfile = {
   modelName: string;
   baseUrl?: string;
   apiKey?: string;
+  apiKeyConfigured?: boolean;
 };
 
 export type AssistantConfig = {
@@ -47,18 +48,18 @@ export default function AssistantSettings({ assistant, onChange, onSave }: Props
                     </p>
                     <p className="mt-1 text-sm font-semibold text-white">
                       {(assistant.modelProfiles || []).find(
-                        (profile: any) =>
+                        (profile: ModelProfile) =>
                           profile.id === assistant.activeModelProfileId,
                       )?.label || "Standard-Konfiguration"}
                     </p>
                     <p className="text-xs text-slate-400">
                       {(assistant.modelProfiles || []).find(
-                        (profile: any) =>
+                        (profile: ModelProfile) =>
                           profile.id === assistant.activeModelProfileId,
                       )?.provider || assistant.modelProvider}{" "}
                       ·{" "}
                       {(assistant.modelProfiles || []).find(
-                        (profile: any) =>
+                        (profile: ModelProfile) =>
                           profile.id === assistant.activeModelProfileId,
                       )?.modelName || assistant.modelName}
                     </p>
@@ -112,7 +113,7 @@ export default function AssistantSettings({ assistant, onChange, onSave }: Props
                     </div>
                   )}
                   {(assistant.modelProfiles || []).map(
-                    (profile: any, index: number) => (
+                    (profile: ModelProfile, index: number) => (
                       <div
                         key={profile.id}
                         className={`rounded-lg border p-4 ${
@@ -143,7 +144,7 @@ export default function AssistantSettings({ assistant, onChange, onSave }: Props
                             onClick={() => {
                               const modelProfiles = (
                                 assistant.modelProfiles || []
-                              ).filter((item: any) => item.id !== profile.id);
+                              ).filter((item: ModelProfile) => item.id !== profile.id);
                               onChange({
                                 ...assistant,
                                 modelProfiles,
@@ -173,7 +174,7 @@ export default function AssistantSettings({ assistant, onChange, onSave }: Props
                                   ...assistant,
                                   modelProfiles: (
                                     assistant.modelProfiles || []
-                                  ).map((item: any) =>
+                                  ).map((item: ModelProfile) =>
                                     item.id === profile.id
                                       ? { ...item, label: e.target.value }
                                       : item,
@@ -194,7 +195,7 @@ export default function AssistantSettings({ assistant, onChange, onSave }: Props
                                   ...assistant,
                                   modelProfiles: (
                                     assistant.modelProfiles || []
-                                  ).map((item: any) =>
+                                  ).map((item: ModelProfile) =>
                                     item.id === profile.id
                                       ? { ...item, provider: e.target.value }
                                       : item,
@@ -225,7 +226,7 @@ export default function AssistantSettings({ assistant, onChange, onSave }: Props
                                   ...assistant,
                                   modelProfiles: (
                                     assistant.modelProfiles || []
-                                  ).map((item: any) =>
+                                  ).map((item: ModelProfile) =>
                                     item.id === profile.id
                                       ? { ...item, modelName: e.target.value }
                                       : item,
@@ -253,7 +254,7 @@ export default function AssistantSettings({ assistant, onChange, onSave }: Props
                                   ...assistant,
                                   modelProfiles: (
                                     assistant.modelProfiles || []
-                                  ).map((item: any) =>
+                                  ).map((item: ModelProfile) =>
                                     item.id === profile.id
                                       ? { ...item, apiKey: e.target.value }
                                       : item,
@@ -276,7 +277,7 @@ export default function AssistantSettings({ assistant, onChange, onSave }: Props
                                     ...assistant,
                                     modelProfiles: (
                                       assistant.modelProfiles || []
-                                    ).map((item: any) =>
+                                    ).map((item: ModelProfile) =>
                                       item.id === profile.id
                                         ? { ...item, baseUrl: e.target.value }
                                         : item,
