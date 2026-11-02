@@ -59,8 +59,6 @@ pipeline {
                     object_secret="ci-$(random_value)$(random_value)"
                     {
                       printf 'COMPOSE_PROJECT_NAME=relvona-ci-%s-%s-%s\n' "${BUILD_NUMBER}" "${EXECUTOR_NUMBER:-0}" "${project_suffix}"
-                      printf 'CI_UID=%s\n' "$(id -u)"
-                      printf 'CI_GID=%s\n' "$(id -g)"
                       printf 'POSTGRES_DB=ai_support_db\n'
                       printf 'POSTGRES_USER=postgres\n'
                       printf 'POSTGRES_PASSWORD=%s\n' "${postgres_password}"
@@ -84,7 +82,7 @@ pipeline {
                       printf 'OBJECT_STORAGE_CORS_ALLOWED_ORIGINS=https://frontend.invalid\n'
                     } > "${CI_ENV_FILE}"
                     podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" config --quiet
-                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci sh -lc 'node --version && npm --version && git --version && touch /workspace/.ci-write-test && rm /workspace/.ci-write-test'
+                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci sh -lc 'node --version && npm --version && git --version && test "$(id -u)" = 0 && touch /workspace/.ci-write-test && rm /workspace/.ci-write-test'
                 '''
             }
         }
