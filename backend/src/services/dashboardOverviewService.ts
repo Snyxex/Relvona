@@ -4,6 +4,7 @@ import { analyticsEvents, conversations, customers, messageFeedback, organizatio
 import { bookings, meetingTypes, ticketCaseMetadata } from "../db/extendedCustomerExperienceSchema.js";
 
 type Bucket = { day: string; total: number };
+export type DashboardOverviewAccess = { canViewTickets: boolean; canViewScheduling: boolean };
 function toNumber(value: unknown): number { return Number(value || 0); }
 function dailySeries(days: number, now: Date, ticketBuckets: Bucket[], conversationBuckets: Bucket[]) {
   const ticketsMap = new Map(ticketBuckets.map(x => [x.day, toNumber(x.total)]));
@@ -17,7 +18,7 @@ function dailySeries(days: number, now: Date, ticketBuckets: Bucket[], conversat
 
 /** Tenant-scoped, bounded data for the employee dashboard. No mock values or unbounded raw lists. */
 export class DashboardOverviewService {
-  static async get(organizationId: string, days = 30) {
+  static async get(organizationId: string, days: number, access: DashboardOverviewAccess) {
     if (![7, 30, 90].includes(days)) throw new Error("Invalid dashboard range");
     const now = new Date();
     const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
@@ -54,14 +55,14 @@ export class DashboardOverviewService {
       db.select({ day: sql<string>`${conversationDay}`, total: sql<number>`count(*)::int` })
         .from(conversations).where(and(eq(conversations.organizationId, organizationId), gte(conversations.createdAt, from), lte(conversations.createdAt, now)))
         .groupBy(conversationDay),
-      db.select({
+      access.canViewTickets ? db.select({
         id: tickets.id, number: tickets.ticketNumber, subject: tickets.subject,
         status: tickets.status, createdAt: tickets.createdAt, customerName: customers.name,
       }).from(tickets).innerJoin(customers,
         and(eq(customers.id, tickets.customerId), eq(customers.organizationId, organizationId)))
         .where(eq(tickets.organizationId, organizationId))
-        .orderBy(desc(tickets.createdAt)).limit(5),
-      db.select({
+        .orderBy(desc(tickets.createdAt)).limit(5) : Promise.resolve([]),
+      access.canViewScheduling ? db.select({
         id: bookings.id, startsAt: bookings.startsAt, endsAt: bookings.endsAt,
         guestName: bookings.guestName, status: bookings.status, meetingUrl: bookings.meetingUrl,
         title: meetingTypes.name,
@@ -69,7 +70,7 @@ export class DashboardOverviewService {
         eq(meetingTypes.organizationId, organizationId)))
         .where(and(eq(bookings.organizationId, organizationId), gte(bookings.startsAt, now),
           eq(bookings.status, "confirmed")))
-        .orderBy(asc(bookings.startsAt)).limit(5),
+        .orderBy(asc(bookings.startsAt)).limit(5) : Promise.resolve([]),
       db.select({ id: analyticsEvents.id, eventType: analyticsEvents.eventType, createdAt: analyticsEvents.createdAt })
         .from(analyticsEvents).where(eq(analyticsEvents.organizationId, organizationId))
         .orderBy(desc(analyticsEvents.createdAt)).limit(5),
