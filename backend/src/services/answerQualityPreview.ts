@@ -26,7 +26,7 @@ export interface AnswerQualityPreview {
   disclaimer: string;
 }
 
-const CITATION = /\\[source:([a-zA-Z0-9_-]{1,80})\\]/g;
+const CITATION = /\[source:([a-zA-Z0-9_-]{1,80})\]/g;
 const CLAIM_LENGTH = 45;
 const DISCLAIMER = "Heuristic review only. No factual entailment, authorization, source trust, or compliance guarantee. A human must inspect the source and answer.";
 
@@ -46,17 +46,17 @@ export function inspectAnswerQuality(input: {
 
   // Long text paragraphs without a source marker are flagged for human review.
   // This is deliberately a weak syntactic indicator, not a factuality classifier.
-  answer.split(/\\n\\s*\\n/).forEach((paragraph, index) => {
+  answer.split(/\n\s*\n/).forEach((paragraph, index) => {
     if (paragraph.replace(CITATION, "").trim().length >= CLAIM_LENGTH && !paragraph.match(CITATION)) {
       issues.push({ code: "UNCITED_PARAGRAPH", severity: "warning", paragraph: index + 1 });
     }
   });
 
   // Only detect strongly structured examples; never echo matched values into issues/logs.
-  if (/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\\b(?:sk-proj-|sk_live_|ghp_)[A-Za-z0-9_-]{12,}/i.test(answer)) {
+  if (/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:sk-proj-|sk_live_|ghp_)[A-Za-z0-9_-]{12,}/i.test(answer)) {
     issues.push({ code: "POSSIBLE_SECRET", severity: "critical" });
   }
-  if (/\\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}\\b/i.test(answer)) {
+  if (/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(answer)) {
     issues.push({ code: "POSSIBLE_PERSONAL_DATA", severity: "warning" });
   }
 
