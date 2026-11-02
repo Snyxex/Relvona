@@ -141,7 +141,7 @@ export class IntegrationSyncService {
   private static async linkedZendeskTicketId(organizationId: string, connectionId: string, ticketId: string) {
     const [link] = await db.select({ externalId: integrationSyncExecutions.externalId })
       .from(integrationSyncExecutions)
-      .innerJoin(integrationSyncRules, eq(integrationSyncExecutions.ruleId, integrationSyncRules.id))
+      .innerJoin(integrationSyncRules, and(eq(integrationSyncExecutions.ruleId, integrationSyncRules.id), eq(integrationSyncRules.organizationId, organizationId)))
       .where(and(
         eq(integrationSyncExecutions.organizationId, organizationId),
         eq(integrationSyncExecutions.entityId, ticketId),
@@ -197,7 +197,7 @@ export class IntegrationSyncService {
           externalId = linkedId;
         } else {
           const [row] = await db.select({ ticket: tickets, customer: customers }).from(tickets)
-            .innerJoin(customers, eq(tickets.customerId, customers.id))
+            .innerJoin(customers, and(eq(tickets.customerId, customers.id), eq(customers.organizationId, organizationId)))
             .where(and(eq(tickets.organizationId, organizationId), eq(tickets.id, claimed.entityId))).limit(1);
           if (!row) throw new Error("Local ticket not found");
 
