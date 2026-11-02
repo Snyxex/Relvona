@@ -2,7 +2,7 @@ import { Router } from "express";
 import { and, desc, eq } from "drizzle-orm";
 import { authenticate, tenantContext, requireRole, type AuthRequest } from "../middleware/auth.js";
 import { db } from "../db/index.js";
-import { webhookDeliveries, webhookEvents } from "../db/webhookSchema.js";
+import { webhookDeliveries, webhookEvents, webhookSubscriptions } from "../db/webhookSchema.js";
 import { WEBHOOK_EVENT_TYPES, WebhookService } from "../services/webhookService.js";
 import { sendInternalError } from "../utils/httpErrors.js";
 
@@ -61,9 +61,12 @@ router.delete("/:id", async (req: AuthRequest, res) => {
 
 router.get("/:id/deliveries", async (req: AuthRequest, res) => {
   try {
+    const [subscription] = await db.select({ id: webhookSubscriptions.id }).from(webhookSubscriptions)
+      .where(and(eq(webhookSubscriptions.id, req.params.id), eq(webhookSubscriptions.organizationId, req.organization!.id))).limit(1);
+    if (!subscription) return res.status(404).json({ error: "Webhook subscription not found" });
     const rows = await db.select({ delivery: webhookDeliveries, eventType: webhookEvents.type, occurredAt: webhookEvents.occurredAt })
       .from(webhookDeliveries)
-      .innerJoin(webhookEvents, eq(webhookDeliveries.eventId, webhookEvents.id))
+      .innerJoin(webhookEvents, and(eq(webhookDeliveries.eventId, webhookEvents.id), eq(webhookEvents.organizationId, req.organization!.id)))
       .where(and(eq(webhookDeliveries.organizationId, req.organization!.id), eq(webhookDeliveries.subscriptionId, req.params.id)))
       .orderBy(desc(webhookDeliveries.createdAt)).limit(100);
     return res.json(rows);
