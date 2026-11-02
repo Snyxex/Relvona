@@ -13,7 +13,8 @@
     "format:check": "biome format .",
     "format:ci": "node scripts/run-biome-changed.mjs format",
     "test:security": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types scripts/test-server-page-auth.mjs",
-    "test:security:integration": "node scripts/test-server-page-auth-integration.mjs"
+    "test:security:integration": "node scripts/test-server-page-auth-integration.mjs",
+    "test:ui-utils": "node --experimental-strip-types --test tests/*.test.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",
