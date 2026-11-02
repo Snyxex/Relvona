@@ -43,6 +43,21 @@ The endpoint enforces organization and `analytics.view` access on the server, em
 
 The day buckets are based on the repository's UTC-naive PostgreSQL timestamp columns; they deliberately avoid applying `AT TIME ZONE` twice, which can shift values across calendar days on non-UTC database sessions. Future-dated rows are excluded from rolling series. The corresponding integration test is `backend/src/tests/dashboardOverview.integration.test.ts`, executed by the Jenkins-only test runner.
 
+## Unified workspace rollout: tickets, conversations, analytics and people
+
+The modern workspace styling now also covers the other frequently used employee areas:
+
+- `frontend/src/components/dashboard-tabs/workspace-primitives.tsx` defines reusable headers, panels, KPI tiles, and accessible empty states.
+- `frontend/src/app/relvona-workspace-sections.css` applies those colors, typography, border radii and spacing only to the explicitly selected `.rv-main--modern` workspaces. Ticket and inbox styles are scoped further to `.rv-ticket-workspace` and `.rv-inbox-layout`; these remain the original functional ticket and conversation handlers.
+- Analytics presents the existing server-supplied metrics, AI resolution donut, status bars, language distributions and honest data-empty states. No arbitrary progress values are fabricated from raw knowledge-source counts.
+- Customers and Support-Team have searchable responsive lists. Agent presence labels are derived from actual presence data; an absent value is **unknown**, not a fabricated online/active status.
+- Tickets support filtering by customer/subject/number and status; selecting a ticket uses a real keyboard-focusable button, not a click-only table row. Status colors are consistent with the home dashboard.
+- The Conversation-Inbox preserves the existing assignment, reply, priority and internal-note functionality while gaining modern surfaces, responsive stacked panels, accessible selection and an empty state.
+- `frontend/src/app/admin/employees/page.tsx` retains the existing CRUD and consent switches, but the form and employee selector use matching light surfaces and include a search field.
+- Backend authorization for all actions remains mandatory; no frontend visibility rule replaces the server's role/permission checks.
+
+The rollout deliberately avoids restyling authentication pages, customer-facing portals and destructive administrative dialogs without separate QA. All changes require frontend Biome formatting, TypeScript validation, browser and keyboard checks, plus Jenkins before merging.
+
 ## Limits and follow-up
 
 The reference mockup is a **visual specification**, not a source of example customer names, event counts, dates or ratings. The first rollout updates the employee homepage and its shared sidebar; pre-existing admin settings, editors, profile and portal flows retain their own established UI until they undergo deliberate component-by-component migration.
