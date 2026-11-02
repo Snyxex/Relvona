@@ -58,6 +58,18 @@ The modern workspace styling now also covers the other frequently used employee 
 
 The rollout deliberately avoids restyling authentication pages, customer-facing portals and destructive administrative dialogs without separate QA. All changes require frontend Biome formatting, TypeScript validation, browser and keyboard checks, plus Jenkins before merging.
 
+## Knowledge and AI configuration rollout
+
+The same Relvona workbench now extends to the knowledge base, website crawler, AI assistant configuration and organization settings. The existing forms, mutations, worker status polling and permissions are retained.
+
+- `dashboard.tsx` scopes these pages to `.rv-config-workspace` while adding shared `WorkspaceHeader` headings and actual overview metrics for knowledge bases, document sources, indexed chunks, pending processing and crawler activity. No synthetic counts are introduced.
+- `knowledge-sources.tsx` retains editing, deletion, reprocessing, security state and processing-job refresh; it adds search by title/type/status, exact status filters, translated badges and an announced filtered count.
+- The AI configuration keeps provider profiles, active-profile selection, system prompts and model settings. When no assistant is loaded, it shows an explicit empty state instead of a blank screen. Temperature value `0` is preserved rather than silently replaced with the fallback.
+- Organization API-key fields are masked by default, allow explicit reveal, and automatically hide when the organization changes or the user leaves the settings tab. Regeneration now requires confirmation and reports backend errors instead of silently swallowing them. Key rotation invalidates the previous credential and callers must update integrations.
+- `frontend/src/app/relvona-workspace-sections.css` defines the corresponding light cards, semantic processing states, accessible form focus rings and responsive metrics. It is scoped to the modern employee workspace so customer-facing and authentication screens are not inadvertently restyled.
+
+The **known CI blocker** is the Jenkins agent's rootless Podman environment: the executor inherits `NoNewPrivs: 1`, preventing `newuidmap` from establishing its namespace. This must be fixed in the actual agent service or launcher by the server administrator. Prior frontend Biome and TypeScript checks also remain to be validated after Jenkins can run. **Do not merge this PR solely because it is conflict-free.**
+
 ## Limits and follow-up
 
 The reference mockup is a **visual specification**, not a source of example customer names, event counts, dates or ratings. The first rollout updates the employee homepage and its shared sidebar; pre-existing admin settings, editors, profile and portal flows retain their own established UI until they undergo deliberate component-by-component migration.
