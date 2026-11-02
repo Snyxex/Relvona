@@ -116,8 +116,8 @@ export class CustomerPortalService {
     return withTenantTransaction(parsed.organizationId, async (tx) => {
       const [row] = await tx.select({ sessionId: customerPortalSessions.id, accountId: customerPortalAccounts.id, customerId: customers.id, email: customers.email })
         .from(customerPortalSessions)
-        .innerJoin(customerPortalAccounts, eq(customerPortalSessions.accountId, customerPortalAccounts.id))
-        .innerJoin(customers, eq(customerPortalAccounts.customerId, customers.id))
+        .innerJoin(customerPortalAccounts, and(eq(customerPortalSessions.accountId, customerPortalAccounts.id), eq(customerPortalAccounts.organizationId, parsed.organizationId)))
+        .innerJoin(customers, and(eq(customerPortalAccounts.customerId, customers.id), eq(customers.organizationId, parsed.organizationId)))
         .where(and(
           eq(customerPortalSessions.organizationId, parsed.organizationId),
           eq(customerPortalSessions.tokenHash, tokenHash(parsed.token)),
@@ -166,7 +166,7 @@ export class CustomerPortalService {
       ]);
       const visitorIds = linkedVisitors.map((item) => item.visitorId);
       const linkedConversationRows = visitorIds.length
-        ? await tx.select({ conversation: conversations }).from(visitorConversations).innerJoin(conversations, eq(visitorConversations.conversationId, conversations.id)).where(and(eq(visitorConversations.organizationId, session.organizationId), inArray(visitorConversations.visitorId, visitorIds)))
+        ? await tx.select({ conversation: conversations }).from(visitorConversations).innerJoin(conversations, and(eq(visitorConversations.conversationId, conversations.id), eq(conversations.organizationId, session.organizationId))).where(and(eq(visitorConversations.organizationId, session.organizationId), inArray(visitorConversations.visitorId, visitorIds)))
         : [];
       const memoryRows = visitorIds.length
         ? await tx.select().from(visitorMemories).where(and(eq(visitorMemories.organizationId, session.organizationId), inArray(visitorMemories.visitorId, visitorIds)))
