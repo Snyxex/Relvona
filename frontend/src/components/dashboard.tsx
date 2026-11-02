@@ -1212,7 +1212,7 @@ export default function Dashboard({
         </div>
       </aside>
 
-      <main className={activeTab === "overview" ? "rv-main rv-main--overview flex-1 overflow-y-auto" : ["analytics", "customers", "agents", "tickets", "conversations", "knowledge", "websites", "assistant", "settings"].includes(activeTab) ? "rv-main rv-main--modern flex-1 overflow-y-auto p-6" : "rv-main flex-1 bg-slate-950 overflow-y-auto p-6"}>
+      <main className={activeTab === "overview" ? "rv-main rv-main--overview flex-1 overflow-y-auto" : ["analytics", "customers", "agents", "tickets", "conversations", "knowledge", "websites", "assistant", "widget", "settings"].includes(activeTab) ? "rv-main rv-main--modern flex-1 overflow-y-auto p-6" : "rv-main flex-1 bg-slate-950 overflow-y-auto p-6"}>
         {activeTab === "profile" && (
           <div className="mx-auto max-w-2xl space-y-6">
             <div>
