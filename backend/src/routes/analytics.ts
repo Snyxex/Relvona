@@ -14,7 +14,10 @@ router.get("/dashboard", requireRole(["owner","admin","agent","viewer"]), async 
   try {
     const days = typeof req.query.days === "string" ? Number(req.query.days) : 30;
     if (![7, 30, 90].includes(days)) return res.status(400).json({ error: "Invalid dashboard range" });
-    return res.json(await DashboardOverviewService.get(req.organization!.id, days));
+    return res.json(await DashboardOverviewService.get(req.organization!.id, days, {
+      canViewTickets: req.organization!.permissions.includes("tickets.view"),
+      canViewScheduling: req.organization!.permissions.includes("scheduling.view"),
+    }));
   } catch (error) {
     return sendInternalError(req, res, error, { code: "ANALYTICS_DASHBOARD_FAILED", message: "Unable to load dashboard" });
   }
