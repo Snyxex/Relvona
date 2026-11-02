@@ -36,6 +36,7 @@ import {
   LazyOverviewTab,
 } from "@/components/dashboard-tabs/lazy-tabs";
 import { api, API_BASE_URL } from "@/lib/api";
+import { TICKET_STATUS_OPTIONS, ticketStatusLabel, ticketStatusTone } from "@/lib/support-status";
 import { authClient } from "@/lib/auth-client";
 import {
   type DashboardLanguage,
@@ -1957,11 +1958,9 @@ export default function Dashboard({
                 <span className="sr-only">Nach Ticketstatus filtern</span>
                 <select value={ticketStatus} onChange={(event) => setTicketStatus(event.target.value)}>
                   <option value="">Alle Status</option>
-                  <option value="open">Offen</option>
-                  <option value="in_progress">In Bearbeitung</option>
-                  <option value="pending">Wartend</option>
-                  <option value="resolved">Gelöst</option>
-                  <option value="closed">Geschlossen</option>
+                  {TICKET_STATUS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
                 </select>
               </label>
               <span className="rv-directory-result">{visibleTickets.length} Tickets</span>
@@ -2035,14 +2034,8 @@ export default function Dashboard({
                           </span>
                         </td>
                         <td className="p-3">
-                          <span className={`rv-ticket-status-pill rv-ticket-status-pill--${tk.status} px-2 py-0.5 rounded text-[10px] border uppercase font-semibold`}>
-                            {({
-                              open: "Offen",
-                              in_progress: "In Bearbeitung",
-                              pending: "Wartend",
-                              resolved: "Gelöst",
-                              closed: "Geschlossen",
-                            } as Record<string, string>)[tk.status] ?? tk.status}
+                          <span className={`rv-ticket-status-pill rv-ticket-status-pill--${ticketStatusTone(tk.status)} px-2 py-0.5 rounded text-[10px] border uppercase font-semibold`}>
+                            {ticketStatusLabel(tk.status)}
                           </span>
                         </td>
                         <td className="p-3 text-slate-500">
