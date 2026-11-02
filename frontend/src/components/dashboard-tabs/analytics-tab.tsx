@@ -41,7 +41,23 @@ function AnalyticsTab({
   onRefresh: () => void;
 }) {
   const data = overviewMetrics;
-  const conversationCount = count(data?.totalConversations);
+  if (!data) {
+    return (
+      <div className="rv-section-page">
+        <WorkspaceHeader eyebrow="INSIGHTS" title="Analytics & Performance"
+          description="Supportaufkommen, AI-Automatisierung und Wissen im Überblick.">
+          <button type="button" className="rv-section-button rv-section-button-secondary" onClick={onRefresh}>
+            <RefreshCw size={15} aria-hidden="true" />Aktualisieren
+          </button>
+        </WorkspaceHeader>
+        <WorkspacePanel>
+          <WorkspaceEmpty icon={BrainCircuit} title="Keine Analytics-Daten geladen"
+            description="Die Kennzahlen sind noch nicht verfügbar. Du kannst die Auswertung erneut laden." />
+        </WorkspacePanel>
+      </div>
+    );
+  }
+  const conversationCount = count(data.totalConversations);
   const resolutionRate = Math.max(0, Math.min(100, Number(data?.resolutionRate) || 0));
   const handoffs = count(data?.handoffs);
   const states = Object.entries(data?.stateBreakdown ?? {}).sort((a, b) => b[1] - a[1]);
@@ -97,9 +113,7 @@ function AnalyticsTab({
           <p className="rv-insight-description">
             Quellen mit {displayCount(data?.totalDocumentChunks)} durchsuchbaren Chunks
           </p>
-          <div className="rv-insight-track" aria-hidden="true">
-            <div style={{ width: `${Math.min(100, count(data?.totalKnowledgeSources) * 10)}%`, background: "#5179fb" }} />
-          </div>
+          <p className="rv-insight-description">Anzahl vorhandener Quellen – kein automatisch ermittelter Qualitätswert.</p>
         </WorkspacePanel>
       </div>
 
