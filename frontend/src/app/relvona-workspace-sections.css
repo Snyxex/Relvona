@@ -1156,3 +1156,67 @@
     flex-wrap: wrap;
   }
 }
+
+/* Knowledge operations metrics and asynchronous processing states. */
+.rv-main--modern .rv-config-kpis {
+  margin-bottom: 2px;
+}
+.rv-main--modern .rv-config-kpis .rv-section-metric {
+  min-height: 125px;
+}
+.rv-main--modern .rv-config-workspace .rv-source-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 25px;
+  padding: 4px 9px;
+  border: 1px solid #dce5fa;
+  border-radius: 999px;
+  background: #f1f5ff;
+  color: #466cca;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.rv-main--modern .rv-config-workspace .rv-source-status--completed {
+  color: #188e73;
+  background: #e6f9f2;
+  border-color: #c9efdf;
+}
+.rv-main--modern .rv-config-workspace .rv-source-status--failed {
+  color: #bd4660;
+  background: #fff0f4;
+  border-color: #f5d8e0;
+}
+.rv-main--modern .rv-config-workspace .rv-source-status--processing {
+  color: #9b7024;
+  background: #fff6e8;
+  border-color: #f4dfb9;
+}
+.rv-main--modern .rv-config-workspace .rv-source-status--queued {
+  color: #5578b4;
+  background: #eef5ff;
+  border-color: #d5e4f9;
+}
+.rv-main--modern .rv-knowledge-sources .rv-source-select select:focus-visible {
+  outline: 2px solid #7b9cf3;
+  outline-offset: 2px;
+}
+.rv-main--modern .rv-knowledge-workspace > .flex.border-b {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.rv-main--modern .rv-config-workspace .rv-section-actions button:focus-visible,
+.rv-main--modern .rv-config-workspace .rv-section-actions input:focus-visible {
+  outline: 2px solid #678bf0;
+  outline-offset: 2px;
+}
+@media(max-width:1200px) {
+  .rv-main--modern .rv-config-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media(max-width:490px) {
+  .rv-main--modern .rv-config-kpis {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
