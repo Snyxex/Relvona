@@ -794,11 +794,15 @@ export default function Dashboard({
   };
 
   const handleRegenerateApiKey = async () => {
+    if (!activeOrg) return;
+    setApiKeyVisible(false);
     try {
       const res = await api.post("/organizations/api-key");
       setActiveOrg({ ...activeOrg, apiKey: res.data.apiKey });
-      showNotify("New Organization API Key generated!");
-    } catch (err) {}
+      showNotify("Neuer Organisations-API-Schlüssel erstellt. Bestehende Integrationen müssen aktualisiert werden.");
+    } catch (err: any) {
+      showNotify(err.response?.data?.error || "API-Schlüssel konnte nicht erneuert werden.");
+    }
   };
 
   const handleRotateWidgetKey = async () => {
@@ -1125,6 +1129,7 @@ export default function Dashboard({
                     (o) => o.id === e.target.value,
                   );
                   if (selected) {
+                    setApiKeyVisible(false);
                     setActiveOrg(selected);
                     localStorage.setItem("active_org_id", selected.id);
                   }
@@ -2855,7 +2860,7 @@ export default function Dashboard({
                   max="1"
                   step="0.05"
                   className="w-full"
-                  value={activeAssistant.temperature || 0.2}
+                  value={activeAssistant.temperature ?? 0.2}
                   onChange={(e) =>
                     setActiveAssistant({
                       ...activeAssistant,
@@ -3301,7 +3306,7 @@ export default function Dashboard({
             <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-4">
               <div>
                 <span className="text-xs font-semibold text-slate-400 uppercase">
-                  Organization API Key
+                  Organisations-API-Schlüssel
                 </span>
                 <div className="flex gap-2 mt-1">
                   <input
