@@ -311,13 +311,22 @@ pipeline {
 
     post {
         always {
-            archiveArtifacts artifacts: 'artifacts/frontend-biome-format.patch', allowEmptyArchive: true
-            sh '''
-                if [ -f "${CI_ENV_FILE}" ]; then
-                  podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" down --volumes --remove-orphans --rmi local || true
-                fi
-            '''
-            deleteDir()
+            script {
+                // Jenkins can run 'post' without an executor/workspace if a build
+                // fails before the agent is allocated. Never mask that failure
+                // with a secondary FilePath error from archiveArtifacts or sh.
+                if (getContext(hudson.FilePath) != null) {
+                    archiveArtifacts artifacts: 'artifacts/frontend-biome-format.patch', allowEmptyArchive: true
+                    sh '''
+                        if [ -f "${CI_ENV_FILE}" ]; then
+                          podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" down --volumes --remove-orphans --rmi local || true
+                        fi
+                    '''
+                    deleteDir()
+                } else {
+                    echo 'Jenkins workspace unavailable; skipping artifact collection and cleanup. Check the original agent allocation failure.'
+                }
+            }
         }
     }
 }
