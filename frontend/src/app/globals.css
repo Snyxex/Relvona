@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./relvona-dashboard.css";
+@import "./relvona-workspace-sections.css";
 
 :root {
   color-scheme: dark;
