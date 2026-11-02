@@ -87,11 +87,12 @@ The PR Jenkinsfile previously contained an accidentally truncated `NoNewPrivs` s
 
 Refactoring was prioritized before test execution, without changing existing backend APIs or triggering deployment:
 
-- `dashboard.tsx` is now primarily responsible for auth/session context, tenant data, navigation, and the ticket/conversation workflow. It was reduced from roughly 146 KB / 3,350 lines to roughly 95 KB / 2,220 lines.
+- `dashboard.tsx` is now primarily responsible for auth/session context, tenant data, navigation, and the ticket/conversation workflow. It was reduced from roughly 146 KB / 3,350 lines to roughly 83 KB / 2,000 lines.
 - `dashboard-tabs/organization-settings.tsx`: isolated organization API-key management; revealed keys and pending UI state are discarded when the component unmounts. Rotations have a confirmation and the parent validates the target tenant before applying the response.
 - `dashboard-tabs/widget-designer.tsx`: independent appearance controls, true-color preview, hosted page and embed-code management. It reuses the modern light workspace style; key rotation requires confirmation.
 - `dashboard-tabs/knowledge-workspaces.tsx`: typed knowledge base and crawler forms, reusing the original handlers and service endpoints.
 - `dashboard-tabs/assistant-settings.tsx`: typed model/profile editing, API provider settings and guardrails. This is a presentational extraction; state ownership and backend persistence stay in the dashboard.
+- `dashboard-tabs/tickets-workspace.tsx`: typed ticket table and detail panel; search/status filter state is local to the ticket tab. Existing ticket comment/status handlers remain in the parent until the conversation/ticket workflows move to dedicated hooks.
 - `lib/dashboard-navigation.ts`: type-safe tab IDs, icon metadata and explicit administrator visibility rules; direct `as any` navigation casts are eliminated.
 - Knowledge base and source arrays have explicit TypeScript element types rather than `any[]`.
 - Tenant response handling uses per-load epochs and organization identity checks to prevent older requests overwriting current data. Switching tenants also clears ticket details, conversations, search results, knowledge and AI configuration immediately. Ticket detail fetches are similarly guarded.
@@ -100,7 +101,7 @@ Refactoring was prioritized before test execution, without changing existing bac
 
 As requested, full tests and CI remediation are **not** part of this refactoring pass. TypeScript, Biome and browser validation must still be run and any follow-up errors resolved before merging. The existing Jenkins host service's Rootless-Podman `NoNewPrivs` issue remains separate.
 
-The ticket and conversation workflow, authentication/login section, and remaining global state inside `dashboard.tsx` are still candidates for extraction into dedicated hooks and components. Their extraction should preserve tenant cancellation, server-side RBAC enforcement, and websocket cleanup rather than merely relocate JSX.
+The conversation workflow, ticket/business-action handlers, authentication/login section, and remaining global state inside `dashboard.tsx` are still candidates for extraction into dedicated hooks and components. Their extraction should preserve tenant cancellation, server-side RBAC enforcement, and websocket cleanup rather than merely relocate JSX.
 
 ## Limits and follow-up
 
