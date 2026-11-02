@@ -37,6 +37,7 @@ router.post("/executions/:id/confirm-remote", requireRole(["owner", "admin"]), a
       organizationId: req.organization!.id,
       executionId: req.params.id,
       externalTicketId,
+      actorUserId: req.user!.id,
     }));
   } catch (error) {
     const message = (error as Error).message;
