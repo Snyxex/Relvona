@@ -24,7 +24,7 @@ async function run() {
       [convA,a,customerA,convB,b,customerB]);
     await withDatabaseTenantContext(async () => {
       setDatabaseTenant(a);
-      const report = await DashboardOverviewService.get(a,30);
+      const report = await DashboardOverviewService.get(a,30, { canViewTickets: true, canViewScheduling: true });
       assert.equal(report.kpis.tickets, 1, "only organization A's tickets count");
       assert.equal(report.kpis.conversations, 1, "only organization A's conversations count");
       assert.equal(report.kpis.appointments, 0);
@@ -39,7 +39,16 @@ async function run() {
       assert.equal(report.volume.reduce((sum, x) => sum+x.tickets, 0),1);
       assert.equal(report.volume.reduce((sum, x) => sum+x.conversations, 0),1);
       assert.equal(report.kpis.satisfactionRate, null, "unavailable feedback is not replaced with demo ratings");
-      await assert.rejects(DashboardOverviewService.get(a,999), /Invalid dashboard range/);
+      const limited = await DashboardOverviewService.get(a, 30, {
+        canViewTickets: false, canViewScheduling: false,
+      });
+      assert.equal(limited.kpis.tickets, 1, "analytics totals can remain available without ticket details");
+      assert.deepEqual(limited.recentTickets, [], "ticket subjects and customer names require tickets.view");
+      assert.deepEqual(limited.upcomingAppointments, [], "guest names and meeting links require scheduling.view");
+      await assert.rejects(
+        DashboardOverviewService.get(a, 999, { canViewTickets: true, canViewScheduling: true }),
+        /Invalid dashboard range/,
+      );
     });
     console.log("Dashboard overview RLS and real-data integration tests passed");
   } finally {
