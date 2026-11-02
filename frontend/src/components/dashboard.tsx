@@ -778,6 +778,7 @@ export default function Dashboard({
 
   const handleRotateWidgetKey = async () => {
     if (!activeAssistant) return;
+    if (!window.confirm("Widget-Schlüssel erneuern? Der bisherige Schlüssel wird ungültig und alle eingebundenen Websites müssen ihren Widget-Key aktualisieren.")) return;
     try {
       const res = await api.post(
         `/assistants/${activeAssistant.id}/widget-key/rotate`,
@@ -796,14 +797,21 @@ export default function Dashboard({
     }
   };
 
-  const handleSelectTicket = async (ticket: any) => {
+  const ticketDetailRequestId = useRef(0);
+  const handleSelectTicket = async (ticket: { id: string }) => {
+    const organizationId = activeOrgIdRef.current;
+    const requestId = ++ticketDetailRequestId.current;
     setSelectedTicket(ticket);
     setTicketCommentsList([]);
     try {
       const res = await api.get(`/tickets/${ticket.id}/comments`);
-      setTicketCommentsList(res.data);
+      if (ticketDetailRequestId.current === requestId && activeOrgIdRef.current === organizationId) {
+        setTicketCommentsList(res.data);
+      }
     } catch (err) {
-      console.error("Failed to load ticket comments", err);
+      if (ticketDetailRequestId.current === requestId && activeOrgIdRef.current === organizationId) {
+        console.error("Failed to load ticket comments", err);
+      }
     }
   };
 
@@ -1089,6 +1097,7 @@ export default function Dashboard({
                   );
                   if (selected && selected.id !== activeOrg?.id) {
                     tenantFetchEpoch.current += 1;
+                    ticketDetailRequestId.current += 1;
                     setOverviewMetrics(null);
                     setConversationsList([]);
                     setSelectedConv(null);
@@ -1364,12 +1373,19 @@ export default function Dashboard({
             canManage={auth.user.systemRole === "superadmin"}
             onNavigate={(tab) => setActiveTab(tab)}
             onOpenTicket={(ticket) => {
+              const selectedOrganizationId = activeOrg?.id;
+              if (!selectedOrganizationId) return;
               setActiveTab("tickets");
               void api.get("/tickets").then(({data}) => {
+                if (activeOrgIdRef.current !== selectedOrganizationId) return;
                 setTicketsList(data);
-                const fullTicket = data.find((candidate: any) => candidate.id === ticket.id);
+                const fullTicket = data.find((candidate: { id: string }) => candidate.id === ticket.id);
                 if (fullTicket) void handleSelectTicket(fullTicket);
-              }).catch(() => showNotify("Ticketliste konnte nicht geladen werden."));
+              }).catch(() => {
+                if (activeOrgIdRef.current === selectedOrganizationId) {
+                  showNotify("Ticketliste konnte nicht geladen werden.");
+                }
+              });
             }}
           />
         )}
