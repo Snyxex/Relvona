@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import KnowledgeSources from "@/components/knowledge-sources";
 import ProfileSecuritySettings from "@/components/profile-security-settings";
+import { WorkspaceEmpty, WorkspaceHeader } from "@/components/dashboard-tabs/workspace-primitives";
 import {
   LazyAgentsTab,
   LazyAnalyticsTab,
@@ -139,6 +140,7 @@ export default function Dashboard({
   const [ticketsList, setTicketsList] = useState<any[]>([]);
   const [ticketSearch, setTicketSearch] = useState("");
   const [ticketStatus, setTicketStatus] = useState("");
+  const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
   const [ticketCommentsList, setTicketCommentsList] = useState<any[]>([]);
   const [commentInput, setCommentInput] = useState("");
@@ -1251,7 +1253,7 @@ export default function Dashboard({
         </div>
       </aside>
 
-      <main className={activeTab === "overview" ? "rv-main rv-main--overview flex-1 overflow-y-auto" : ["analytics", "customers", "agents", "tickets", "conversations"].includes(activeTab) ? "rv-main rv-main--modern flex-1 overflow-y-auto p-6" : "rv-main flex-1 bg-slate-950 overflow-y-auto p-6"}>
+      <main className={activeTab === "overview" ? "rv-main rv-main--overview flex-1 overflow-y-auto" : ["analytics", "customers", "agents", "tickets", "conversations", "knowledge", "websites", "assistant", "settings"].includes(activeTab) ? "rv-main rv-main--modern flex-1 overflow-y-auto p-6" : "rv-main flex-1 bg-slate-950 overflow-y-auto p-6"}>
         {activeTab === "profile" && (
           <div className="mx-auto max-w-2xl space-y-6">
             <div>
@@ -2159,17 +2161,9 @@ export default function Dashboard({
         )}
 
         {activeTab === "knowledge" && (
-          <div className="space-y-6 max-w-7xl mx-auto">
-            <div className="flex justify-between items-center">
-              <div>
-                <h1 className="text-xl font-bold text-white">
-                  Knowledge Base & PDF Processing
-                </h1>
-                <p className="text-xs text-slate-400">
-                  Upload documentation, FAQs, and PDFs to train your AI
-                  assistant
-                </p>
-              </div>
+          <div className="rv-knowledge-workspace rv-config-workspace space-y-6 max-w-7xl mx-auto">
+            <WorkspaceHeader eyebrow="WISSEN" title="Wissensdatenbank"
+              description="Verwalte Dokumente, FAQs und PDFs als geprüfte Wissensquellen für deine AI.">
 
               <form onSubmit={handleCreateKnowledgeBase} className="flex gap-2">
                 <input
@@ -2186,7 +2180,7 @@ export default function Dashboard({
                   <Plus className="w-3.5 h-3.5" /> Create KB
                 </button>
               </form>
-            </div>
+            </WorkspaceHeader>
 
             {knowledgeBases.length > 0 && (
               <div className="flex gap-2 border-b border-slate-800 pb-2">
@@ -2340,16 +2334,9 @@ export default function Dashboard({
         )}
 
         {activeTab === "websites" && (
-          <div className="space-y-6 max-w-7xl mx-auto">
-            <div>
-              <h1 className="text-xl font-bold text-white">
-                Recursive Website Crawler
-              </h1>
-              <p className="text-xs text-slate-400">
-                Crawl public web pages with SSRF protection and automatic chunk
-                indexing
-              </p>
-            </div>
+          <div className="rv-crawler-workspace rv-config-workspace space-y-6 max-w-7xl mx-auto">
+            <WorkspaceHeader eyebrow="QUELLEN" title="Website-Crawler"
+              description="Indexiere öffentliche Webseiten mit SSRF-Schutz und automatischer Textverarbeitung." />
 
             <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl max-w-xl space-y-4">
               <form onSubmit={handleCrawlWebsite} className="space-y-3">
@@ -2434,17 +2421,21 @@ export default function Dashboard({
           </div>
         )}
 
-        {activeTab === "assistant" && activeAssistant && (
-          <div className="space-y-6 max-w-4xl mx-auto">
-            <div>
-              <h1 className="text-xl font-bold text-white">
-                AI Assistant Configuration
-              </h1>
-              <p className="text-xs text-slate-400">
-                Richte mehrere Provider und Modelle ein und wähle die aktive
-                Konfiguration für Kundenanfragen.
-              </p>
+        {activeTab === "assistant" && !activeAssistant && (
+          <div className="rv-assistant-workspace rv-config-workspace mx-auto max-w-4xl space-y-6">
+            <WorkspaceHeader eyebrow="AI-KONFIGURATION" title="AI-Assistent"
+              description="Verwalte deine AI-Assistenten und Modellprofile." />
+            <div className="rv-config-card">
+              <WorkspaceEmpty icon={Bot} title="Kein AI-Assistent verfügbar"
+                description="Für diese Organisation ist noch keine Assistentenkonfiguration geladen." />
             </div>
+          </div>
+        )}
+
+        {activeTab === "assistant" && activeAssistant && (
+          <div className="rv-assistant-workspace rv-config-workspace space-y-6 max-w-4xl mx-auto">
+            <WorkspaceHeader eyebrow="AI-KONFIGURATION" title="AI-Assistent"
+              description="Verwalte Modellanbieter, aktive Profile, API-Schlüssel und Systemanweisungen." />
 
             <div className="rounded-xl border border-blue-800/70 bg-blue-950/30 p-4 flex items-center justify-between gap-4">
               <div>
@@ -3303,15 +3294,9 @@ export default function Dashboard({
         )}
 
         {activeTab === "settings" && activeOrg && (
-          <div className="space-y-6 max-w-4xl mx-auto">
-            <div>
-              <h1 className="text-xl font-bold text-white">
-                Organization Settings
-              </h1>
-              <p className="text-xs text-slate-400">
-                Manage tenant identity and API keys
-              </p>
-            </div>
+          <div className="rv-settings-workspace rv-config-workspace space-y-6 max-w-4xl mx-auto">
+            <WorkspaceHeader eyebrow="ORGANISATION" title="Organisationseinstellungen"
+              description="Verwalte deine Organisationsidentität und den API-Zugriff." />
 
             <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-4">
               <div>
@@ -3320,17 +3305,28 @@ export default function Dashboard({
                 </span>
                 <div className="flex gap-2 mt-1">
                   <input
-                    type="text"
+                    type={apiKeyVisible ? "text" : "password"}
                     readOnly
-                    className="flex-1 bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs font-mono text-amber-400"
-                    value={activeOrg.apiKey || "sk_live_..."}
+                    aria-label="Organisations-API-Schlüssel"
+                    autoComplete="off"
+                    className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs font-mono text-amber-400"
+                    value={activeOrg.apiKey || ""}
                   />
+                  <button
+                    type="button"
+                    disabled={!activeOrg.apiKey}
+                    onClick={() => setApiKeyVisible((value) => !value)}
+                    className="rv-api-visibility rounded border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-200 disabled:opacity-50"
+                    aria-pressed={apiKeyVisible}
+                  >
+                    {apiKeyVisible ? "Verbergen" : "Anzeigen"}
+                  </button>
                   <button
                     type="button"
                     onClick={handleRegenerateApiKey}
                     className="px-3 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded flex items-center gap-1"
                   >
-                    <RefreshCw className="w-3.5 h-3.5" /> Regenerate
+                    <RefreshCw className="w-3.5 h-3.5" /> Neu generieren
                   </button>
                 </div>
               </div>
