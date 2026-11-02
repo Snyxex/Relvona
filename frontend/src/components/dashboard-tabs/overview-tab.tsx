@@ -215,6 +215,11 @@ function OverviewTab({organizationId,user,onNavigate,onOpenTicket,canManage}:Pro
             <SectionHeading title="Support-Volumen" description="Tickets und AI-Unterhaltungen im Zeitverlauf"/>
             <div className="rv-chart-legend"><span><i className="rv-dot-blue"/>Tickets</span><span><i className="rv-dot-purple"/>AI-Unterhaltungen</span></div>
             <VolumeChart points={data.volume}/>
+            <table className="sr-only">
+              <caption>Support-Volumen pro UTC-Kalendertag</caption>
+              <thead><tr><th scope="col">Datum</th><th scope="col">Tickets</th><th scope="col">AI-Unterhaltungen</th></tr></thead>
+              <tbody>{data.volume.map((point)=><tr key={point.day}><th scope="row">{point.day}</th><td>{point.tickets}</td><td>{point.conversations}</td></tr>)}</tbody>
+            </table>
           </section>
           <section className="rv-panel rv-chart-panel">
             <SectionHeading title="Ticket-Kategorien" description="Verteilung nach erstem Ticket-Tag"/>
