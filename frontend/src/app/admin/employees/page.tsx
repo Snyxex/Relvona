@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Save, Trash2, UserRound } from "lucide-react";
+import { Plus, Save, Search, Trash2, UserRound } from "lucide-react";
 import { api } from "@/lib/api";
 
 type Member = { userId: string; role: string; name: string; email: string };
@@ -17,7 +17,7 @@ const emptyEmployee = (): Employee => ({
   aiVisible: true, exposeEmailToCustomer: false, exposePhoneToCustomer: false, allowDirectHandoff: false, enabled: true,
 });
 
-const inputClass = "w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-blue-500";
+const inputClass = "rv-employee-input w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-blue-500";
 
 export default function EmployeesPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -27,6 +27,7 @@ export default function EmployeesPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -68,8 +69,12 @@ export default function EmployeesPage() {
   };
 
   const linkedMember = members.find((member) => member.userId === form.userId);
+  const visibleEmployees = employees.filter((employee) =>
+    [employee.displayName, employee.department, employee.jobTitle, employee.email]
+      .some((value) => value?.toLocaleLowerCase("de-DE").includes(search.trim().toLocaleLowerCase("de-DE"))),
+  );
 
-  return <main className="mx-auto max-w-7xl p-6 text-slate-100">
+  return <main className="rv-employees-page mx-auto max-w-7xl p-6 text-slate-100">
     <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
       <div><h1 className="text-2xl font-bold">Mitarbeiter</h1><p className="text-sm text-slate-400">Kontaktdaten und KI-Routing pro Organisation verwalten.</p></div>
       <button onClick={createNew} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium"><Plus size={16}/>Mitarbeiter hinzufügen</button>
@@ -78,9 +83,10 @@ export default function EmployeesPage() {
     {notice && <p className="mb-4 rounded-lg bg-emerald-950/50 p-3 text-sm text-emerald-300">{notice}</p>}
     <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
       <aside className="rounded-xl border border-slate-800 bg-slate-900 p-3">
+        <label className="rv-employee-search"><Search size={17} aria-hidden="true" /><span className="sr-only">Mitarbeiter suchen</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Mitarbeiter suchen" /></label>
         <div className="space-y-2">
-          {employees.length === 0 && <p className="p-3 text-sm text-slate-500">Noch keine Mitarbeiter angelegt.</p>}
-          {employees.map((employee) => <button key={employee.id} onClick={() => select(employee)} className={`w-full rounded-lg border p-3 text-left ${selectedId === employee.id ? "border-blue-500 bg-blue-950/30" : "border-slate-800 bg-slate-950"}`}>
+          {visibleEmployees.length === 0 && <p className="p-3 text-sm text-slate-500">{search ? "Keine passenden Mitarbeiter gefunden." : "Noch keine Mitarbeiter angelegt."}</p>}
+          {visibleEmployees.map((employee) => <button key={employee.id} onClick={() => select(employee)} className={`w-full rounded-lg border p-3 text-left ${selectedId === employee.id ? "border-blue-500 bg-blue-950/30" : "border-slate-800 bg-slate-950"}`}>
             <div className="flex items-center gap-2"><UserRound size={16}/><b>{employee.displayName}</b></div>
             <p className="mt-1 text-xs text-slate-400">{employee.jobTitle || employee.department || "Keine Rolle hinterlegt"}</p>
           </button>)}
