@@ -5,6 +5,7 @@ import { db } from "../db/index.js";
 import { knowledgeGaps } from "../db/supportAnalyticsSchema.js";
 import { KnowledgeIntelligenceService } from "../services/knowledgeIntelligenceService.js";
 import { AuditService } from "../services/auditService.js";
+import { inspectAnswerQuality } from "../services/answerQualityPreview.js";
 import { sendInternalError } from "../utils/httpErrors.js";
 
 const router = Router();
@@ -136,6 +137,21 @@ router.post("/faq-drafts/:id/publish", requireRole(["owner", "admin"]), async (r
     if (message === "FAQ draft must be approved before publishing") return res.status(409).json({ error: message });
     return sendInternalError(req, res, error, { code: "KNOWLEDGE_FAQ_PUBLISH_FAILED", message: "Unable to publish FAQ draft" });
   }
+});
+
+
+// Read-only, opt-in quality preview. Never stores or sends submitted answer text.
+// Role-gated because drafts may contain internal knowledge or customer information.
+router.post("/answer-quality/preview", requireRole(["owner", "admin", "agent"]), (req: AuthRequest, res) => {
+  const { answer, evidenceIds } = req.body ?? {};
+  if (typeof answer !== "string" || answer.length > 12000 ||
+      !Array.isArray(evidenceIds) || evidenceIds.length > 30 ||
+      !evidenceIds.every((id: unknown) => typeof id === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(id)) ||
+      new Set(evidenceIds).size !== evidenceIds.length) {
+    return res.status(400).json({ error: "Invalid answer quality preview input" });
+  }
+  res.setHeader("Cache-Control", "no-store");
+  return res.json(inspectAnswerQuality({ answer, evidenceIds }));
 });
 
 export default router;
