@@ -13,7 +13,6 @@ import {
 type AnalyticsMetrics = {
   totalConversations?: number;
   aiResolved?: number;
-  resolutionRate?: number;
   handoffs?: number;
   openTickets?: number;
   totalKnowledgeSources?: number;
@@ -32,6 +31,16 @@ const STATE_LABELS: Record<string, string> = {
   CLOSED: "Geschlossen",
 };
 const STATE_COLORS = ["#5179fb", "#9167f4", "#4fc0eb", "#36bea9", "#e3aa5c", "#91a3c1"];
+const STATE_TONES: Record<string, string> = {
+  AI_ACTIVE: "#5179fb",
+  WAITING_FOR_AGENT: "#f1b65f",
+  NEEDS_HUMAN: "#e3aa5c",
+  AGENT_ACTIVE: "#9167f4",
+  WAITING_FOR_CUSTOMER: "#4fc0eb",
+  RESOLVED: "#36bea9",
+  CLOSED: "#91a3c1",
+};
+
 const count = (value: number | undefined) => Math.max(0, Number(value) || 0);
 const displayCount = (value: number | undefined) => new Intl.NumberFormat("de-DE").format(count(value));
 
@@ -124,7 +133,7 @@ function AnalyticsTab({
         <WorkspacePanel title="Unterhaltungsstatus" description="Verteilung der aktuellen Conversation-States">
           {states.length > 0 ? (
             <div className="rv-insight-bars">
-              {states.map(([state, value], index) => {
+              {states.map(([state, value]) => {
                 const percent = distributionPercent(count(value), conversationCount);
                 return (
                   <div className="rv-insight-bar" key={state}>
@@ -133,7 +142,7 @@ function AnalyticsTab({
                       <strong>{displayCount(value)} · {Math.round(percent)}%</strong>
                     </div>
                     <div className="rv-insight-track">
-                      <div style={{ width: `${percent}%`, background: STATE_COLORS[index % STATE_COLORS.length] }} />
+                      <div style={{ width: `${percent}%`, background: STATE_TONES[state] ?? "#91a3c1" }} />
                     </div>
                   </div>
                 );
