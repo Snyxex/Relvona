@@ -112,6 +112,49 @@ export class IntegrationSyncService {
     return updated;
   }
 
+  // Explicit manual reconciliation after an operator verifies the remote record.
+  // Never re-dispatch an uncertain external operation from this endpoint.
+  static async confirmRemoteExecution(data: {
+    organizationId: string;
+    executionId: string;
+    externalTicketId: string;
+  }) {
+    if (!/^\\d{1,20}$/.test(data.externalTicketId)) throw new Error("Invalid Zendesk ticket id");
+    const [execution] = await db.select({
+      id: integrationSyncExecutions.id,
+      ruleId: integrationSyncExecutions.ruleId,
+      status: integrationSyncExecutions.status,
+    }).from(integrationSyncExecutions).where(and(
+      eq(integrationSyncExecutions.organizationId, data.organizationId),
+      eq(integrationSyncExecutions.id, data.executionId),
+    )).limit(1);
+    if (!execution) throw new Error("Integration sync execution not found");
+    if (execution.status !== "needs_review") throw new Error("Execution does not require reconciliation");
+    const [rule] = await db.select({ id: integrationSyncRules.id, connectionId: integrationSyncRules.connectionId })
+      .from(integrationSyncRules).where(and(
+        eq(integrationSyncRules.organizationId, data.organizationId),
+        eq(integrationSyncRules.id, execution.ruleId),
+      )).limit(1);
+    if (!rule) throw new Error("Integration sync rule not found");
+    // Validate that the claimed remote ticket actually exists in this tenant's
+    // configured Zendesk account before recording the execution as successful.
+    const remote = await ZendeskAdapter.getTicket(data.organizationId, data.externalTicketId, rule.connectionId);
+    const remoteId = (remote as { ticket?: { id?: string | number } })?.ticket?.id;
+    if (String(remoteId ?? "") !== data.externalTicketId) throw new Error("Zendesk ticket could not be verified");
+    const [updated] = await db.update(integrationSyncExecutions).set({
+      status: "succeeded",
+      externalId: data.externalTicketId,
+      error: null,
+      updatedAt: new Date(),
+    }).where(and(
+      eq(integrationSyncExecutions.organizationId, data.organizationId),
+      eq(integrationSyncExecutions.id, data.executionId),
+      eq(integrationSyncExecutions.status, "needs_review"),
+    )).returning();
+    if (!updated) throw new Error("Execution reconciliation conflict");
+    return updated;
+  }
+
   static async handleDomainEvent(event: DomainEvent) {
     if (!["ticket.created", "ticket.updated", "ticket.comment.created"].includes(event.type)) return;
     if (!isRelevantTicketUpdate(event)) return;
