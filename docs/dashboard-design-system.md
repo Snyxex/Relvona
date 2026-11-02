@@ -70,6 +70,19 @@ The same Relvona workbench now extends to the knowledge base, website crawler, A
 
 The **known CI blocker** is the Jenkins agent's rootless Podman environment: the executor inherits `NoNewPrivs: 1`, preventing `newuidmap` from establishing its namespace. This must be fixed in the actual agent service or launcher by the server administrator. Prior frontend Biome and TypeScript checks also remain to be validated after Jenkins can run. **Do not merge this PR solely because it is conflict-free.**
 
+## UI technical cleanup and display correctness
+
+- Ticket status options, translated labels and safe CSS tones now have a single source in `frontend/src/lib/support-status.ts`; unknown server values remain visible but cannot form arbitrary style classes.
+- The analytics AI solution percentage is computed from **distinct `ai_resolved` events**, not the overall RESOLVED conversation state (which can include human-assisted resolutions). No-rate cases show “—”. State percentages use the full conversation count, and unknown detected languages are shown as “Unbekannt”.
+- Safe percentages are centralized in `frontend/src/lib/support-metrics.ts`; conversation-state colors remain fixed even when chart ranking changes.
+- React lazy-loading placeholders for analytics and directories match the light workspace rather than flashing dark cards; animations stop for reduced-motion users.
+- Knowledge-source status refresh now uses one in-flight request, clears pending timeouts when hidden/unmounted and catches transient refresh errors instead of generating unhandled rejections.
+- Presentation regressions live in `frontend/tests/support-display.test.mjs`, callable with `npm --prefix frontend run test:ui-utils`, and are included in the Jenkins Podman CI test matrix. Four standalone tests were run successfully with Node 22's type-stripping support; full frontend/browser checks remain outstanding.
+
+### CI diagnostic repairs
+
+The PR Jenkinsfile previously contained an accidentally truncated `NoNewPrivs` shell condition and a duplicated remainder of the pipeline, causing an independent parse failure. This has been repaired. Workspace-only `post` actions are now conditional on a valid Jenkins FilePath so early agent failures are not masked by `archiveArtifacts` errors. These changes **do not** fix the agent service's underlying `NoNewPrivs=1` / `newuidmap` restriction, which remains a separate host-operator prerequisite.
+
 ## Limits and follow-up
 
 The reference mockup is a **visual specification**, not a source of example customer names, event counts, dates or ratings. The first rollout updates the employee homepage and its shared sidebar; pre-existing admin settings, editors, profile and portal flows retain their own established UI until they undergo deliberate component-by-component migration.
