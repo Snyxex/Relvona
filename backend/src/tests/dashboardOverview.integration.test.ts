@@ -66,6 +66,24 @@ async function run() {
         /Invalid dashboard range/,
       );
     });
+    await withDatabaseTenantContext(async () => {
+      setDatabaseTenant(b);
+      const otherTenant = await DashboardOverviewService.get(b, 7, {
+        canViewTickets: true, canViewScheduling: true,
+      });
+      assert.equal(otherTenant.days, 7);
+      assert.equal(otherTenant.volume.length, 7);
+      assert.equal(otherTenant.kpis.tickets, 1);
+      assert.equal(otherTenant.recentTickets.length, 1);
+      assert.equal(otherTenant.recentTickets[0].subject, "Beta issue");
+      assert.equal(otherTenant.categories[0].name, "Private");
+      assert.equal(otherTenant.upcomingAppointments[0].guestName, "Secret Guest");
+      assert.equal(otherTenant.upcomingAppointments[0].meetingUrl, "https://example.test/b");
+      assert.ok(
+        otherTenant.recentTickets.every((ticket) => ticket.id !== ticketA),
+        "the other tenant's ticket identifiers must never appear",
+      );
+    });
     console.log("Dashboard overview RLS and real-data integration tests passed");
   } finally {
     await client.query("DELETE FROM organizations WHERE id in ($1,$2)",[a,b]).catch(()=>undefined);
