@@ -75,6 +75,7 @@
 .relvona-workspace .rv-sidebar > div:last-child p:first-child {color:white !important}
 .relvona-workspace .rv-sidebar > div:last-child p:last-child {color:#91a0ba !important}
 .relvona-workspace--overview > main.rv-main--overview {
+  color-scheme: light;
   padding: 0 !important;
   min-width: 0;
   background: #f7f9fc !important;
@@ -205,6 +206,11 @@ body:has(.relvona-workspace--overview) .relvona-notification-center > button {
   .relvona-workspace--overview .rv-donut {width:160px}
 }
 @media(max-width:950px) {
+  /* The shell is a horizontal flex layout on desktop: switch it to a vertical
+     layout before turning the sidebar into a full-width mobile navigation. */
+  .relvona-workspace {flex-direction:column;min-width:0}
+  .relvona-workspace .rv-main {min-height:0;min-width:0;flex:1 1 auto}
+  .relvona-workspace .rv-sidebar > div:first-child {min-width:0}
   .relvona-workspace .rv-sidebar {width:100% !important;box-shadow:none;flex:0 0 auto;border-bottom:1px solid #23344f !important}
   .relvona-workspace .rv-sidebar > div:first-child > div:first-child {padding:10px 16px}
   .relvona-workspace .rv-main-nav {display:flex;flex-wrap:nowrap;max-height:none;overflow-x:auto;overflow-y:hidden;padding:5px 12px}
@@ -212,6 +218,7 @@ body:has(.relvona-workspace--overview) .relvona-notification-center > button {
   .relvona-workspace .rv-sidebar > div:last-child {display:none}
   .relvona-workspace .rv-nav-secondary {display:none}
   .relvona-workspace--overview .rv-overview-body {padding:18px 16px 28px}
+  .relvona-workspace--overview .rv-toolbar-user {padding-right:52px}
 }
 @media(max-width:640px) {
   .relvona-workspace--overview .rv-toolbar {height:56px;padding:0 14px}
