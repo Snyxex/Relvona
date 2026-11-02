@@ -75,7 +75,7 @@ router.post("/executions/:id/confirm-remote", requireRole(["owner", "admin"]), a
   } catch (error) {
     const message = (error as Error).message;
     if (message === "Integration sync execution not found" || message === "Integration sync rule not found") return res.status(404).json({ error: message });
-    if (message === "Execution does not require reconciliation" || message === "Execution reconciliation conflict") return res.status(409).json({ error: message });
+    if (message === "Execution does not require reconciliation" || message === "Execution reconciliation conflict" || message === "Action-level Zendesk evidence required") return res.status(409).json({ error: message });
     return sendInternalError(req, res, error, { code: "SYNC_RECONCILIATION_FAILED", message: "Zendesk record could not be verified" });
   }
 });
