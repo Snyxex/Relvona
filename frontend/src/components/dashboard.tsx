@@ -24,6 +24,7 @@ import {
   BookOpen,
   CalendarDays,
   Workflow,
+  Search,
 } from "lucide-react";
 import KnowledgeSources from "@/components/knowledge-sources";
 import ProfileSecuritySettings from "@/components/profile-security-settings";
@@ -136,6 +137,8 @@ export default function Dashboard({
   selectedConversationId.current = selectedConv?.id;
 
   const [ticketsList, setTicketsList] = useState<any[]>([]);
+  const [ticketSearch, setTicketSearch] = useState("");
+  const [ticketStatus, setTicketStatus] = useState("");
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
   const [ticketCommentsList, setTicketCommentsList] = useState<any[]>([]);
   const [commentInput, setCommentInput] = useState("");
@@ -1076,6 +1079,14 @@ export default function Dashboard({
     });
   };
 
+  const visibleTickets = ticketsList.filter((ticket) => {
+    if (ticketStatus && ticket.status !== ticketStatus) return false;
+    const search = ticketSearch.trim().toLocaleLowerCase("de-DE");
+    if (!search) return true;
+    return [ticket.subject, ticket.ticketNumber, ticket.customer?.name, ticket.customer?.email]
+      .some((value) => String(value ?? "").toLocaleLowerCase("de-DE").includes(search));
+  });
+
   // --- Main SaaS Dashboard Layout ---
   return (
     <div className={`relvona-workspace flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden ${activeTab === "overview" ? "relvona-workspace--overview" : ""}`}>
@@ -1914,6 +1925,27 @@ export default function Dashboard({
               </p>
             </div>
 
+            <div className="rv-ticket-filters">
+              <label className="rv-section-search">
+                <Search className="h-4 w-4" aria-hidden="true" />
+                <span className="sr-only">Tickets suchen</span>
+                <input type="search" value={ticketSearch}
+                  onChange={(event) => setTicketSearch(event.target.value)}
+                  placeholder="Betreff, Ticketnummer oder Kunden suchen" />
+              </label>
+              <label className="rv-ticket-filter-status">
+                <span className="sr-only">Nach Ticketstatus filtern</span>
+                <select value={ticketStatus} onChange={(event) => setTicketStatus(event.target.value)}>
+                  <option value="">Alle Status</option>
+                  <option value="open">Offen</option>
+                  <option value="in_progress">In Bearbeitung</option>
+                  <option value="pending">Wartend</option>
+                  <option value="resolved">Gelöst</option>
+                  <option value="closed">Geschlossen</option>
+                </select>
+              </label>
+              <span className="rv-directory-result">{visibleTickets.length} Tickets</span>
+            </div>
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
               <div className="rv-ticket-table bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
                 <table className="w-full text-left text-xs text-slate-300">
@@ -1928,22 +1960,22 @@ export default function Dashboard({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
-                    {ticketsList.length === 0 && (
+                    {visibleTickets.length === 0 && (
                       <tr>
                         <td
                           colSpan={6}
                           className="p-8 text-center text-slate-500"
                         >
-                          Keine offenen Tickets. Neue KI-Eskalationen erscheinen
-                          automatisch hier.
+                          {ticketsList.length === 0
+                            ? "Noch keine Tickets vorhanden."
+                            : "Keine Tickets entsprechen den gewählten Filtern."}
                         </td>
                       </tr>
                     )}
-                    {ticketsList.map((tk) => (
+                    {visibleTickets.map((tk) => (
                       <tr
                         key={tk.id}
-                        onClick={() => handleSelectTicket(tk)}
-                        className={`cursor-pointer hover:bg-slate-800/40 ${
+                        className={`hover:bg-slate-800/40 ${
                           selectedTicket?.id === tk.id ? "bg-blue-950/20" : ""
                         }`}
                       >
@@ -1951,7 +1983,14 @@ export default function Dashboard({
                           #{tk.ticketNumber}
                         </td>
                         <td className="p-3 font-medium text-slate-200">
-                          <div>{tk.subject}</div>
+                          <button
+                            type="button"
+                            onClick={() => handleSelectTicket(tk)}
+                            aria-current={selectedTicket?.id === tk.id ? "true" : undefined}
+                            className="rv-ticket-open text-left font-semibold"
+                          >
+                            {tk.subject}
+                          </button>
                           {Array.isArray(tk.tags) &&
                             tk.tags.includes("ai-escalation") && (
                               <span className="mt-1 inline-block rounded border border-violet-800 bg-violet-950/50 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-violet-300">
