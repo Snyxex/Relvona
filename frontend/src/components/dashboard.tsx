@@ -1395,6 +1395,7 @@ export default function Dashboard({
 
         {activeTab === "overview" && (
           <LazyOverviewTab
+            key={activeOrg?.id ?? "no-organization"}
             organizationId={activeOrg?.id}
             user={auth.user}
             canManage={auth.user.systemRole === "superadmin"}
