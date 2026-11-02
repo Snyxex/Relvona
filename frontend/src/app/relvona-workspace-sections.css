@@ -923,3 +923,236 @@
   line-height: 1.6;
   max-width: 260px;
 }
+
+/* Knowledge bases, source indexing and AI settings share the same workbench.
+   No form submission or model-provider logic is overridden by these styles. */
+.rv-main--modern .rv-config-workspace {
+  min-width: 0;
+  color: #263954;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.rv-main--modern .rv-config-workspace > div:not(.rv-section-header),
+.rv-main--modern .rv-config-workspace > form,
+.rv-main--modern .rv-config-workspace > section {
+  min-width: 0;
+}
+.rv-main--modern .rv-config-workspace .bg-slate-900,
+.rv-main--modern .rv-config-workspace .rv-config-card {
+  background: #fff;
+  border-color: #e6ebf3;
+  color: #243552;
+  box-shadow: 0 5px 22px rgba(22, 43, 81, .04);
+}
+.rv-main--modern .rv-config-workspace .bg-slate-800,
+.rv-main--modern .rv-config-workspace .bg-slate-800\/50,
+.rv-main--modern .rv-config-workspace .bg-slate-950 {
+  background: #f6f9fd;
+  border-color: #dfe6f0;
+  color: #273956;
+}
+.rv-main--modern .rv-config-workspace :is(h1, h2, h3) {
+  color: #172744;
+  letter-spacing: -.025em;
+}
+.rv-main--modern .rv-config-workspace :is(label, p).text-slate-400,
+.rv-main--modern .rv-config-workspace .text-slate-400,
+.rv-main--modern .rv-config-workspace .text-slate-500 {
+  color: #75849d;
+}
+.rv-main--modern .rv-config-workspace .text-slate-200,
+.rv-main--modern .rv-config-workspace .text-slate-300,
+.rv-main--modern .rv-config-workspace .text-slate-100 {
+  color: #293b58;
+}
+.rv-main--modern .rv-config-workspace :is(input:not([type="radio"]):not([type="checkbox"]):not([type="range"]):not([type="color"]),textarea,select) {
+  min-width: 0;
+  border: 1px solid #dfe6f0;
+  border-radius: 9px;
+  background: #f8faff;
+  color: #223552;
+  font-size: 12px;
+}
+.rv-main--modern .rv-config-workspace :is(input,textarea,select):focus-visible {
+  outline: 2px solid #7b9cf3;
+  outline-offset: 2px;
+}
+.rv-main--modern .rv-config-workspace :is(input,textarea)::placeholder {
+  color: #94a3b8;
+}
+.rv-main--modern .rv-config-workspace button.bg-blue-600,
+.rv-main--modern .rv-config-workspace button.bg-emerald-600,
+.rv-main--modern .rv-config-workspace button.bg-amber-600,
+.rv-main--modern .rv-config-workspace button.bg-blue-700 {
+  border-radius: 9px;
+  color: #fff;
+}
+.rv-main--modern .rv-config-workspace button.bg-slate-700 {
+  background: #edf3ff;
+  color: #3f61ad;
+}
+.rv-main--modern .rv-config-workspace .border-slate-800,
+.rv-main--modern .rv-config-workspace .border-slate-700 {
+  border-color: #e5eaf3;
+}
+.rv-main--modern .rv-knowledge-workspace > .grid > div,
+.rv-main--modern .rv-crawler-workspace > .bg-slate-900,
+.rv-main--modern .rv-assistant-workspace > .bg-slate-900,
+.rv-main--modern .rv-assistant-workspace > .space-y-3,
+.rv-main--modern .rv-settings-workspace > .bg-slate-900 {
+  border-radius: 14px;
+  border: 1px solid #e6ebf4;
+}
+.rv-main--modern .rv-knowledge-workspace > .flex.border-b {
+  border-color: #e6ebf4;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.rv-main--modern .rv-knowledge-workspace > .flex.border-b button {
+  border: 1px solid #e1e8f3;
+  border-radius: 9px;
+  padding: 10px 14px;
+  background: #fff;
+  color: #60728f;
+}
+.rv-main--modern .rv-knowledge-workspace > .flex.border-b button.bg-blue-600 {
+  background: #4270e9;
+  border-color: #4270e9;
+  color: white;
+}
+.rv-main--modern .rv-crawler-workspace > .bg-slate-900 {
+  max-width: 820px;
+}
+.rv-main--modern .rv-assistant-workspace > .bg-blue-950\/30 {
+  border: 1px solid #d8e5ff;
+  border-radius: 14px;
+  background: #edf4ff;
+  color: #30466b;
+}
+.rv-main--modern .rv-assistant-workspace > .bg-blue-950\/30 p.text-white {
+  color: #1e3459;
+}
+.rv-main--modern .rv-assistant-workspace .border-blue-600.bg-blue-950\/20 {
+  border-color: #b6cbf8;
+  background: #eff5ff;
+}
+.rv-main--modern .rv-assistant-workspace .bg-slate-800\/50 {
+  background: #f8faff;
+}
+.rv-main--modern .rv-config-workspace button.text-red-300 {
+  color: #bd4b60;
+}
+.rv-main--modern .rv-settings-workspace .rv-api-visibility {
+  background: #edf3ff;
+  border-color: #d5e1fa;
+  color: #3d63b4;
+  white-space: nowrap;
+}
+.rv-main--modern .rv-settings-workspace input[aria-label="Organisations-API-Schlüssel"] {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  letter-spacing: .03em;
+}
+.rv-main--modern .rv-knowledge-sources {
+  background: #fff;
+  color: #223450;
+  border: 1px solid #e7ecf4;
+  border-radius: 14px;
+  box-shadow: 0 5px 22px rgba(22, 43, 81, .04);
+}
+.rv-main--modern .rv-knowledge-sources .rv-source-heading {
+  border-color: #e7ecf4;
+}
+.rv-main--modern .rv-knowledge-sources .rv-source-heading h3 {
+  font-size: 15px;
+}
+.rv-main--modern .rv-knowledge-sources .rv-source-heading p {
+  color: #8493aa;
+  font-size: 11px;
+  margin-top: 4px;
+}
+.rv-main--modern .rv-source-refresh {
+  padding: 8px 11px;
+  border-radius: 8px;
+  border: 1px solid #dfe8f8;
+  color: #3f67ba;
+  background: #f3f7ff;
+}
+.rv-main--modern .rv-source-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 16px;
+  border-bottom: 1px solid #e7ecf4;
+}
+.rv-main--modern .rv-source-filters .rv-section-search {
+  flex: 1 1 260px;
+  max-width: 550px;
+}
+.rv-main--modern .rv-source-select select {
+  height: 43px;
+  padding: 8px 11px;
+  border: 1px solid #dfe6f0;
+  background: #f8faff;
+  color: #3d4f6c;
+  border-radius: 9px;
+  font-size: 12px;
+}
+.rv-main--modern .rv-knowledge-sources table {
+  min-width: 700px;
+  color: #485a76;
+}
+.rv-main--modern .rv-knowledge-sources thead {
+  background: #f5f7fb;
+  color: #65758d;
+}
+.rv-main--modern .rv-knowledge-sources :is(thead, tbody) {
+  border-color: #e6ebf3;
+}
+.rv-main--modern .rv-knowledge-sources tbody tr:hover {
+  background: #f7faff;
+}
+.rv-main--modern .rv-knowledge-sources .text-red-300 {
+  color: #bd4b60;
+}
+.rv-main--modern .rv-knowledge-sources .text-amber-300 {
+  color: #b37a22;
+}
+.rv-main--modern .rv-knowledge-sources .text-emerald-300 {
+  color: #168a70;
+}
+.rv-main--modern .rv-knowledge-sources .text-blue-300 {
+  color: #4269c1;
+}
+.rv-main--modern .rv-knowledge-sources :is(input,textarea) {
+  width: 100%;
+  background: #f8faff;
+  color: #253651;
+  border: 1px solid #dfe6f0;
+}
+.rv-main--modern .rv-knowledge-sources button.bg-blue-600 {
+  background: #416fed;
+  color: #fff;
+}
+.rv-main--modern .rv-knowledge-sources .border-slate-800 {
+  border-color: #e7ecf4;
+}
+@media(max-width:650px) {
+  .rv-main--modern .rv-config-workspace .rv-section-header {
+    align-items: flex-start;
+  }
+  .rv-main--modern .rv-config-workspace .rv-section-actions,
+  .rv-main--modern .rv-config-workspace .rv-section-actions > form {
+    width: 100%;
+  }
+  .rv-main--modern .rv-config-workspace .rv-section-actions > form {
+    flex-wrap: wrap;
+  }
+  .rv-main--modern .rv-config-workspace .rv-section-actions > form input {
+    flex: 1 1 200px;
+  }
+  .rv-main--modern .rv-settings-workspace .bg-slate-900 > div > .flex {
+    flex-wrap: wrap;
+  }
+}
