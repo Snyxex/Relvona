@@ -240,7 +240,7 @@ export default function Dashboard({
   }, [preferredLanguage]);
 
   useConversationRealtime({
-    enabled: Boolean(auth),
+    enabled: Boolean(auth) && activeTab === "conversations",
     organizationId: activeOrg?.id,
     conversationId: selectedConv?.id,
     conversationOrganizationId: selectedConv?.organizationId,
@@ -643,15 +643,18 @@ export default function Dashboard({
   };
 
   const handlePresenceChange = async (status: string) => {
+    if (!["ONLINE", "AWAY", "OFFLINE"].includes(status)) return;
+    const organizationId = activeOrgIdRef.current;
     try {
       await api.put("/conversations/meta/presence", { status });
+      if (activeOrgIdRef.current !== organizationId) return;
       setAgentPresence(status);
       setPresenceLoaded(true);
-      showNotify(`Presence: ${status}`);
+      showNotify(`Präsenzstatus: ${status}`);
     } catch (err: any) {
-      showNotify(
-        err.response?.data?.error || "Presence konnte nicht gespeichert werden.",
-      );
+      if (activeOrgIdRef.current === organizationId) {
+        showNotify(err.response?.data?.error || "Präsenzstatus konnte nicht gespeichert werden.");
+      }
     }
   };
 
@@ -861,25 +864,26 @@ export default function Dashboard({
 
   const handleOpenTicketConversation = async () => {
     if (!selectedTicket?.conversationId) {
-      showNotify("Diesem Ticket ist keine Unterhaltung zugeordnet");
+      showNotify("Diesem Ticket ist keine Unterhaltung zugeordnet.");
       return;
     }
+    const organizationId = activeOrgIdRef.current;
+    const conversationId = selectedTicket.conversationId;
     try {
-      const res = await api.get("/conversations");
-      const conversation = res.data.find(
-        (item: any) => item.id === selectedTicket.conversationId,
-      );
+      const { data } = await api.get("/conversations");
+      if (activeOrgIdRef.current !== organizationId) return;
+      const conversation = data.find((item: { id: string }) => item.id === conversationId);
       if (!conversation) {
-        showNotify("Die zugehörige Unterhaltung ist nicht mehr verfügbar");
+        showNotify("Die zugehörige Unterhaltung ist nicht mehr verfügbar.");
         return;
       }
-      setConversationsList(res.data);
+      setConversationsList(data);
       setActiveTab("conversations");
       await handleSelectConversation(conversation);
     } catch (err: any) {
-      showNotify(
-        err.response?.data?.error || "Unterhaltung konnte nicht geladen werden",
-      );
+      if (activeOrgIdRef.current === organizationId) {
+        showNotify(err.response?.data?.error || "Unterhaltung konnte nicht geladen werden.");
+      }
     }
   };
 
