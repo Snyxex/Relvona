@@ -36,7 +36,9 @@ Typography: Inter when available, then platform system sans fonts. H1 21–30px;
 - Current all-time ticket status and time-window category distribution (first tag); the `Weitere` group accounts for categories outside the top five.
 - Five newest tickets, five confirmed future bookings and five recent, safe-to-display activity types.
 
-The endpoint enforces organization and `analytics.view` access on the server and does not emit fabricated placeholder figures. The corresponding integration test is `backend/src/tests/dashboardOverview.integration.test.ts`, executed by the Jenkins-only test runner.
+The endpoint enforces organization and `analytics.view` access on the server and does not emit fabricated placeholder figures. Access to **ticket subjects/customer names** additionally requires `tickets.view`; access to **guest names and meeting URLs** additionally requires `scheduling.view`. The API returns `access.tickets` and `access.scheduling` so the UI can distinguish an empty list from a lack of permission without disclosing restricted details. Aggregate counts remain available to analytics readers. The "Positive Bewertungen" KPI is **helpful message-feedback votes** (positive / positive + negative), not a standardized customer satisfaction survey result.
+
+The day buckets are based on the repository's UTC-naive PostgreSQL timestamp columns; they deliberately avoid applying `AT TIME ZONE` twice, which can shift values across calendar days on non-UTC database sessions. Future-dated rows are excluded from rolling series. The corresponding integration test is `backend/src/tests/dashboardOverview.integration.test.ts`, executed by the Jenkins-only test runner.
 
 ## Limits and follow-up
 
