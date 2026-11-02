@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import KnowledgeSources from "@/components/knowledge-sources";
 import ProfileSecuritySettings from "@/components/profile-security-settings";
+import OrganizationSettings from "@/components/dashboard-tabs/organization-settings";
 import { WorkspaceEmpty, WorkspaceHeader, WorkspaceMetric } from "@/components/dashboard-tabs/workspace-primitives";
 import {
   LazyAgentsTab,
@@ -141,7 +142,6 @@ export default function Dashboard({
   const [ticketsList, setTicketsList] = useState<any[]>([]);
   const [ticketSearch, setTicketSearch] = useState("");
   const [ticketStatus, setTicketStatus] = useState("");
-  const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
   const [ticketCommentsList, setTicketCommentsList] = useState<any[]>([]);
   const [commentInput, setCommentInput] = useState("");
@@ -794,19 +794,6 @@ export default function Dashboard({
     }
   };
 
-  const handleRegenerateApiKey = async () => {
-    if (!activeOrg) return;
-    if (!window.confirm("Organisations-API-Schlüssel wirklich erneuern? Der bisherige Schlüssel wird ungültig und bestehende Integrationen müssen aktualisiert werden.")) return;
-    setApiKeyVisible(false);
-    try {
-      const res = await api.post("/organizations/api-key");
-      setActiveOrg({ ...activeOrg, apiKey: res.data.apiKey });
-      showNotify("Neuer Organisations-API-Schlüssel erstellt. Bestehende Integrationen müssen aktualisiert werden.");
-    } catch (err: any) {
-      showNotify(err.response?.data?.error || "API-Schlüssel konnte nicht erneuert werden.");
-    }
-  };
-
   const handleRotateWidgetKey = async () => {
     if (!activeAssistant) return;
     try {
@@ -1131,7 +1118,6 @@ export default function Dashboard({
                     (o) => o.id === e.target.value,
                   );
                   if (selected) {
-                    setApiKeyVisible(false);
                     setActiveOrg(selected);
                     localStorage.setItem("active_org_id", selected.id);
                   }
@@ -1203,10 +1189,7 @@ export default function Dashboard({
                   <button
                     type="button"
                     key={item.id}
-                    onClick={() => {
-                      if (item.id !== "settings") setApiKeyVisible(false);
-                      setActiveTab(item.id as any);
-                    }}
+                    onClick={() => setActiveTab(item.id as any)}
                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
                       isActive
                         ? "bg-blue-600 text-white font-semibold"
@@ -3307,45 +3290,23 @@ export default function Dashboard({
         )}
 
         {activeTab === "settings" && activeOrg && (
-          <div className="rv-settings-workspace rv-config-workspace space-y-6 max-w-4xl mx-auto">
-            <WorkspaceHeader eyebrow="ORGANISATION" title="Organisationseinstellungen"
-              description="Verwalte deine Organisationsidentität und den API-Zugriff." />
-
-            <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-4">
-              <div>
-                <span className="text-xs font-semibold text-slate-400 uppercase">
-                  Organisations-API-Schlüssel
-                </span>
-                <p className="rv-config-key-advice">Schlüssel nur bei Bedarf anzeigen. Eine Erneuerung macht den bisherigen Schlüssel ungültig.</p>
-                <div className="flex gap-2 mt-1">
-                  <input
-                    type={apiKeyVisible ? "text" : "password"}
-                    readOnly
-                    aria-label="Organisations-API-Schlüssel"
-                    autoComplete="off"
-                    className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs font-mono text-amber-400"
-                    value={activeOrg.apiKey || ""}
-                  />
-                  <button
-                    type="button"
-                    disabled={!activeOrg.apiKey}
-                    onClick={() => setApiKeyVisible((value) => !value)}
-                    className="rv-api-visibility rounded border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-200 disabled:opacity-50"
-                    aria-pressed={apiKeyVisible}
-                  >
-                    {apiKeyVisible ? "Verbergen" : "Anzeigen"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleRegenerateApiKey}
-                    className="px-3 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded flex items-center gap-1"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" /> Neu generieren
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+          <OrganizationSettings
+            key={activeOrg.id}
+            organizationId={activeOrg.id}
+            apiKey={activeOrg.apiKey}
+            onKeyRotated={(orgId, apiKey) => {
+              setActiveOrg((current: any) =>
+                current?.id === orgId ? { ...current, apiKey } : current,
+              );
+              setAuth((current) => current ? {
+                ...current,
+                organizations: current.organizations.map((org: any) =>
+                  org.id === orgId ? { ...org, apiKey } : org,
+                ),
+              } : current);
+            }}
+            notify={showNotify}
+          />
         )}
       </main>
     </div>
