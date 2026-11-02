@@ -244,12 +244,20 @@ pipeline {
 
     post {
         always {
-            sh '''
-                if [ -f "${CI_ENV_FILE}" ]; then
-                  docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" down --volumes --remove-orphans --rmi local || true
-                fi
-            '''
-            deleteDir()
+            script {
+                // A superseded build can reach post before acquiring an agent.
+                // Workspace-dependent steps must not run without hudson.FilePath.
+                if (getContext(hudson.FilePath) != null) {
+                    sh '''
+                        if [ -f "${CI_ENV_FILE}" ]; then
+                          docker compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" down --volumes --remove-orphans --rmi local || true
+                        fi
+                    '''
+                    deleteDir()
+                } else {
+                    echo 'Skipping workspace cleanup: no agent workspace was allocated.'
+                }
+            }
         }
     }
 }
