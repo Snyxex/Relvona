@@ -39,32 +39,48 @@ function KnowledgeSources({ sources, canManage, onRefresh, notify }: {
 
   useEffect(() => {
     if (!pending) return;
+    let disposed = false;
+    let inFlight = false;
     let timer: number | undefined;
 
-    const schedule = () => {
-      if (timer) window.clearTimeout(timer);
-      if (document.visibilityState !== "visible") return;
-      timer = window.setTimeout(async () => {
-        await refreshRef.current();
-        schedule();
-      }, 5000);
-    };
-
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") {
-        void refreshRef.current();
-        schedule();
-      } else if (timer) {
+    const clearTimer = () => {
+      if (timer !== undefined) {
         window.clearTimeout(timer);
         timer = undefined;
+      }
+    };
+    const schedule = () => {
+      if (disposed || inFlight || document.visibilityState !== "visible") return;
+      clearTimer();
+      timer = window.setTimeout(() => { void refresh(); }, 5000);
+    };
+    const refresh = async () => {
+      if (disposed || inFlight || document.visibilityState !== "visible") return;
+      clearTimer();
+      inFlight = true;
+      try {
+        await refreshRef.current();
+      } catch {
+        // A transient network failure must not stop subsequent status polling.
+      } finally {
+        inFlight = false;
+        schedule();
+      }
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState !== "visible") {
+        clearTimer();
+      } else {
+        void refresh();
       }
     };
 
     schedule();
     document.addEventListener("visibilitychange", handleVisibility);
     return () => {
+      disposed = true;
+      clearTimer();
       document.removeEventListener("visibilitychange", handleVisibility);
-      if (timer) window.clearTimeout(timer);
     };
   }, [pending]);
 
