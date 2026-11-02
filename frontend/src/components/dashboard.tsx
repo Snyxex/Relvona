@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import KnowledgeSources from "@/components/knowledge-sources";
 import ProfileSecuritySettings from "@/components/profile-security-settings";
-import { WorkspaceEmpty, WorkspaceHeader } from "@/components/dashboard-tabs/workspace-primitives";
+import { WorkspaceEmpty, WorkspaceHeader, WorkspaceMetric } from "@/components/dashboard-tabs/workspace-primitives";
 import {
   LazyAgentsTab,
   LazyAnalyticsTab,
@@ -2173,7 +2173,7 @@ export default function Dashboard({
               <form onSubmit={handleCreateKnowledgeBase} className="flex gap-2">
                 <input
                   type="text"
-                  placeholder="New Knowledge Base Name"
+                  placeholder="Name der neuen Wissensdatenbank"
                   className="bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
                   value={newKbName}
                   onChange={(e) => setNewKbName(e.target.value)}
@@ -2182,10 +2182,17 @@ export default function Dashboard({
                   type="submit"
                   className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded flex items-center gap-1"
                 >
-                  <Plus className="w-3.5 h-3.5" /> Create KB
+                  <Plus className="w-3.5 h-3.5" /> Erstellen
                 </button>
               </form>
             </WorkspaceHeader>
+
+            <div className="rv-section-kpis rv-config-kpis">
+              <WorkspaceMetric label="Wissensdatenbanken" value={knowledgeBases.length} icon={BookOpen} tone="blue" />
+              <WorkspaceMetric label="Wissensquellen" value={knowledgeSources.length} icon={FileText} tone="violet" />
+              <WorkspaceMetric label="Text-Chunks" value={knowledgeSources.reduce((sum, source) => sum + (Number(source.chunkCount) || 0), 0).toLocaleString("de-DE")} icon={Upload} tone="mint" />
+              <WorkspaceMetric label="In Verarbeitung" value={knowledgeSources.filter((source) => ["queued", "processing"].includes(source.status)).length} icon={RefreshCw} tone="amber" />
+            </div>
 
             {knowledgeBases.length > 0 && (
               <div className="flex gap-2 border-b border-slate-800 pb-2">
@@ -2209,8 +2216,7 @@ export default function Dashboard({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-4">
                 <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-blue-400" /> Manual Text /
-                  FAQ Ingestion
+                  <FileText className="w-4 h-4 text-blue-400" /> Dokumente und FAQ
                 </h3>
                 <form onSubmit={handleAddTextDocument} className="space-y-3">
                   <label className="block text-xs text-slate-400">
@@ -2237,7 +2243,7 @@ export default function Dashboard({
                       id="support-field-10"
                       type="text"
                       required
-                      placeholder="e.g. Refund Policy FAQ"
+                      placeholder="z. B. Rückgabebedingungen"
                       className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none"
                       value={docTitle}
                       onChange={(e) => setDocTitle(e.target.value)}
@@ -2254,7 +2260,7 @@ export default function Dashboard({
                       id="support-field-11"
                       rows={5}
                       required
-                      placeholder="Enter documentation body or FAQ answers..."
+                      placeholder="Dokumententext oder FAQ-Antwort eingeben"
                       className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none"
                       value={docContent}
                       onChange={(e) => setDocContent(e.target.value)}
@@ -2295,8 +2301,7 @@ export default function Dashboard({
 
               <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-4">
                 <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                  <Upload className="w-4 h-4 text-emerald-400" /> PDF Document
-                  Processing
+                  <Upload className="w-4 h-4 text-emerald-400" /> PDF-Verarbeitung
                 </h3>
                 <form onSubmit={handleUploadPdf} className="space-y-3">
                   <div>
@@ -2304,7 +2309,7 @@ export default function Dashboard({
                       htmlFor="support-field-12"
                       className="block text-xs font-medium text-slate-400 mb-1"
                     >
-                      PDF File
+                      PDF-Datei
                     </label>
                     <input
                       id="support-field-12"
@@ -2322,7 +2327,7 @@ export default function Dashboard({
                   >
                     {loading
                       ? "PDF wird hochgeladen …"
-                      : "Upload & Process PDF"}
+                      : "PDF hochladen und verarbeiten"}
                   </button>
                 </form>
               </div>
@@ -2342,6 +2347,12 @@ export default function Dashboard({
           <div className="rv-crawler-workspace rv-config-workspace space-y-6 max-w-7xl mx-auto">
             <WorkspaceHeader eyebrow="QUELLEN" title="Website-Crawler"
               description="Indexiere öffentliche Webseiten mit SSRF-Schutz und automatischer Textverarbeitung." />
+
+            <div className="rv-section-kpis rv-config-kpis">
+              <WorkspaceMetric label="Webseitenquellen" value={knowledgeSources.filter((source) => source.type === "website").length} icon={Globe} tone="blue" />
+              <WorkspaceMetric label="Erfolgreich indexiert" value={knowledgeSources.filter((source) => source.type === "website" && source.status === "completed").length} icon={FileText} tone="mint" />
+              <WorkspaceMetric label="In Verarbeitung" value={knowledgeSources.filter((source) => source.type === "website" && ["queued", "processing"].includes(source.status)).length} icon={RefreshCw} tone="amber" />
+            </div>
 
             <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl max-w-xl space-y-4">
               <form onSubmit={handleCrawlWebsite} className="space-y-3">
@@ -2387,7 +2398,7 @@ export default function Dashboard({
                     htmlFor="support-field-14"
                     className="block text-xs font-medium text-slate-400 mb-1"
                   >
-                    Target Website Root URL
+                    Website-Startadresse
                   </label>
                   <input
                     id="support-field-14"
@@ -2399,7 +2410,7 @@ export default function Dashboard({
                     onChange={(e) => setCrawlUrl(e.target.value)}
                   />
                   <p className="text-[10px] text-slate-500 mt-1">
-                    SSRF Protected: Private IP ranges are automatically blocked.
+                    SSRF-Schutz: Private IP-Adressbereiche werden serverseitig blockiert.
                   </p>
                 </div>
                 <button
@@ -2408,8 +2419,8 @@ export default function Dashboard({
                   className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded text-xs transition-colors"
                 >
                   {loading
-                    ? "Launching Crawl Worker..."
-                    : "Start Website Crawl"}
+                    ? "Crawler wird gestartet …"
+                    : "Website indexieren"}
                 </button>
               </form>
             </div>
