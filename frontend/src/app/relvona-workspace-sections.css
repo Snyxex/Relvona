@@ -632,6 +632,17 @@
 .rv-main--modern .rv-inbox-detail .bg-slate-900 {
   background: #fff;
 }
+.rv-main--modern .rv-inbox-detail .bg-slate-800 {
+  background: #f0f4fb;
+  border-color: #dfe7f2;
+}
+.rv-main--modern .rv-inbox-detail .bg-slate-800.text-slate-200,
+.rv-main--modern .rv-inbox-detail input.bg-slate-800 {
+  color: #253752;
+}
+.rv-main--modern .rv-inbox-detail .bg-slate-800.text-slate-400 {
+  color: #647794;
+}
 
 .rv-main--modern .rv-inbox-detail .border-slate-800 {
   border-color: #e8edf4;
