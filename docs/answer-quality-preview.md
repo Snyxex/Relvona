@@ -10,14 +10,14 @@ Requires a signed-in organization owner, administrator, or agent and the normal 
 
 ```json
 {
-  "answer": "Our support team can review this request. [source:policy_2026]",
-  "evidenceIds": ["policy_2026"]
+  "answer": "Our support team can review this request. [source:123e4567-e89b-42d3-a456-426614174000]",
+  "evidenceIds": ["123e4567-e89b-42d3-a456-426614174000"]
 }
 ```
 
-Source markers use the exact format `[source:ID]`, where IDs are 1–80 alphanumeric, underscore, or hyphen characters. `evidenceIds` is a list of references supplied by the caller; **it is not validated against the database or verified as trustworthy content**.
+Source markers use the exact format `[source:ID]`, where IDs are source UUIDs. All supplied evidence IDs are looked up by UUID within the authenticated organization; a missing or foreign source produces HTTP 404 without disclosing whether it exists elsewhere. This verifies source ownership, **not** that the source supports the answer.
 
-Limits: at most 12,000 characters per answer, 30 unique evidence IDs, and 80 characters per ID. Invalid shapes are rejected with HTTP 400. The result contains issue codes and counts, not excerpts of the supplied text; the handler does not persist the draft. HTTP responses are marked `Cache-Control: no-store`. Existing reverse-proxy logging and request tracing policies must still be reviewed before using sensitive content.
+Limits: at most 12,000 characters per answer, 30 unique evidence UUIDs. Invalid shapes are rejected with HTTP 400. The result contains issue codes and counts, not excerpts of the supplied text; the handler does not persist the draft. HTTP responses are marked `Cache-Control: no-store`. Existing reverse-proxy logging and request tracing policies must still be reviewed before using sensitive content.
 
 ## Response and interpretation
 
@@ -42,7 +42,7 @@ The result includes `decision`, `issues`, `evidenceCount`, `citationCount`, and 
 3. The agent inspects warnings, opens source records in the existing knowledge interface, and checks whether individual claims are actually supported.
 4. The agent edits the draft or escalates. Final send/publish remains a separate, authorized action.
 
-The current endpoint does **not** fetch, rank, or validate knowledge sources and does not provide semantic faithfulness evaluation. Future phases may add verified tenant-scoped evidence resolution, semantic comparison with citations, multilingual quality benchmarks, false-positive measurement, and an explicit administrator review queue. None of these are claimed as implemented.
+The current endpoint checks knowledge source ownership but does **not** retrieve or assess their content and does not provide semantic faithfulness evaluation. Future phases may add verified tenant-scoped evidence resolution, semantic comparison with citations, multilingual quality benchmarks, false-positive measurement, and an explicit administrator review queue. None of these are claimed as implemented.
 
 ## Security and verification
 
