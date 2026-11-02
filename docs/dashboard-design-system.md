@@ -103,6 +103,17 @@ As requested, full tests and CI remediation are **not** part of this refactoring
 
 The conversation workflow, ticket/business-action handlers, authentication/login section, and remaining global state inside `dashboard.tsx` are still candidates for extraction into dedicated hooks and components. Their extraction should preserve tenant cancellation, server-side RBAC enforcement, and websocket cleanup rather than merely relocate JSX.
 
+## Conversation-Inbox modularization (code-first continuation)
+
+- `dashboard-tabs/conversations-workspace.tsx`: the original inbox list, filters, assignment, status, internal notes, handoff information, timeline and message composer now live in a standalone typed presentational component. API mutation handlers remain in the parent so existing organization/role context is preserved. The component performs no direct API calls.
+- `hooks/use-conversation-realtime.ts`: a dedicated socket lifecycle hook opens a room only for the current authorized organization/conversation, merges and orders messages by ID, and disconnects on conversation change, leaving the inbox, or unmount.
+- The parent has explicit `InboxConversation`, `InboxMessage`, `ConversationTag`, `InboxAgent`, `InboxTimelineEvent`, `InboxHandoff`, and `InboxSuggestion` state types instead of untyped arrays.
+- Details, translations, internal notes, suggested replies, outgoing agent messages, tag/assignment updates and ticket-to-conversation navigation check the active conversation and organization before applying asynchronous results. A new conversation clears old messages, translations, suggestions and draft fields; refreshing the **same** conversation preserves unsent drafts and deduplicates live messages.
+- The inbox search is debounced by 350 ms. Redundant Enter-key refresh requests were removed.
+- `dashboard.tsx` now contains approximately 1,600 lines rather than the original 3,350.
+
+**Deferred by request:** do not treat code inspection as TypeScript/formatting/browser verification. No new tests, full CI runs or server-agent changes were performed during this continuation. The new code needs the normal review/verification before merging.
+
 ## Limits and follow-up
 
 The reference mockup is a **visual specification**, not a source of example customer names, event counts, dates or ratings. The first rollout updates the employee homepage and its shared sidebar; pre-existing admin settings, editors, profile and portal flows retain their own established UI until they undergo deliberate component-by-component migration.
