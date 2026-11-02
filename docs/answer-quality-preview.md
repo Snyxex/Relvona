@@ -35,6 +35,10 @@ The result includes `decision`, `issues`, `evidenceCount`, `citationCount`, and 
 
 `needs_review` means at least one heuristic flag is present. `no_heuristic_flags` **never** means verified, correct, safe, or ready to publish. It is not a confidence score.
 
+## Manual review UI
+
+Authenticated staff can open `/admin/answer-quality` to enter a draft, select organization knowledge sources and request a preview. The page is a manual workbench; it neither saves nor sends the draft, and it does not run semantic verification. The current source picker loads up to 100 sources and does not yet paginate across larger knowledge bases.
+
 ## Intended use
 
 1. An agent drafts a response using approved organization knowledge.
@@ -42,7 +46,7 @@ The result includes `decision`, `issues`, `evidenceCount`, `citationCount`, and 
 3. The agent inspects warnings, opens source records in the existing knowledge interface, and checks whether individual claims are actually supported.
 4. The agent edits the draft or escalates. Final send/publish remains a separate, authorized action.
 
-The current endpoint checks knowledge source ownership but does **not** retrieve or assess their content and does not provide semantic faithfulness evaluation. Future phases may add verified tenant-scoped evidence resolution, semantic comparison with citations, multilingual quality benchmarks, false-positive measurement, and an explicit administrator review queue. None of these are claimed as implemented.
+The current endpoint checks knowledge source ownership but does **not** retrieve or assess their content and does not provide semantic faithfulness evaluation. Future phases may add semantic comparison with citations, multilingual quality benchmarks, false-positive measurement, and a persisted administrator review queue. None of these are claimed as implemented.
 
 ## Security and verification
 
