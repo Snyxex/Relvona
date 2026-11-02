@@ -83,6 +83,42 @@ The `keep-id` attempt was subsequently rejected by the Jenkins agent in build #1
 
 Jenkins shell tracing is disabled before CI credentials are generated. Build #9 printed disposable credentials due to the prior tracing behavior; they belong only to its isolated test environment and must not be reused.
 
+## Rootless Podman blocked by `NoNewPrivileges` in Jenkins
+
+PR #62 build #23 (2026-11-02) exposed the **actual host process restriction**:
+
+```text
+uid=996(jenkins-agent) gid=993(jenkins-agent)
+NoNewPrivs: 1
+/proc/sys/user/max_user_namespaces=63754
+/proc/sys/kernel/unprivileged_userns_clone=1
+4755 root:root /usr/bin/newuidmap
+4755 root:root /usr/bin/newgidmap
+jenkins-agent:200000:65536 (in both /etc/subuid and /etc/subgid)
+newuidmap: write to uid_map failed: Operation not permitted
+```
+
+The rootless user-namespace helpers need setuid privilege when establishing a fresh mapping. `NoNewPrivs: 1` disables gaining that privilege via setuid, so **even `podman version` fails before any Compose service starts**. Removing `keep-id` alone cannot repair the inherited host process restriction. The Jenkinsfile now reports it directly before invoking Podman.
+
+Host operator diagnosis (run on `node01`, not inside a build container):
+
+```sh
+sudo systemctl show jenkins-agent.service jenkins-podman-agent.service \
+  -p Id -p User -p NoNewPrivileges -p RestrictSUIDSGID
+sudo systemctl cat jenkins-agent.service jenkins-podman-agent.service
+```
+
+Only for the service that **actually launches the Jenkins executor** with `NoNewPrivileges=yes`, add a targeted systemd drop-in (using `sudo systemctl edit <that-service>.service`):
+
+```ini
+[Service]
+NoNewPrivileges=no
+```
+
+Then `sudo systemctl daemon-reload`, restart **that one service**, and verify rootless Podman using the actual Jenkins service account and the next build. If the unit already shows `NoNewPrivileges=no` but the process still reports `NoNewPrivs: 1`, inspect the agent launcher, parent containers, `setpriv`, and hardening wrappers that might set the flag: it cannot be cleared from a child process.
+
+Do **not** disable host-wide privilege protections, run Jenkins as root, make Docker sockets world-writable, or change all Jenkins agent services indiscriminately. The default rootless container UID mapping remains part of the Compose configuration and requires a successful post-fix write test.
+
 ## Biome formatting remediation for PR #62
 
 The dashboard PR's first successful dependency install exposed Biome format mismatches in the five changed frontend files. The PR pipeline temporarily generates an **exact** `artifacts/frontend-biome-format.patch` from the project's own pinned Biome version. It formats a disposable Jenkins workspace, archives the patch even if later quality checks fail, and restores the checkout before enforcing the real format/lint checks. It **does not** silently waive the formatting gate or push commits from CI.
