@@ -1232,3 +1232,52 @@
     scroll-behavior: auto;
   }
 }
+
+/* Widget designer shares the employee workspace palette while preserving
+   widget preview colors, which intentionally come from the form state. */
+.rv-main--modern .rv-widget-workspace > .grid > form,
+.rv-main--modern .rv-widget-workspace > .grid > div,
+.rv-main--modern .rv-widget-workspace > .bg-slate-900 {
+  border-radius: 14px;
+  border: 1px solid #e4eaf4;
+  background: #fff;
+  box-shadow: 0 6px 22px rgba(24, 42, 78, .045);
+}
+.rv-main--modern .rv-widget-workspace .text-white:not(button):not(.bg-blue-600):not(.bg-amber-600) {
+  color: #213552;
+}
+.rv-main--modern .rv-widget-workspace .text-slate-500,
+.rv-main--modern .rv-widget-workspace .text-slate-400 {
+  color: #7585a0;
+}
+.rv-main--modern .rv-widget-workspace .bg-slate-950 {
+  background: #f8faff;
+  color: #29466f;
+  border-color: #dfe6f1;
+}
+.rv-main--modern .rv-widget-workspace pre {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  color: #2758b3;
+}
+.rv-main--modern .rv-widget-workspace .grid > form input[type="color"] {
+  width: 36px;
+  min-width: 36px;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  background: transparent;
+}
+.rv-main--modern .rv-widget-workspace button:focus-visible {
+  outline: 2px solid #5278ed;
+  outline-offset: 3px;
+}
+@media (max-width: 640px) {
+  .rv-main--modern .rv-widget-workspace > .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .rv-main--modern .rv-widget-workspace > .grid > form,
+  .rv-main--modern .rv-widget-workspace > .grid > div {
+    min-width: 0;
+  }
+}
