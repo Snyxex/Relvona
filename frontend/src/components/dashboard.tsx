@@ -99,6 +99,8 @@ export default function Dashboard({
   const [suggesting, setSuggesting] = useState(false);
   const [connected, setConnected] = useState(false);
   const selectedConversationId = useRef<string | undefined>(undefined);
+  const conversationDetailRequestId = useRef(0);
+  const suggestionRequestId = useRef(0);
   selectedConversationId.current = selectedConv?.id;
 
   const [ticketsList, setTicketsList] = useState<any[]>([]);
@@ -537,19 +539,64 @@ export default function Dashboard({
     }
   };
 
-  const handleSelectConversation = async (conv: any) => {
+  const handleSelectConversation = async (conv: { id: string; organizationId?: string }) => {
+    const organizationId = activeOrgIdRef.current;
+    if (!organizationId || (conv.organizationId && conv.organizationId !== organizationId)) return;
+    const requestId = ++conversationDetailRequestId.current;
+    suggestionRequestId.current += 1;
+    selectedConversationId.current = conv.id;
     setSelectedConv(conv);
+    setConvMessages([]);
+    setInboxTimeline([]);
     setInboxHandoff(null);
+    setSuggestion(null);
+    setSuggesting(false);
+    setTranslations({});
+    setAgentMsgInput("");
+    setInternalNoteInput("");
+    const valid = () =>
+      conversationDetailRequestId.current === requestId &&
+      activeOrgIdRef.current === organizationId &&
+      selectedConversationId.current === conv.id;
     try {
       const [messages, timeline, handoff] = await Promise.all([
         api.get(`/conversations/${conv.id}/messages`),
         api.get(`/conversations/${conv.id}/timeline`),
         api.get(`/conversations/${conv.id}/handoff`).catch(() => null),
       ]);
+      if (!valid()) return;
       setConvMessages(messages.data);
       setInboxTimeline(timeline.data);
       setInboxHandoff(handoff?.data || null);
-    } catch (err) {}
+    } catch {
+      if (valid()) showNotify("Unterhaltungsdetails konnten nicht geladen werden.");
+    }
+  };
+
+  const handleSuggestReply = async () => {
+    if (!selectedConv || suggesting) return;
+    const conversationId = selectedConv.id;
+    const organizationId = activeOrgIdRef.current;
+    const requestId = ++suggestionRequestId.current;
+    setSuggesting(true);
+    setSuggestion(null);
+    const valid = () =>
+      suggestionRequestId.current === requestId &&
+      selectedConversationId.current === conversationId &&
+      activeOrgIdRef.current === organizationId;
+    try {
+      const { data } = await api.post(`/conversations/${conversationId}/suggested-reply`);
+      if (!valid()) return;
+      setSuggestion({
+        conversationId,
+        content: typeof data.content === "string" ? data.content : "",
+        sources: Array.isArray(data.sources) ? data.sources.filter((v: unknown): v is string => typeof v === "string") : [],
+      });
+    } catch {
+      if (valid()) showNotify("Antwortvorschlag konnte nicht erstellt werden.");
+    } finally {
+      if (valid()) setSuggesting(false);
+    }
   };
 
   const handleInboxAction = async (path: string, body?: any) => {
@@ -1034,6 +1081,10 @@ export default function Dashboard({
                   if (selected && selected.id !== activeOrg?.id) {
                     tenantFetchEpoch.current += 1;
                     ticketDetailRequestId.current += 1;
+                    conversationDetailRequestId.current += 1;
+                    suggestionRequestId.current += 1;
+                    selectedConversationId.current = undefined;
+                    setSuggesting(false);
                     setOverviewMetrics(null);
                     setConversationsList([]);
                     setSelectedConv(null);
