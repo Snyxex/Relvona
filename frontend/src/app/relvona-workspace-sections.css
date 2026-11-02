@@ -857,3 +857,58 @@
     padding: 16px;
   }
 }
+
+.rv-main--modern .rv-ticket-status-pill {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: #3c67cd;
+  border-color: #d7e4ff;
+  background: #edf3ff;
+}
+.rv-main--modern .rv-ticket-status-pill--open {
+  color: #c25472;
+  border-color: #f5d7e0;
+  background: #fff0f4;
+}
+.rv-main--modern .rv-ticket-status-pill--pending {
+  color: #3179ac;
+  border-color: #cfe8fa;
+  background: #edf8ff;
+}
+.rv-main--modern .rv-ticket-status-pill--in_progress {
+  color: #7853c1;
+  border-color: #e1d7fa;
+  background: #f5efff;
+}
+.rv-main--modern .rv-ticket-status-pill--resolved {
+  color: #15876e;
+  border-color: #ccefe3;
+  background: #e9faf2;
+}
+.rv-main--modern .rv-ticket-status-pill--closed {
+  color: #76859e;
+  border-color: #dfe5ee;
+  background: #f2f5f8;
+}
+.rv-main--modern .rv-inbox-empty {
+  min-height: 220px;
+  padding: 35px 18px;
+  display: flex;
+  gap: 10px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #7391ca;
+}
+.rv-main--modern .rv-inbox-empty strong {
+  color: #344767;
+  font-size: 12px;
+}
+.rv-main--modern .rv-inbox-empty p {
+  color: #8b9bb2;
+  font-size: 11px;
+  line-height: 1.6;
+  max-width: 260px;
+}
