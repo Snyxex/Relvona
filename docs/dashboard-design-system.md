@@ -22,10 +22,13 @@ Typography: Inter when available, then platform system sans fonts. H1 21–30px;
 
 - Desktop: 264px dark sidebar; 69px workspace toolbar; five KPI tiles; three insight charts; three lists.
 - Tablet: KPI grid reduces to three columns; charts and lists stack to two columns.
-- Phone: horizontal compact navigation; KPI grid two columns; charts and lists become single column; date filter remains operable.
+- Tablet/phone (<=950px): the entire workspace switches from side-by-side flex rows to a **column layout**, placing navigation above a scrollable dashboard. Without this shell change, a 100%-width sidebar would otherwise push the dashboard off screen.
+- Phone: horizontal compact navigation; KPI grid two columns; charts and lists become single column; date filter remains operable. Native form widgets use a light color scheme only on the light dashboard.
 - The header notification bell is the **existing functional** notification center; do not replace it with a decorative icon.
 - All charts should have meaningful text labels, a data-empty state, and a reduced-motion equivalent.
 - Real data only. Never fill dashboard KPIs with figures from the UI reference mockup.
+- Lazy-loaded views show an appropriately colored dashboard skeleton; missing organization context and API failures have distinct empty/error states.
+- After first successful loading, the dashboard refreshes every **60 seconds while the browser tab is visible**, and also on return to the tab. The request is cancellable, background failures leave the last good numbers visible with a warning, and user-requested refresh does not blank the cards. Switching organizations immediately unmounts the old tenant's dashboard before loading the next tenant.
 
 ## Data contracts
 
