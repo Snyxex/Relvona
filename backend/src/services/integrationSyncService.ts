@@ -165,6 +165,12 @@ export class IntegrationSyncService {
       const linkedId = await this.linkedZendeskTicketId(data.organizationId, rule.connectionId, localTicketId);
       if (linkedId !== data.externalTicketId) throw new Error("Zendesk ticket identity mismatch");
     }
+    // Ticket identity alone does not prove that a specific update or comment
+    // was applied. Do not mark those actions succeeded without action-level
+    // evidence; retain needs_review for a future audited reconciliation flow.
+    if (rule.action !== "zendesk.create_ticket") {
+      throw new Error("Action-level Zendesk evidence required");
+    }
     // Both the status transition and audit record must commit atomically.
     // The generic AuditService intentionally swallows errors, so it is not
     // appropriate for this security-sensitive confirmation path.
