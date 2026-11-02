@@ -83,6 +83,7 @@ export default function Dashboard({
   const [inboxFrom, setInboxFrom] = useState("");
   const [inboxTo, setInboxTo] = useState("");
   const [inboxSearch, setInboxSearch] = useState("");
+  const [debouncedInboxSearch, setDebouncedInboxSearch] = useState("");
   const [inboxSort, setInboxSort] = useState("newest");
   const [inboxTags, setInboxTags] = useState<any[]>([]);
   const [inboxAgents, setInboxAgents] = useState<any[]>([]);
@@ -192,6 +193,11 @@ export default function Dashboard({
       active = false;
     };
   }, [administration]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedInboxSearch(inboxSearch), 350);
+    return () => window.clearTimeout(timer);
+  }, [inboxSearch]);
 
   // A visible, authenticated dashboard provides the freshness signal for routing.
   // Persisted AWAY/OFFLINE values are never overridden by a heartbeat.
@@ -351,7 +357,7 @@ export default function Dashboard({
             tagId: inboxTagId || undefined,
             from: inboxFrom || undefined,
             to: inboxTo || undefined,
-            q: inboxSearch || undefined,
+            q: debouncedInboxSearch || undefined,
             sort: inboxSort,
           },
         });
@@ -415,7 +421,7 @@ export default function Dashboard({
     inboxAgentId,
     inboxFrom,
     inboxTo,
-    inboxSearch,
+    debouncedInboxSearch,
     inboxSort,
     inboxTagId,
     auth?.user?.id,
@@ -1108,6 +1114,8 @@ export default function Dashboard({
                     setConversationsList([]);
                     setSelectedConv(null);
                     setConvMessages([]);
+                    setInboxSearch("");
+                    setDebouncedInboxSearch("");
                     setInboxTags([]);
                     setInboxAgents([]);
                     setInboxTimeline([]);
