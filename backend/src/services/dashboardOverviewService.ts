@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, sql, asc } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { analyticsEvents, conversations, customers, messageFeedback, organizations, tickets } from "../db/schema.js";
 import { bookings, meetingTypes, ticketCaseMetadata } from "../db/extendedCustomerExperienceSchema.js";
@@ -23,8 +23,8 @@ export class DashboardOverviewService {
     const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
     const from = new Date(today - (days - 1) * 86_400_000);
     const previousFrom = new Date(today - (days * 2 - 1) * 86_400_000);
-    const ticketDay = sql`to_char(${tickets.createdAt} at time zone 'UTC', 'YYYY-MM-DD')`;
-    const conversationDay = sql`to_char(${conversations.createdAt} at time zone 'UTC', 'YYYY-MM-DD')`;
+    const ticketDay = sql`to_char(${tickets.createdAt}, 'YYYY-MM-DD')`;
+    const conversationDay = sql`to_char(${conversations.createdAt}, 'YYYY-MM-DD')`;
     const categoryExpression = sql`case when jsonb_typeof(${tickets.tags}) = 'array'
       then coalesce(nullif(${tickets.tags}->>0, ''), 'Ohne Kategorie') else 'Ohne Kategorie' end`;
 
@@ -46,13 +46,13 @@ export class DashboardOverviewService {
       db.select({ status: tickets.status, total: sql<number>`count(*)::int` })
         .from(tickets).where(eq(tickets.organizationId, organizationId)).groupBy(tickets.status),
       db.select({ name: sql<string>`${categoryExpression}`, total: sql<number>`count(*)::int` })
-        .from(tickets).where(and(eq(tickets.organizationId, organizationId), gte(tickets.createdAt, from)))
+        .from(tickets).where(and(eq(tickets.organizationId, organizationId), gte(tickets.createdAt, from), lte(tickets.createdAt, now)))
         .groupBy(categoryExpression).orderBy(desc(sql`count(*)`)).limit(5),
       db.select({ day: sql<string>`${ticketDay}`, total: sql<number>`count(*)::int` })
-        .from(tickets).where(and(eq(tickets.organizationId, organizationId), gte(tickets.createdAt, from)))
+        .from(tickets).where(and(eq(tickets.organizationId, organizationId), gte(tickets.createdAt, from), lte(tickets.createdAt, now)))
         .groupBy(ticketDay),
       db.select({ day: sql<string>`${conversationDay}`, total: sql<number>`count(*)::int` })
-        .from(conversations).where(and(eq(conversations.organizationId, organizationId), gte(conversations.createdAt, from)))
+        .from(conversations).where(and(eq(conversations.organizationId, organizationId), gte(conversations.createdAt, from), lte(conversations.createdAt, now)))
         .groupBy(conversationDay),
       db.select({
         id: tickets.id, number: tickets.ticketNumber, subject: tickets.subject,
@@ -77,14 +77,14 @@ export class DashboardOverviewService {
         positive: sql<number>`count(*) filter (where ${messageFeedback.rating} = 1)::int`,
         negative: sql<number>`count(*) filter (where ${messageFeedback.rating} = -1)::int`,
       }).from(messageFeedback).where(and(eq(messageFeedback.organizationId, organizationId),
-        gte(messageFeedback.createdAt, from))),
+        gte(messageFeedback.createdAt, from), lte(messageFeedback.createdAt, now))),
       db.select({
         averageMinutes: sql<number | null>`round(avg(extract(epoch from
           (${ticketCaseMetadata.firstRespondedAt} - ${tickets.createdAt})) / 60)
           filter (where ${ticketCaseMetadata.firstRespondedAt} >= ${tickets.createdAt})::numeric, 1)::float`,
       }).from(ticketCaseMetadata).innerJoin(tickets, and(eq(tickets.id, ticketCaseMetadata.ticketId),
         eq(tickets.organizationId, organizationId))).where(and(
-          eq(ticketCaseMetadata.organizationId, organizationId), gte(tickets.createdAt, from))),
+          eq(ticketCaseMetadata.organizationId, organizationId), gte(tickets.createdAt, from), lte(tickets.createdAt, now))),
       db.select({ total: sql<number>`count(*)::int` }).from(bookings)
         .where(and(eq(bookings.organizationId, organizationId), gte(bookings.startsAt, now),
           eq(bookings.status, "confirmed"))),
