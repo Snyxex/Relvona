@@ -1447,6 +1447,7 @@ export default function Dashboard({
                     if (event.key === "Enter") void fetchTenantData();
                   }}
                   placeholder="Kunde, E-Mail, ID oder Nachricht"
+                  aria-label="Unterhaltungen durchsuchen"
                   className="w-full rounded bg-slate-800 px-2 py-1.5 text-xs"
                 />
                 <div className="flex items-center justify-between gap-2 text-[10px] text-slate-400">
@@ -1546,11 +1547,19 @@ export default function Dashboard({
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto divide-y divide-slate-800/60">
+                {conversationsList.length === 0 && (
+                  <div className="rv-inbox-empty" role="status">
+                    <MessageSquare size={24} aria-hidden="true" />
+                    <strong>Keine Unterhaltungen gefunden</strong>
+                    <p>Neue Anfragen und passende Suchergebnisse erscheinen hier.</p>
+                  </div>
+                )}
                 {conversationsList.map((conv) => (
                   <button
                     type="button"
                     key={conv.id}
                     onClick={() => handleSelectConversation(conv)}
+                    aria-current={selectedConv?.id === conv.id ? "true" : undefined}
                     className={`w-full p-3 text-left transition-colors flex flex-col gap-1 ${
                       selectedConv?.id === conv.id
                         ? "bg-blue-950/60 border-l-4 border-blue-500"
@@ -1906,7 +1915,7 @@ export default function Dashboard({
                 </>
               ) : (
                 <div className="flex-1 flex items-center justify-center text-slate-500 text-xs">
-                  Select a conversation from the left inbox to respond
+                  Wähle links eine Unterhaltung aus, um sie zu bearbeiten.
                 </div>
               )}
             </div>
