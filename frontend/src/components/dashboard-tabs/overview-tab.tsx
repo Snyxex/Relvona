@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, ArrowDownRight, ArrowRight, ArrowUpRight, CalendarDays, CheckCircle2,
   Clock3, Headphones, Search, Sparkles, Star, Ticket,
@@ -128,17 +128,67 @@ function OverviewTab({organizationId,user,onNavigate,onOpenTicket,canManage}:Pro
   const [days,setDays]=useState(30);
   const [data,setData]=useState<DashboardReport|null>(null);
   const [loading,setLoading]=useState(true);
+  const [refreshing,setRefreshing]=useState(false);
+  const [refreshError,setRefreshError]=useState(false);
   const [error,setError]=useState("");
-  const [reload,setReload]=useState(0);
   const [search,setSearch]=useState("");
+  const refreshRef=useRef<()=>void>(()=>{});
   useEffect(()=>{
-    if(!organizationId){setData(null);setLoading(false);return;}
-    let active=true;setLoading(true);setError("");setData(null);
-    void api.get("/analytics/dashboard",{params:{days}}).then(({data:payload})=>{
-      if(active)setData(payload);
-    }).catch(()=>{if(active)setError("Dashboard-Daten konnten nicht geladen werden.");}).finally(()=>{if(active)setLoading(false);});
-    return()=>{active=false;};
-  },[organizationId,days,reload]);
+    if(!organizationId){
+      refreshRef.current=()=>{};
+      setData(null);
+      setLoading(false);
+      return;
+    }
+    let active=true;
+    let inFlight=false;
+    let loaded=false;
+    const controller=new AbortController();
+    setData(null);
+    setLoading(true);
+    setError("");
+    setRefreshError(false);
+
+    const refresh=()=>{
+      if(!active||inFlight)return;
+      inFlight=true;
+      if(loaded)setRefreshing(true);
+      void api.get<DashboardReport>("/analytics/dashboard",{
+        params:{days},
+        signal:controller.signal,
+      }).then(({data:payload})=>{
+        if(!active)return;
+        setData(payload);
+        loaded=true;
+        setError("");
+        setRefreshError(false);
+      }).catch(()=>{
+        if(!active)return;
+        if(loaded)setRefreshError(true);
+        else setError("Dashboard-Daten konnten nicht geladen werden.");
+      }).finally(()=>{
+        inFlight=false;
+        if(active){setLoading(false);setRefreshing(false);}
+      });
+    };
+
+    refreshRef.current=refresh;
+    refresh();
+    const timer=window.setInterval(()=>{
+      if(document.visibilityState==="visible")refresh();
+    },60_000);
+    const onVisible=()=>{
+      if(document.visibilityState==="visible")refresh();
+    };
+    document.addEventListener("visibilitychange",onVisible);
+    return()=>{
+      active=false;
+      refreshRef.current=()=>{};
+      controller.abort();
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange",onVisible);
+    };
+  },[organizationId,days]);
   const visibleTickets=useMemo(()=>data?.recentTickets.filter(t=>
     `${t.subject} ${t.customerName||""} ${t.number}`.toLowerCase().includes(search.toLowerCase()))||[],[data,search]);
   const metrics=data?.kpis;
@@ -147,10 +197,10 @@ function OverviewTab({organizationId,user,onNavigate,onOpenTicket,canManage}:Pro
       <span className="rv-toolbar-workspace">Relvona Workspace</span><span className="rv-toolbar-user">{user?.avatarUrl?<img src={user.avatarUrl} alt=""/>:<span>{(user?.name||"R").slice(0,1)}</span>}<strong>{user?.name||"Support Team"}</strong></span></div>
     <div className="rv-overview-body">
       <div className="rv-welcome"><div><p className="rv-eyebrow">Schön, dass du da bist.</p><h1>Das passiert gerade bei Relvona</h1><p>AI-gestützter Support. Zufriedene Kunden. Ein produktives Team.</p></div>
-        <div className="rv-date-controls"><label htmlFor="rv-range"><CalendarDays size={17}/><span className="sr-only">Zeitraum</span></label><select id="rv-range" value={days} onChange={e=>setDays(Number(e.target.value))}><option value={7}>Letzte 7 Tage</option><option value={30}>Letzte 30 Tage</option><option value={90}>Letzte 90 Tage</option></select><button type="button" aria-label="Dashboard aktualisieren" title="Dashboard aktualisieren" onClick={()=>setReload(v=>v+1)}>↻</button></div>
+        <div className="rv-date-controls"><label htmlFor="rv-range"><CalendarDays size={17}/><span className="sr-only">Zeitraum</span></label><select id="rv-range" value={days} onChange={e=>setDays(Number(e.target.value))}><option value={7}>Letzte 7 Tage</option><option value={30}>Letzte 30 Tage</option><option value={90}>Letzte 90 Tage</option></select><button type="button" aria-label="Dashboard aktualisieren" title="Dashboard aktualisieren" disabled={refreshing} onClick={()=>refreshRef.current()}>{refreshing?"…":"↻"}</button></div>
       </div>
       {loading&&<div role="status" className="rv-panel rv-loading">Dashboard-Daten werden geladen …</div>}
-      {error&&<div role="alert" className="rv-error">{error} <button type="button" onClick={()=>setReload(v=>v+1)}>Erneut versuchen</button></div>}
+      {error&&<div role="alert" className="rv-error">{error} <button type="button" onClick={()=>refreshRef.current()}>Erneut versuchen</button></div>}
       {!loading&&!error&&data&&metrics&&<>
         <div className="rv-kpi-grid">
           <MetricCard label="Support-Tickets" icon={Ticket} value={formatNumber(metrics.tickets)} detail="zum vorherigen Zeitraum" tone="#4c78f7" change={delta(metrics.tickets,metrics.previous.tickets)} spark={data.volume.map(x=>x.tickets)}/>
@@ -194,7 +244,11 @@ function OverviewTab({organizationId,user,onNavigate,onOpenTicket,canManage}:Pro
             </div>;})}{!data.activity.length&&<p className="rv-empty-small">Noch keine Aktivitäten erfasst.</p>}</div>
           </section>
         </div>
-        <p className="rv-data-note"><CheckCircle2 size={13}/> Live-Daten deiner Organisation · Stand {new Date(data.generatedAt).toLocaleString("de-DE")} · Keine Demo-Kennzahlen</p>
+        <p className="rv-data-note" role="status" aria-live="polite">
+          <CheckCircle2 size={13}/>
+          {refreshError?"Aktualisierung derzeit nicht möglich – zuletzt geladene Werte werden angezeigt.":refreshing?"Daten werden aktualisiert…":"Live-Daten deiner Organisation"}
+          {" · "}Stand {new Date(data.generatedAt).toLocaleString("de-DE")} · Automatische Aktualisierung alle 60 Sekunden
+        </p>
       </>}
     </div>
   </div>;
