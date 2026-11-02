@@ -399,11 +399,22 @@ export default function Dashboard({
     );
   };
 
+  // A response belongs to both a specific organization and a specific load.
+  // Older requests must not overwrite newer filter/organization results.
+  const tenantFetchEpoch = useRef(0);
+  const activeOrgIdRef = useRef<string | undefined>(activeOrg?.id);
+  activeOrgIdRef.current = activeOrg?.id;
+
   const fetchTenantData = useCallback(async () => {
+    const requestedOrgId: string | undefined = activeOrg?.id;
+    if (!requestedOrgId) return;
+    const epoch = ++tenantFetchEpoch.current;
+    const isFresh = () =>
+      epoch === tenantFetchEpoch.current && activeOrgIdRef.current === requestedOrgId;
     try {
       if (activeTab === "overview" || activeTab === "analytics") {
         const res = await api.get("/analytics/overview");
-        setOverviewMetrics(res.data);
+        if (isFresh()) setOverviewMetrics(res.data);
       }
 
       if (activeTab === "conversations") {
@@ -419,11 +430,13 @@ export default function Dashboard({
             sort: inboxSort,
           },
         });
+        if (!isFresh()) return;
         setConversationsList(res.data);
         const [tags, agents] = await Promise.all([
           api.get("/conversations/meta/tags"),
           api.get("/conversations/meta/agents"),
         ]);
+        if (!isFresh()) return;
         setInboxTags(tags.data);
         setInboxAgents(agents.data);
         const ownPresence = agents.data.find(
@@ -434,7 +447,7 @@ export default function Dashboard({
 
       if (activeTab === "tickets") {
         const res = await api.get("/tickets");
-        setTicketsList(res.data);
+        if (isFresh()) setTicketsList(res.data);
       }
 
       if (activeTab === "knowledge" || activeTab === "websites") {
@@ -442,6 +455,7 @@ export default function Dashboard({
           api.get("/knowledge/bases"),
           api.get("/knowledge/sources"),
         ]);
+        if (!isFresh()) return;
         setKnowledgeBases(kbRes.data);
         setKnowledgeSources(srcRes.data);
         if (kbRes.data.length > 0 && !selectedKbId) {
@@ -451,21 +465,22 @@ export default function Dashboard({
 
       if (activeTab === "assistant" || activeTab === "widget") {
         const res = await api.get("/assistants");
+        if (!isFresh()) return;
         setAssistantsList(res.data);
-        if (res.data.length > 0) setActiveAssistant(res.data[0]);
+        setActiveAssistant(res.data[0] ?? null);
       }
 
       if (activeTab === "agents") {
         const res = await api.get("/agents");
-        setAgentsList(res.data);
+        if (isFresh()) setAgentsList(res.data);
       }
 
       if (activeTab === "customers") {
         const res = await api.get("/customers");
-        setCustomersList(res.data);
+        if (isFresh()) setCustomersList(res.data);
       }
     } catch (err: any) {
-      console.error("Failed to load tenant data", err);
+      if (isFresh()) console.error("Failed to load tenant data", err);
     }
   }, [
     activeTab,
@@ -479,10 +494,15 @@ export default function Dashboard({
     inboxSort,
     inboxTagId,
     auth?.user?.id,
+    activeOrg?.id,
   ]);
 
   useEffect(() => {
     if (auth && activeOrg) void fetchTenantData();
+    return () => {
+      // Invalidate requests during tab/filter changes and unmount.
+      tenantFetchEpoch.current += 1;
+    };
   }, [auth, activeOrg, fetchTenantData]);
 
   // --- Handlers for Data Actions ---
@@ -1088,7 +1108,32 @@ export default function Dashboard({
                   const selected = auth.organizations.find(
                     (o) => o.id === e.target.value,
                   );
-                  if (selected) {
+                  if (selected && selected.id !== activeOrg?.id) {
+                    tenantFetchEpoch.current += 1;
+                    setOverviewMetrics(null);
+                    setConversationsList([]);
+                    setSelectedConv(null);
+                    setConvMessages([]);
+                    setInboxTags([]);
+                    setInboxAgents([]);
+                    setInboxTimeline([]);
+                    setInboxHandoff(null);
+                    setSuggestion(null);
+                    setSelectedTicket(null);
+                    setTicketCommentsList([]);
+                    setTicketsList([]);
+                    setKnowledgeBases([]);
+                    setKnowledgeSources([]);
+                    setSelectedKbId("");
+                    setAssistantsList([]);
+                    setActiveAssistant(null);
+                    setAgentsList([]);
+                    setCustomersList([]);
+                    setTranslations({});
+                    setPdfFile(null);
+                    setDocTitle("");
+                    setDocContent("");
+                    setCrawlUrl("");
                     setActiveOrg(selected);
                     localStorage.setItem("active_org_id", selected.id);
                   }
