@@ -65,6 +65,20 @@ router.get("/entra/:organizationId/start", createRateLimiter({ keyPrefix: "entra
 });
 router.get("/entra/callback", (_req, res) => res.status(410).json({ error: "SSO_CALLBACK_MOVED", callback: "/api/auth/entra/callback" }));
 
+// Profile endpoints must never accept a caller-supplied target identity.
+// Authentication always binds these actions to the verified session user.
+function rejectProfileIdentityOverride(req: AuthRequest, res: import("express").Response, next: import("express").NextFunction) {
+  const forbidden = ["id", "userId", "user_id", "accountId", "account_id"];
+  for (const key of forbidden) {
+    if (Object.prototype.hasOwnProperty.call(req.query, key) ||
+        (req.body && typeof req.body === "object" && Object.prototype.hasOwnProperty.call(req.body, key))) {
+      return res.status(400).json({ error: "PROFILE_ID_OVERRIDE_NOT_ALLOWED" });
+    }
+  }
+  return next();
+}
+router.use("/me", authenticate, rejectProfileIdentityOverride);
+
 router.get("/me", authenticate, async (req: AuthRequest, res) => res.json({ user: req.user }));
 
 router.get("/organizations", authenticate, async (req: AuthRequest, res) => {
