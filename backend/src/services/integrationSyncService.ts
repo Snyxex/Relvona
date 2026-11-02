@@ -92,12 +92,18 @@ export class IntegrationSyncService {
     if (!execution) throw new Error("Integration sync execution not found");
     if (execution.status !== "failed") throw new Error("Only failed sync executions can be retried");
 
-    const [rule] = await db.select({ id: integrationSyncRules.id, enabled: integrationSyncRules.enabled })
+    const [rule] = await db.select({ id: integrationSyncRules.id, enabled: integrationSyncRules.enabled, connectionId: integrationSyncRules.connectionId })
       .from(integrationSyncRules)
       .where(and(eq(integrationSyncRules.organizationId, organizationId), eq(integrationSyncRules.id, execution.ruleId)))
       .limit(1);
     if (!rule) throw new Error("Integration sync rule not found");
     if (!rule.enabled) throw new Error("Integration sync rule is disabled");
+    const [connection] = await db.select({ id: integrationConnections.id }).from(integrationConnections)
+      .where(and(eq(integrationConnections.organizationId, organizationId),
+        eq(integrationConnections.id, rule.connectionId),
+        eq(integrationConnections.provider, "zendesk"),
+        eq(integrationConnections.enabled, true))).limit(1);
+    if (!connection) throw new Error("Integration connection disabled or missing");
 
     const [updated] = await db.update(integrationSyncExecutions).set({ status: "pending", error: null, updatedAt: new Date() })
       .where(and(eq(integrationSyncExecutions.organizationId, organizationId), eq(integrationSyncExecutions.id, id), eq(integrationSyncExecutions.status, "failed")))
