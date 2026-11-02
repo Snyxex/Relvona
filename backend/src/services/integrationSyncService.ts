@@ -182,6 +182,12 @@ export class IntegrationSyncService {
         )).limit(1);
         if (!rule) throw new Error("Integration sync rule is disabled or missing");
         if (!isAllowedRule(rule.eventType, rule.action)) throw new Error("Unsupported integration sync execution");
+        const [connection] = await db.select({ id: integrationConnections.id }).from(integrationConnections)
+          .where(and(eq(integrationConnections.id, rule.connectionId),
+            eq(integrationConnections.organizationId, organizationId),
+            eq(integrationConnections.provider, "zendesk"),
+            eq(integrationConnections.enabled, true))).limit(1);
+        if (!connection) throw new Error("Integration connection disabled or missing");
 
         let externalId: string | null = null;
         if (rule.eventType === "ticket.comment.created" && rule.action === "zendesk.add_comment") {
