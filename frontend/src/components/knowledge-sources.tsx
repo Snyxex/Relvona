@@ -11,6 +11,13 @@ export type KnowledgeSource = {
 };
 type Editor = { sourceId: string; title: string; content: string; category: string; language: string };
 
+const SOURCE_STATUS: Record<string, string> = {
+  queued: "Wartend",
+  processing: "In Verarbeitung",
+  completed: "Abgeschlossen",
+  failed: "Fehlgeschlagen",
+};
+
 function KnowledgeSources({ sources, canManage, onRefresh, notify }: {
   sources: KnowledgeSource[]; canManage: boolean; onRefresh: () => Promise<void>; notify: (message: string) => void;
 }) {
@@ -100,7 +107,7 @@ function KnowledgeSources({ sources, canManage, onRefresh, notify }: {
           <option value="failed">Fehlgeschlagen</option>
         </select>
       </label>
-      <span className="rv-directory-result">{visibleSources.length} Treffer</span>
+      <span className="rv-directory-result" role="status" aria-live="polite">{visibleSources.length} Treffer</span>
     </div>
     {editor && <form className="space-y-3 border-b border-slate-800 p-4" onSubmit={async (event) => {
       event.preventDefault(); setBusy(editor.sourceId);
@@ -118,7 +125,7 @@ function KnowledgeSources({ sources, canManage, onRefresh, notify }: {
       <thead className="bg-slate-800/80 text-slate-400"><tr><th className="p-3">Titel</th><th className="p-3">Typ</th><th className="p-3">Chunks</th><th className="p-3">Verarbeitung</th><th className="p-3">Aktionen</th></tr></thead>
       <tbody className="divide-y divide-slate-800/60">{visibleSources.map((source) => <tr key={source.id}>
         <td className="p-3 font-medium">{source.title}</td><td className="p-3">{source.type}</td><td className="p-3">{source.chunkCount}</td>
-        <td className="p-3"><span className={source.status === "failed" ? "text-red-300" : source.status === "completed" ? "text-emerald-300" : "text-amber-300"}>{source.status}</span>{source.job && <p className="mt-1 text-slate-500">Version {source.job.revision} · Versuch {source.job.attempts}/3</p>}{source.securityStatus !== "SAFE" && <p className="text-amber-300">Sicherheitsprüfung: {source.securityStatus} – nicht für KI-Antworten freigegeben</p>}{source.errorMessage && <p className="mt-1 max-w-sm text-red-300">{source.errorMessage}</p>}</td>
+        <td className="p-3"><span className={`rv-source-status rv-source-status--${source.status} ${source.status === "failed" ? "text-red-300" : source.status === "completed" ? "text-emerald-300" : "text-amber-300"}`}>{SOURCE_STATUS[source.status] || source.status}</span>{source.job && <p className="mt-1 text-slate-500">Version {source.job.revision} · Versuch {source.job.attempts}/3</p>}{source.securityStatus !== "SAFE" && <p className="text-amber-300">Sicherheitsprüfung: {source.securityStatus} – nicht für KI-Antworten freigegeben</p>}{source.errorMessage && <p className="mt-1 max-w-sm text-red-300">{source.errorMessage}</p>}</td>
         <td className="p-3">{canManage && <div className="flex flex-wrap gap-3">
           <button type="button" disabled={Boolean(busy) || ["queued", "processing"].includes(source.status)} className="text-blue-300 disabled:opacity-40" onClick={() => { void action(source, "reprocess"); }}>{source.type === "website" ? "Erneut crawlen" : "Neu verarbeiten"}</button>
           {["document", "faq"].includes(source.type) && <button type="button" disabled={Boolean(busy)} className="text-blue-300 disabled:opacity-40" onClick={() => { void action(source, "edit"); }}>Bearbeiten</button>}
