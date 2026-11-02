@@ -11,6 +11,7 @@ const client = new pg.Client({ connectionString: url });
 const a = randomUUID(), b = randomUUID();
 const customerA = randomUUID(), customerB = randomUUID();
 const ticketA = randomUUID(), ticketB = randomUUID(), convA = randomUUID(), convB = randomUUID();
+const meetingTypeA = randomUUID(), meetingTypeB = randomUUID(), bookingA = randomUUID(), bookingB = randomUUID();
 async function run() {
   await client.connect();
   try {
@@ -22,12 +23,26 @@ async function run() {
       [ticketA,a,customerA,ticketB,b,customerB]);
     await client.query("INSERT INTO conversations (id,organization_id,customer_id,state) VALUES ($1,$2,$3,'AI_ACTIVE'),($4,$5,$6,'RESOLVED')",
       [convA,a,customerA,convB,b,customerB]);
+    await client.query(
+      "INSERT INTO meeting_types (id,organization_id,name,slug,duration_minutes) VALUES ($1,$2,'Demo A','demo-a',30),($3,$4,'Private B','private-b',30)",
+      [meetingTypeA, a, meetingTypeB, b],
+    );
+    const start = new Date(Date.now() + 3_600_000);
+    const end = new Date(start.getTime() + 1_800_000);
+    await client.query(
+      "INSERT INTO bookings (id,organization_id,meeting_type_id,starts_at,ends_at,timezone,status,guest_name,meeting_url) VALUES ($1,$2,$3,$4,$5,'UTC','confirmed','Alpha Guest','https://example.test/a'),($6,$7,$8,$4,$5,'UTC','confirmed','Secret Guest','https://example.test/b')",
+      [bookingA, a, meetingTypeA, start, end, bookingB, b, meetingTypeB],
+    );
     await withDatabaseTenantContext(async () => {
       setDatabaseTenant(a);
       const report = await DashboardOverviewService.get(a,30, { canViewTickets: true, canViewScheduling: true });
       assert.equal(report.kpis.tickets, 1, "only organization A's tickets count");
       assert.equal(report.kpis.conversations, 1, "only organization A's conversations count");
-      assert.equal(report.kpis.appointments, 0);
+      assert.equal(report.kpis.appointments, 1);
+      assert.equal(report.kpis.upcomingAppointments, 1);
+      assert.equal(report.upcomingAppointments.length, 1);
+      assert.equal(report.upcomingAppointments[0].guestName, "Alpha Guest");
+      assert.equal(report.upcomingAppointments[0].meetingUrl, "https://example.test/a");
       assert.equal(report.statusTotal, 1);
       assert.equal(report.status.length, 1);
       assert.equal(report.status[0].status, "open");
@@ -45,6 +60,7 @@ async function run() {
       assert.equal(limited.kpis.tickets, 1, "analytics totals can remain available without ticket details");
       assert.deepEqual(limited.recentTickets, [], "ticket subjects and customer names require tickets.view");
       assert.deepEqual(limited.upcomingAppointments, [], "guest names and meeting links require scheduling.view");
+      assert.equal(limited.kpis.upcomingAppointments, 1, "aggregate schedule metrics remain available");
       await assert.rejects(
         DashboardOverviewService.get(a, 999, { canViewTickets: true, canViewScheduling: true }),
         /Invalid dashboard range/,
