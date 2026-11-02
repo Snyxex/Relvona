@@ -16,6 +16,9 @@ For self-service endpoints such as `/api/v1/auth/me`, use `req.user.id` exclusiv
 - `backend/src/routes/customers.ts`: customer detail lookup and deletion require both resource ID and authenticated organization ID.
 - `backend/src/routes/tickets.ts`: ticket comment timeline now checks that its parent ticket exists in the authenticated organization before returning children.
 - `backend/src/routes/conversations.ts`: timeline, handoff, and message endpoints now check the parent conversation exists in the current organization before reading or mutating nested records.
+- `backend/src/services/customerPortalAttachmentService.ts`: portal ticket attachments were already restricted by organization, session customer ID, ticket ID, attachment ID, `CUSTOMER_VISIBLE` status, and ready storage objects. The signed download URL remains a bearer capability until expiration.
+- `backend/src/services/customerPortalService.ts`: portal session account/customer joins and linked visitor conversation joins now explicitly enforce the same authenticated organization ID, in addition to existing tenant-scoped predicates.
+- `backend/src/routes/attachments.ts`: internal attachment list, upload binding, download and deletion already use an authenticated organization; upload finalization binds the initiating user, parent and visibility. Staff deletion additionally checks administrative role or uploader ownership.
 
 This is **not** a complete route/service/database audit. Platform administration, customer-portal authentication, integrations, RAG retrieval, attachments, user/member administration, and nested resource references require separate review.
 
@@ -40,8 +43,9 @@ Run checks against a disposable PostgreSQL database with RLS enabled **and** aga
 ## Follow-up priorities
 
 1. Enumerate all route parameters and service methods; produce a complete ID-to-scope matrix.
-2. Audit customer portal and attachment/object-storage URLs, including signed-link ownership.
-3. Audit every cross-resource write with tenant-filtered foreign key lookups and transactional mutations.
-4. Add integration regression coverage for normal users, admins, inactive members, and cross-tenant adversarial ID changes.
+2. Review object-storage signed URL TTL, public accessibility, and revocation strategy; URL recipients can access an issued bearer link until it expires even if the application session is revoked.
+3. Complete customer portal and attachment authorization integration tests, including cross-tenant account/customer relationships and mixed-owner parent IDs.
+4. Audit every cross-resource write with tenant-filtered foreign key lookups and transactional mutations.
+5. Add integration regression coverage for normal users, admins, inactive members, and cross-tenant adversarial ID changes.
 
 No claim of comprehensive IDOR prevention should be made until that work and its negative tests are complete.
