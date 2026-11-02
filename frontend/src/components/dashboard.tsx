@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import {
   Bot,
-  FileText,
   Globe,
   MessageSquare,
   Ticket,
@@ -19,7 +18,6 @@ import {
   AlertCircle,
   Users,
   LogOut,
-  RefreshCw,
   Sliders,
   BookOpen,
   CalendarDays,
@@ -30,7 +28,7 @@ import ProfileSecuritySettings from "@/components/profile-security-settings";
 import OrganizationSettings from "@/components/dashboard-tabs/organization-settings";
 import WidgetDesigner from "@/components/dashboard-tabs/widget-designer";
 import { KnowledgeWorkspace, WebsiteCrawlerWorkspace } from "@/components/dashboard-tabs/knowledge-workspaces";
-import { WorkspaceEmpty, WorkspaceHeader, WorkspaceMetric } from "@/components/dashboard-tabs/workspace-primitives";
+import { WorkspaceEmpty, WorkspaceHeader } from "@/components/dashboard-tabs/workspace-primitives";
 import {
   LazyAgentsTab,
   LazyAnalyticsTab,
@@ -39,6 +37,7 @@ import {
 } from "@/components/dashboard-tabs/lazy-tabs";
 import { api, API_BASE_URL } from "@/lib/api";
 import { TICKET_STATUS_OPTIONS, ticketStatusLabel, ticketStatusTone } from "@/lib/support-status";
+import { type DashboardTab, dashboardNavigation } from "@/lib/dashboard-navigation";
 import { authClient } from "@/lib/auth-client";
 import {
   type DashboardLanguage,
@@ -66,20 +65,7 @@ export default function Dashboard({
   } | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
   const [activeOrg, setActiveOrg] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<
-    | "overview"
-    | "conversations"
-    | "tickets"
-    | "knowledge"
-    | "websites"
-    | "assistant"
-    | "agents"
-    | "customers"
-    | "analytics"
-    | "widget"
-    | "settings"
-    | "profile"
-  >(initialTab ?? (administration ? "assistant" : "overview"));
+  const [activeTab, setActiveTab] = useState<DashboardTab>(initialTab ?? (administration ? "assistant" : "overview"));
 
   // Auth Form State
   const [isRegistering, setIsRegistering] = useState(false);
@@ -1159,45 +1145,7 @@ export default function Dashboard({
                 Plattformverwaltung
               </a>
             )}
-            {[
-              { id: "overview", label: "Dashboard", icon: BarChart3 },
-              {
-                id: "conversations",
-                label: "Unterhaltungen",
-                icon: MessageSquare,
-              },
-              { id: "tickets", label: "Tickets", icon: Ticket },
-              { id: "knowledge", label: "Wissensdatenbank", icon: BookOpen },
-              { id: "websites", label: "Web-Crawler", icon: Globe },
-              { id: "assistant", label: "AI-Assistent", icon: Bot },
-              { id: "agents", label: "Support-Team", icon: Users },
-              { id: "customers", label: "Kunden", icon: UserCheck },
-              {
-                id: "analytics",
-                label: "Analytics",
-                icon: Sparkles,
-              },
-              { id: "widget", label: "Widget-Designer", icon: Sliders },
-              {
-                id: "settings",
-                label: "Organisation",
-                icon: Settings,
-              },
-              { id: "profile", label: "Profil-Einstellungen", icon: UserCheck },
-            ]
-              .filter((item) =>
-                administration
-                  ? [
-                      "assistant",
-                      "agents",
-                      "widget",
-                      "settings",
-                      "profile",
-                    ].includes(item.id)
-                  : !["assistant", "agents", "widget", "settings"].includes(
-                      item.id,
-                    ),
-              )
+            {dashboardNavigation(administration)
               .map((item) => {
                 const Icon = item.icon;
                 const isActive = activeTab === item.id;
@@ -1205,7 +1153,7 @@ export default function Dashboard({
                   <button
                     type="button"
                     key={item.id}
-                    onClick={() => setActiveTab(item.id as any)}
+                    onClick={() => setActiveTab(item.id)}
                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
                       isActive
                         ? "bg-blue-600 text-white font-semibold"
