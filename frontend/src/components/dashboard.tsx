@@ -599,44 +599,46 @@ export default function Dashboard({
     }
   };
 
-  const handleInboxAction = async (path: string, body?: any) => {
+  const handleInboxAction = async (path: string, body?: Record<string, unknown>) => {
     if (!selectedConv) return;
+    const selected = selectedConv;
+    const organizationId = activeOrgIdRef.current;
+    const isCurrent = () =>
+      selectedConversationId.current === selected.id &&
+      activeOrgIdRef.current === organizationId;
     try {
-      const result = await api.put(
-        `/conversations/${selectedConv.id}/${path}`,
-        body,
-      );
-      if (result.data?.id)
-        setSelectedConv((current: any) => ({ ...current, ...result.data }));
-      await handleSelectConversation({
-        ...selectedConv,
-        ...(result.data || {}),
-      });
-      void fetchTenantData();
+      const result = await api.put(`/conversations/${selected.id}/${path}`, body);
+      if (!isCurrent()) return;
+      const updated = { ...selected, ...(result.data || {}) };
+      setSelectedConv(updated);
+      await handleSelectConversation(updated);
+      if (isCurrent()) void fetchTenantData();
     } catch (err: any) {
-      showNotify(
-        err.response?.data?.error || "Aktion konnte nicht ausgeführt werden.",
-      );
+      if (isCurrent()) showNotify(err.response?.data?.error || "Aktion konnte nicht ausgeführt werden.");
     }
   };
 
-  const handleToggleConversationTag = async (tag: any) => {
+  const handleToggleConversationTag = async (tag: { id: string; name: string }) => {
     if (!selectedConv) return;
-    const existing = selectedConv.tags || [];
-    const nextTags = existing.some((item: any) => item.id === tag.id)
-      ? existing.filter((item: any) => item.id !== tag.id)
+    const selected = selectedConv;
+    const organizationId = activeOrgIdRef.current;
+    const current = () => activeOrgIdRef.current === organizationId &&
+      selectedConversationId.current === selected.id;
+    const existing = selected.tags || [];
+    const nextTags = existing.some((item: { id: string }) => item.id === tag.id)
+      ? existing.filter((item: { id: string }) => item.id !== tag.id)
       : [...existing, tag];
     try {
-      await api.put(`/conversations/${selectedConv.id}/tags`, {
-        tagIds: nextTags.map((item: any) => item.id),
+      await api.put(`/conversations/${selected.id}/tags`, {
+        tagIds: nextTags.map((item: { id: string }) => item.id),
       });
-      setSelectedConv((current: any) => ({ ...current, tags: nextTags }));
-      await handleSelectConversation({ ...selectedConv, tags: nextTags });
-      void fetchTenantData();
+      if (!current()) return;
+      const updated = { ...selected, tags: nextTags };
+      setSelectedConv(updated);
+      await handleSelectConversation(updated);
+      if (current()) void fetchTenantData();
     } catch (err: any) {
-      showNotify(
-        err.response?.data?.error || "Tags konnten nicht aktualisiert werden.",
-      );
+      if (current()) showNotify(err.response?.data?.error || "Tags konnten nicht aktualisiert werden.");
     }
   };
 
@@ -655,18 +657,19 @@ export default function Dashboard({
 
   const handleAddInternalNote = async () => {
     if (!selectedConv || !internalNoteInput.trim()) return;
+    const conversationId = selectedConv.id;
+    const organizationId = activeOrgIdRef.current;
+    const content = internalNoteInput.trim();
+    const current = () => selectedConversationId.current === conversationId &&
+      activeOrgIdRef.current === organizationId;
     try {
-      const res = await api.post(
-        `/conversations/${selectedConv.id}/internal-notes`,
-        { content: internalNoteInput },
-      );
-      setConvMessages((current) => [...current, res.data]);
-      setInternalNoteInput("");
+      const { data } = await api.post(`/conversations/${conversationId}/internal-notes`, { content });
+      if (!current()) return;
+      setConvMessages((messages) => messages.some((m) => m.id === data.id) ? messages : [...messages, data]);
+      setInternalNoteInput((value) => value === content ? "" : value);
       showNotify("Interne Notiz gespeichert.");
     } catch (err: any) {
-      showNotify(
-        err.response?.data?.error || "Notiz konnte nicht gespeichert werden.",
-      );
+      if (current()) showNotify(err.response?.data?.error || "Notiz konnte nicht gespeichert werden.");
     }
   };
 
