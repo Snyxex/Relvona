@@ -3,6 +3,7 @@
 import type { FormEventHandler } from "react";
 import { RefreshCw } from "lucide-react";
 import { API_BASE_URL } from "@/lib/api";
+import { WorkspaceHeader } from "./workspace-primitives";
 
 export const DEFAULT_WIDGET_SETTINGS = {
   primaryColor: "#3B82F6",
@@ -54,14 +55,9 @@ export default function WidgetDesigner({ assistant, onChange, onSave, onRotateKe
   };
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
-                <div>
-                  <h1 className="text-xl font-bold text-white">Widget Designer</h1>
-                  <p className="text-xs text-slate-400">
-                    Gestalte das Kunden-Chatfenster und sieh jede Änderung sofort in
-                    der Vorschau.
-                  </p>
-                </div>
+    <div className="rv-widget-workspace rv-config-workspace mx-auto max-w-5xl space-y-6">
+                <WorkspaceHeader eyebrow="KANÄLE" title="Widget-Designer"
+                  description="Gestalte den Kundenchat und überprüfe jede Änderung direkt in der Vorschau." />
     
                 <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
                   <form
