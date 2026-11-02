@@ -7,19 +7,12 @@ import {
   Globe,
   MessageSquare,
   Ticket,
-  BarChart3,
-  Settings,
-  Upload,
-  UserCheck,
-  Sparkles,
   Plus,
   Trash2,
   CheckCircle,
   AlertCircle,
   Users,
   LogOut,
-  Sliders,
-  BookOpen,
   CalendarDays,
   Workflow,
   Search,
@@ -27,7 +20,8 @@ import {
 import ProfileSecuritySettings from "@/components/profile-security-settings";
 import OrganizationSettings from "@/components/dashboard-tabs/organization-settings";
 import WidgetDesigner from "@/components/dashboard-tabs/widget-designer";
-import { KnowledgeWorkspace, WebsiteCrawlerWorkspace } from "@/components/dashboard-tabs/knowledge-workspaces";
+import { KnowledgeWorkspace, WebsiteCrawlerWorkspace, type KnowledgeBase } from "@/components/dashboard-tabs/knowledge-workspaces";
+import type { KnowledgeSource } from "@/components/knowledge-sources";
 import { WorkspaceEmpty, WorkspaceHeader } from "@/components/dashboard-tabs/workspace-primitives";
 import {
   LazyAgentsTab,
@@ -115,8 +109,8 @@ export default function Dashboard({
   const [ticketCommentsList, setTicketCommentsList] = useState<any[]>([]);
   const [commentInput, setCommentInput] = useState("");
 
-  const [knowledgeBases, setKnowledgeBases] = useState<any[]>([]);
-  const [knowledgeSources, setKnowledgeSources] = useState<any[]>([]);
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
+  const [knowledgeSources, setKnowledgeSources] = useState<KnowledgeSource[]>([]);
   const [assistantsList, setAssistantsList] = useState<any[]>([]);
   const [activeAssistant, setActiveAssistant] = useState<any>(null);
   const [agentsList, setAgentsList] = useState<any[]>([]);
