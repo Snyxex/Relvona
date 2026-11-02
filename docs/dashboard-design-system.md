@@ -109,7 +109,7 @@ The conversation workflow, ticket/business-action handlers, authentication/login
 - `hooks/use-conversation-realtime.ts`: a dedicated socket lifecycle hook opens a room only for the current authorized organization/conversation, merges and orders messages by ID, and disconnects on conversation change, leaving the inbox, or unmount.
 - The parent has explicit `InboxConversation`, `InboxMessage`, `ConversationTag`, `InboxAgent`, `InboxTimelineEvent`, `InboxHandoff`, and `InboxSuggestion` state types instead of untyped arrays.
 - Details, translations, internal notes, suggested replies, outgoing agent messages, tag/assignment updates and ticket-to-conversation navigation check the active conversation and organization before applying asynchronous results. A new conversation clears old messages, translations, suggestions and draft fields; refreshing the **same** conversation preserves unsent drafts and deduplicates live messages.
-- The inbox search is debounced by 350 ms. Redundant Enter-key refresh requests were removed.
+- The inbox search is debounced by 350 ms. Redundant Enter-key refresh requests were removed. Logout invalidates pending tenant requests and clears private conversation, ticket, knowledge, agent and assistant state.
 - `dashboard.tsx` now contains approximately 1,600 lines rather than the original 3,350.
 
 **Deferred by request:** do not treat code inspection as TypeScript/formatting/browser verification. No new tests, full CI runs or server-agent changes were performed during this continuation. The new code needs the normal review/verification before merging.
