@@ -14,6 +14,8 @@ For self-service endpoints such as `/api/v1/auth/me`, use `req.user.id` exclusiv
 - `backend/src/middleware/auth.ts`: `tenantContext` checks organization membership before constructing the organization context; a platform admin without membership must supply an authorized, unexpired support session tied to both the admin user and target organization.
 - `backend/src/routes/organizations.ts`: current organization endpoints derive organization ID from authenticated tenant context.
 - `backend/src/routes/customers.ts`: customer detail lookup and deletion require both resource ID and authenticated organization ID.
+- `backend/src/routes/tickets.ts`: ticket comment timeline now checks that its parent ticket exists in the authenticated organization before returning children.
+- `backend/src/routes/conversations.ts`: timeline, handoff, and message endpoints now check the parent conversation exists in the current organization before reading or mutating nested records.
 
 This is **not** a complete route/service/database audit. Platform administration, customer-portal authentication, integrations, RAG retrieval, attachments, user/member administration, and nested resource references require separate review.
 
