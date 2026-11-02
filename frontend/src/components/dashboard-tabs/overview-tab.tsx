@@ -6,6 +6,7 @@ import {
   Clock3, Headphones, Search, Sparkles, Star, Ticket,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { ticketStatusLabel, ticketStatusTone } from "@/lib/support-status";
 
 type Metric = { tickets: number; appointments: number; conversations: number; upcomingAppointments: number;
   averageFirstResponseMinutes: number | null; satisfactionRate: number | null; feedbackCount: number;
@@ -28,9 +29,6 @@ type Props = {
   canManage?: boolean;
 };
 
-const statusNames: Record<string, string> = {
-  open: "Offen", in_progress: "In Bearbeitung", pending: "Wartend", resolved: "Gelöst", closed: "Geschlossen",
-};
 const statusColors: Record<string,string> = {
   open: "#5278f6", in_progress: "#9162f2", pending: "#4fc0eb", resolved: "#36bea9", closed: "#b9c5d9",
 };
@@ -102,7 +100,7 @@ function StatusDonut({ statuses, total }:{statuses:DashboardReport["status"];tot
   const segments=statuses.map(s=>{const start=current;current+=s.share*100;return `${statusColors[s.status]||"#9caec8"} ${start.toFixed(2)}% ${current.toFixed(2)}%`;});
   return <div className="rv-donut-wrap"><div className="rv-donut" style={{background:total>0?`conic-gradient(${segments.join(",")})`:"#e9edf4"}} role="img" aria-label="Verteilung der Ticket-Status">
     <div className="rv-donut-center"><strong>{formatNumber(total)}</strong><span>Tickets</span></div></div>
-    <div className="rv-donut-legend">{statuses.map(s=><div className="rv-legend-row" key={s.status}><span className="rv-legend-name"><i style={{background:statusColors[s.status]||"#9caec8"}}/>{statusNames[s.status]||s.status}</span><strong>{Math.round(s.share*100)}%</strong></div>)}
+    <div className="rv-donut-legend">{statuses.map(s=><div className="rv-legend-row" key={s.status}><span className="rv-legend-name"><i style={{background:statusColors[s.status]||"#9caec8"}}/>{ticketStatusLabel(s.status)}</span><strong>{Math.round(s.share*100)}%</strong></div>)}
       {!statuses.length&&<span className="rv-empty-small">Keine Ticketdaten</span>}
     </div></div>;
 }
@@ -235,7 +233,7 @@ function OverviewTab({organizationId,user,onNavigate,onOpenTicket,canManage}:Pro
         <div className="rv-bottom-grid">
           <section className="rv-panel rv-list-panel"><SectionHeading title="Letzte Tickets" action="Alle ansehen" handleAction={()=>onNavigate?.("tickets")}/>
             <div className="rv-list-content">{visibleTickets.map(ticket=><button type="button" className="rv-ticket-row" key={ticket.id} onClick={()=>onOpenTicket?.(ticket)}>
-              <span className="rv-list-avatar"><Headphones size={16}/></span><span className="rv-row-copy"><strong>{ticket.subject}</strong><small>#{ticket.number} · {ticket.customerName||"Kunde"} · {relative(ticket.createdAt)}</small></span><span className={`rv-ticket-status rv-status-${ticket.status}`}>{statusNames[ticket.status]||ticket.status}</span>
+              <span className="rv-list-avatar"><Headphones size={16}/></span><span className="rv-row-copy"><strong>{ticket.subject}</strong><small>#{ticket.number} · {ticket.customerName||"Kunde"} · {relative(ticket.createdAt)}</small></span><span className={`rv-ticket-status rv-status-${ticketStatusTone(ticket.status)}`}>{ticketStatusLabel(ticket.status)}</span>
             </button>)}{!visibleTickets.length&&<p className="rv-empty-small">{search?"Keine passenden Tickets in den letzten fünf Einträgen.":(!data.access.tickets ? "Keine Berechtigung zur Ticketansicht." : "Noch keine Tickets vorhanden.")}</p>}</div>
           </section>
           <section className="rv-panel rv-list-panel"><SectionHeading title="Anstehende Termine" action={canManage?"Verwalten":undefined} handleAction={canManage?()=>window.location.assign("/admin/scheduling"):undefined}/>
