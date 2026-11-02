@@ -707,3 +707,153 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Employee administration keeps the existing verified CRUD implementation. */
+.rv-employees-page {
+  background: #f7f9fc;
+  color: #172440;
+  color-scheme: light;
+  border-radius: 14px;
+  min-height: calc(100dvh - 120px);
+}
+.rv-employees-page > div:first-child h1 {
+  font-size: 27px;
+  letter-spacing: -.045em;
+  color: #14213c;
+}
+.rv-employees-page > div:first-child p {
+  color: #73839b;
+  margin-top: 6px;
+}
+.rv-employees-page > div:first-child button,
+.rv-employees-page button.bg-blue-600 {
+  background: #4270e9;
+  color: #fff;
+  border-radius: 9px;
+  box-shadow: 0 3px 12px rgba(44, 95, 213, .15);
+}
+.rv-employees-page > div.grid > aside,
+.rv-employees-page > div.grid > section {
+  background: #fff;
+  border: 1px solid #e5eaf3;
+  border-radius: 14px;
+  box-shadow: 0 6px 22px rgba(24, 42, 78, .045);
+}
+.rv-employees-page .rv-employee-search {
+  border: 1px solid #e0e7f1;
+  background: #f8faff;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 14px;
+  border-radius: 9px;
+  padding: 10px 12px;
+  color: #8494aa;
+}
+.rv-employees-page .rv-employee-search:focus-within {
+  outline: 2px solid #4e78ec;
+  outline-offset: 2px;
+}
+.rv-employees-page .rv-employee-search input {
+  min-width: 0;
+  width: 100%;
+  background: transparent;
+  outline: 0;
+  color: #21324e;
+  font-size: 12px;
+}
+.rv-employees-page > div.grid > aside button {
+  color: #243552;
+  border-color: #e7ecf4;
+  background: #f8faff;
+}
+.rv-employees-page > div.grid > aside button:hover {
+  background: #f0f5ff;
+}
+.rv-employees-page > div.grid > aside button.border-blue-500 {
+  color: #315cc1;
+  border-color: #a9bfec;
+  background: #edf3ff;
+}
+.rv-employees-page > div.grid > aside button p,
+.rv-employees-page .text-slate-500 {
+  color: #8796aa;
+}
+.rv-employees-page .rv-employee-input {
+  color: #223450;
+  background: #f9fbfe;
+  border: 1px solid #dfe6f2;
+  min-height: 41px;
+}
+.rv-employees-page .rv-employee-input:focus {
+  outline: 2px solid #a9c1ff;
+  border-color: #5277dd;
+}
+.rv-employees-page label > span.text-slate-300,
+.rv-employees-page label > span {
+  color: #485976;
+}
+.rv-employees-page .bg-slate-950 {
+  color: #415372;
+  background: #f8faff;
+  border-color: #e6ebf4;
+}
+.rv-employees-page .text-white {
+  color: #233450;
+}
+.rv-employees-page button.bg-blue-600 .text-white,
+.rv-employees-page button.bg-blue-600 {
+  color: #fff;
+}
+.rv-employees-page .text-amber-300 {
+  color: #b37518;
+}
+.rv-employees-page .text-red-300 {
+  color: #b94157;
+}
+.rv-employees-page .text-emerald-300 {
+  color: #168066;
+}
+.rv-employees-page button.border-red-800 {
+  border-color: #f4ced3;
+  color: #bd4458;
+  background: #fff4f5;
+}
+.rv-employees-page button:focus-visible {
+  outline: 2px solid #4e78ec;
+  outline-offset: 3px;
+}
+.rv-main--modern .rv-ticket-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.rv-main--modern .rv-ticket-filter-status select {
+  min-height: 43px;
+  min-width: 154px;
+  padding: 9px 12px;
+  border: 1px solid #e0e7f1;
+  border-radius: 9px;
+  color: #30435f;
+  background: #fff;
+  font-size: 12px;
+}
+.rv-main--modern .rv-ticket-open {
+  color: #293c5a;
+  max-width: 300px;
+  font-weight: 650;
+}
+.rv-main--modern .rv-ticket-open:hover {
+  color: #3665d7;
+  text-decoration: underline;
+}
+.rv-main--modern .rv-ticket-open:focus-visible {
+  outline: 2px solid #4e78ec;
+  outline-offset: 3px;
+}
+@media (max-width: 700px) {
+  .rv-employees-page {
+    padding: 16px;
+  }
+}
