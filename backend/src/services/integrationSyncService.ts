@@ -1,7 +1,7 @@
 import { and, desc, eq, isNotNull, lt, or } from "drizzle-orm";
-import { db } from "../db/index.js";
+import { db, withTenantTransaction } from "../db/index.js";
 import { setDatabaseTenant, withDatabaseTenantContext } from "../db/tenantContext.js";
-import { customers, organizations, ticketComments, tickets } from "../db/schema.js";
+import { auditLogs, customers, organizations, ticketComments, tickets } from "../db/schema.js";
 import { integrationConnections } from "../db/integrationConnectionSchema.js";
 import { integrationSyncExecutions, integrationSyncRules } from "../db/integrationSyncSchema.js";
 import type { DomainEvent } from "./domainEventBus.js";
@@ -118,8 +118,9 @@ export class IntegrationSyncService {
     organizationId: string;
     executionId: string;
     externalTicketId: string;
+    actorUserId: string;
   }) {
-    if (!/^\\d{1,20}$/.test(data.externalTicketId)) throw new Error("Invalid Zendesk ticket id");
+    if (!/^[0-9]{1,20}$/.test(data.externalTicketId)) throw new Error("Invalid Zendesk ticket id");
     const [execution] = await db.select({
       id: integrationSyncExecutions.id,
       ruleId: integrationSyncExecutions.ruleId,
@@ -141,17 +142,37 @@ export class IntegrationSyncService {
     const remote = await ZendeskAdapter.getTicket(data.organizationId, data.externalTicketId, rule.connectionId);
     const remoteId = (remote as { ticket?: { id?: string | number } })?.ticket?.id;
     if (String(remoteId ?? "") !== data.externalTicketId) throw new Error("Zendesk ticket could not be verified");
-    const [updated] = await db.update(integrationSyncExecutions).set({
-      status: "succeeded",
-      externalId: data.externalTicketId,
-      error: null,
-      updatedAt: new Date(),
-    }).where(and(
-      eq(integrationSyncExecutions.organizationId, data.organizationId),
-      eq(integrationSyncExecutions.id, data.executionId),
-      eq(integrationSyncExecutions.status, "needs_review"),
-    )).returning();
-    if (!updated) throw new Error("Execution reconciliation conflict");
+    // Both the status transition and audit record must commit atomically.
+    // The generic AuditService intentionally swallows errors, so it is not
+    // appropriate for this security-sensitive confirmation path.
+    const updated = await withTenantTransaction(data.organizationId, async (tx) => {
+      const [row] = await tx.update(integrationSyncExecutions).set({
+        status: "succeeded",
+        externalId: data.externalTicketId,
+        error: null,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(integrationSyncExecutions.organizationId, data.organizationId),
+        eq(integrationSyncExecutions.id, data.executionId),
+        eq(integrationSyncExecutions.status, "needs_review"),
+      )).returning();
+      if (!row) throw new Error("Execution reconciliation conflict");
+      await tx.insert(auditLogs).values({
+        organizationId: data.organizationId,
+        actorUserId: data.actorUserId,
+        action: "integration.sync.remote_confirmed",
+        resourceType: "integration_sync_execution",
+        resourceId: data.executionId,
+        metadata: {
+          ruleId: execution.ruleId,
+          externalTicketId: data.externalTicketId,
+          fromStatus: "needs_review",
+          toStatus: "succeeded",
+          verification: "manual_confirmation_and_remote_ticket_lookup",
+        },
+      });
+      return row;
+    });
     return updated;
   }
 
