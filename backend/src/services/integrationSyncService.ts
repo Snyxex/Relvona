@@ -125,13 +125,14 @@ export class IntegrationSyncService {
       id: integrationSyncExecutions.id,
       ruleId: integrationSyncExecutions.ruleId,
       status: integrationSyncExecutions.status,
+      entityId: integrationSyncExecutions.entityId,
     }).from(integrationSyncExecutions).where(and(
       eq(integrationSyncExecutions.organizationId, data.organizationId),
       eq(integrationSyncExecutions.id, data.executionId),
     )).limit(1);
     if (!execution) throw new Error("Integration sync execution not found");
     if (execution.status !== "needs_review") throw new Error("Execution does not require reconciliation");
-    const [rule] = await db.select({ id: integrationSyncRules.id, connectionId: integrationSyncRules.connectionId })
+    const [rule] = await db.select({ id: integrationSyncRules.id, connectionId: integrationSyncRules.connectionId, action: integrationSyncRules.action })
       .from(integrationSyncRules).where(and(
         eq(integrationSyncRules.organizationId, data.organizationId),
         eq(integrationSyncRules.id, execution.ruleId),
@@ -142,6 +143,28 @@ export class IntegrationSyncService {
     const remote = await ZendeskAdapter.getTicket(data.organizationId, data.externalTicketId, rule.connectionId);
     const remoteId = (remote as { ticket?: { id?: string | number } })?.ticket?.id;
     if (String(remoteId ?? "") !== data.externalTicketId) throw new Error("Zendesk ticket could not be verified");
+    if (rule.action === "zendesk.create_ticket") {
+      const [local] = await db.select({ id: tickets.id }).from(tickets).where(and(
+        eq(tickets.organizationId, data.organizationId),
+        eq(tickets.id, execution.entityId),
+      )).limit(1);
+      if (!local) throw new Error("Local ticket not found");
+      // The remote external_id is written when Relvona creates new tickets.
+      // Legacy tickets lacking this marker cannot be safely confirmed here.
+      const remoteExternalId = (remote as { ticket?: { external_id?: string | null } })?.ticket?.external_id;
+      if (remoteExternalId !== local.id) throw new Error("Zendesk ticket identity mismatch");
+    } else {
+      const localTicketId = rule.action === "zendesk.add_comment"
+        ? (await db.select({ ticketId: ticketComments.ticketId }).from(ticketComments).where(and(
+            eq(ticketComments.organizationId, data.organizationId),
+            eq(ticketComments.id, execution.entityId),
+            eq(ticketComments.isInternal, false),
+          )).limit(1))[0]?.ticketId
+        : execution.entityId;
+      if (!localTicketId) throw new Error("Local ticket not found");
+      const linkedId = await this.linkedZendeskTicketId(data.organizationId, rule.connectionId, localTicketId);
+      if (linkedId !== data.externalTicketId) throw new Error("Zendesk ticket identity mismatch");
+    }
     // Both the status transition and audit record must commit atomically.
     // The generic AuditService intentionally swallows errors, so it is not
     // appropriate for this security-sensitive confirmation path.
@@ -168,7 +191,7 @@ export class IntegrationSyncService {
           externalTicketId: data.externalTicketId,
           fromStatus: "needs_review",
           toStatus: "succeeded",
-          verification: "manual_confirmation_and_remote_ticket_lookup",
+          verification: "manual_confirmation_and_remote_identity_match",
         },
       });
       return row;
@@ -298,6 +321,7 @@ export class IntegrationSyncService {
               priority: row.ticket.priority,
               requesterEmail: row.customer.email || undefined,
               requesterName: row.customer.name || undefined,
+              externalId: row.ticket.id,
             }, rule.connectionId);
             const rawExternalId = (result as any)?.ticket?.id;
             externalId = typeof rawExternalId === "number" || typeof rawExternalId === "string" ? String(rawExternalId) : null;
