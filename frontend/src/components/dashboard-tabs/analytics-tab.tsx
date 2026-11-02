@@ -2,6 +2,7 @@
 
 import { memo } from "react";
 import { Bot, BrainCircuit, MessageSquare, RefreshCw, Ticket, Users } from "lucide-react";
+import { aiResolutionPercent, distributionPercent } from "@/lib/support-metrics";
 import {
   WorkspaceEmpty,
   WorkspaceHeader,
@@ -60,10 +61,8 @@ function AnalyticsTab({
   }
   const conversationCount = count(data.totalConversations);
   // Overall resolution includes human-handled cases; AI events are tracked separately.
-  const aiResolutionRate = conversationCount > 0
-    ? Math.min(100, Math.max(0, count(data.aiResolved) / conversationCount * 100))
-    : null;
-  const displayedRate = aiResolutionRate === null ? "—" : `${Math.round(aiResolutionRate)}%`;
+  const aiResolutionRate = aiResolutionPercent(data.aiResolved, conversationCount);
+  const displayedRate = aiResolutionRate === null ? "—" : `${aiResolutionRate}%`;
   const handoffs = count(data?.handoffs);
   const states = Object.entries(data?.stateBreakdown ?? {}).sort((a, b) => b[1] - a[1]);
   const languages = [...(data?.languageBreakdown ?? [])].sort((a, b) => b.count - a.count);
@@ -107,9 +106,9 @@ function AnalyticsTab({
           <div className="rv-insight-number">{displayCount(data?.handoffs)}</div>
           <p className="rv-insight-description">Unterhaltungen im Status „Wartet auf Agent“ oder „Agent aktiv“</p>
           <div className="rv-insight-track" role="progressbar" aria-valuemin={0} aria-valuemax={100}
-            aria-valuenow={Math.round(conversationCount > 0 ? handoffs / conversationCount * 100 : 0)}
+            aria-valuenow={Math.round(distributionPercent(handoffs, conversationCount))}
             aria-label="Anteil der Gespräche mit aktuellem Agentenbedarf">
-            <div style={{ width: `${Math.min(100, conversationCount > 0 ? handoffs / conversationCount * 100 : 0)}%`, background: "#f1b65f" }} />
+            <div style={{ width: `${distributionPercent(handoffs, conversationCount)}%`, background: "#f1b65f" }} />
           </div>
         </WorkspacePanel>
         <WorkspacePanel title="Wissensabdeckung" description="Verfügbare Wissensquellen">
@@ -126,7 +125,7 @@ function AnalyticsTab({
           {states.length > 0 ? (
             <div className="rv-insight-bars">
               {states.map(([state, value], index) => {
-                const percent = conversationCount ? count(value) / conversationCount * 100 : 0;
+                const percent = distributionPercent(count(value), conversationCount);
                 return (
                   <div className="rv-insight-bar" key={state}>
                     <div className="rv-insight-bar-label">
@@ -148,7 +147,7 @@ function AnalyticsTab({
           {languages.length > 0 ? (
             <div className="rv-insight-bars">
               {languages.map((entry, index) => {
-                const percent = languageCount ? count(entry.count) / languageCount * 100 : 0;
+                const percent = distributionPercent(count(entry.count), languageCount);
                 return (
                   <div className="rv-insight-bar" key={entry.language ?? "unknown"}>
                     <div className="rv-insight-bar-label">
