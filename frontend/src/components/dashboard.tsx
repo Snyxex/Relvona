@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Bot,
   Globe,
-  MessageSquare,
   Ticket,
   CheckCircle,
   AlertCircle,
@@ -18,7 +17,7 @@ import OrganizationSettings from "@/components/dashboard-tabs/organization-setti
 import WidgetDesigner from "@/components/dashboard-tabs/widget-designer";
 import AssistantSettings from "@/components/dashboard-tabs/assistant-settings";
 import TicketsWorkspace from "@/components/dashboard-tabs/tickets-workspace";
-import ConversationsWorkspace from "@/components/dashboard-tabs/conversations-workspace";
+import ConversationsWorkspace, { type ConversationTag, type InboxAgent, type InboxConversation, type InboxMessage, type InboxTimelineEvent, type InboxHandoff, type InboxSuggestion } from "@/components/dashboard-tabs/conversations-workspace";
 import { useConversationRealtime } from "@/hooks/use-conversation-realtime";
 import { KnowledgeWorkspace, WebsiteCrawlerWorkspace, type KnowledgeBase } from "@/components/dashboard-tabs/knowledge-workspaces";
 import type { KnowledgeSource } from "@/components/knowledge-sources";
@@ -72,9 +71,9 @@ export default function Dashboard({
 
   // Data States
   const [overviewMetrics, setOverviewMetrics] = useState<any>(null);
-  const [conversationsList, setConversationsList] = useState<any[]>([]);
-  const [selectedConv, setSelectedConv] = useState<any>(null);
-  const [convMessages, setConvMessages] = useState<any[]>([]);
+  const [conversationsList, setConversationsList] = useState<InboxConversation[]>([]);
+  const [selectedConv, setSelectedConv] = useState<InboxConversation | null>(null);
+  const [convMessages, setConvMessages] = useState<InboxMessage[]>([]);
   const [agentMsgInput, setAgentMsgInput] = useState("");
   const [internalNoteInput, setInternalNoteInput] = useState("");
   const [inboxState, setInboxState] = useState("");
@@ -85,18 +84,14 @@ export default function Dashboard({
   const [inboxSearch, setInboxSearch] = useState("");
   const [debouncedInboxSearch, setDebouncedInboxSearch] = useState("");
   const [inboxSort, setInboxSort] = useState("newest");
-  const [inboxTags, setInboxTags] = useState<any[]>([]);
-  const [inboxAgents, setInboxAgents] = useState<any[]>([]);
+  const [inboxTags, setInboxTags] = useState<ConversationTag[]>([]);
+  const [inboxAgents, setInboxAgents] = useState<InboxAgent[]>([]);
   const [agentPresence, setAgentPresence] = useState("OFFLINE");
   const [presenceLoaded, setPresenceLoaded] = useState(false);
   const [inboxTagId, setInboxTagId] = useState("");
-  const [inboxTimeline, setInboxTimeline] = useState<any[]>([]);
-  const [inboxHandoff, setInboxHandoff] = useState<any | null>(null);
-  const [suggestion, setSuggestion] = useState<{
-    content: string;
-    sources: string[];
-    conversationId: string;
-  } | null>(null);
+  const [inboxTimeline, setInboxTimeline] = useState<InboxTimelineEvent[]>([]);
+  const [inboxHandoff, setInboxHandoff] = useState<InboxHandoff | null>(null);
+  const [suggestion, setSuggestion] = useState<InboxSuggestion | null>(null);
   const [suggesting, setSuggesting] = useState(false);
   const [connected, setConnected] = useState(false);
   const selectedConversationId = useRef<string | undefined>(undefined);
@@ -545,7 +540,7 @@ export default function Dashboard({
     }
   };
 
-  const handleSelectConversation = async (conv: { id: string; organizationId?: string }) => {
+  const handleSelectConversation = async (conv: InboxConversation) => {
     const organizationId = activeOrgIdRef.current;
     if (!organizationId || (conv.organizationId && conv.organizationId !== organizationId)) return;
     const requestId = ++conversationDetailRequestId.current;
@@ -575,7 +570,7 @@ export default function Dashboard({
       ]);
       if (!valid()) return;
       setConvMessages((current) => {
-        const latest = new Map<string, any>();
+        const latest = new Map<string, InboxMessage>();
         for (const message of messages.data) {
           if (message.conversationId === conv.id) latest.set(message.id, message);
         }
