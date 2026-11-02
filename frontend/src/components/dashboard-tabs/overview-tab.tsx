@@ -13,7 +13,7 @@ type Metric = { tickets: number; appointments: number; conversations: number; up
 type TicketRow = { id: string; number: number; subject: string; status: string; createdAt: string; customerName: string | null };
 type Booking = { id: string; title: string; startsAt: string; endsAt: string; guestName: string | null; meetingUrl: string | null };
 type DashboardReport = {
-  generatedAt: string; days: number; kpis: Metric;
+  generatedAt: string; days: number; access: { tickets: boolean; scheduling: boolean }; kpis: Metric;
   volume: { day: string; tickets: number; conversations: number }[];
   categories: { name: string; total: number; share: number }[]; categoriesTotal: number;
   status: { status: string; total: number; share: number }[]; statusTotal: number;
@@ -157,7 +157,7 @@ function OverviewTab({organizationId,user,onNavigate,onOpenTicket,canManage}:Pro
           <MetricCard label="Termine" icon={CalendarDays} value={formatNumber(metrics.appointments)} detail={`${metrics.upcomingAppointments} bevorstehend`} tone="#2686f4" change={delta(metrics.appointments,metrics.previous.appointments)}/>
           <MetricCard label="AI-Unterhaltungen" icon={Sparkles} value={formatNumber(metrics.conversations)} detail="zum vorherigen Zeitraum" tone="#9460f8" change={delta(metrics.conversations,metrics.previous.conversations)} spark={data.volume.map(x=>x.conversations)}/>
           <MetricCard label="Ø Antwortzeit" icon={Clock3} value={responseTime(metrics.averageFirstResponseMinutes)} detail="erste Antwort im Zeitraum" tone="#23b9a5"/>
-          <MetricCard label="Kundenzufriedenheit" icon={Star} value={metrics.satisfactionRate===null?"—":`${Math.round(metrics.satisfactionRate*100)}%`} detail={`${metrics.feedbackCount} Bewertungen`} tone="#f2a94d"/>
+          <MetricCard label="Positive Bewertungen" icon={Star} value={metrics.satisfactionRate===null?"—":`${Math.round(metrics.satisfactionRate*100)}%`} detail={`${metrics.feedbackCount} Bewertungen`} tone="#f2a94d"/>
         </div>
         <div className="rv-chart-grid">
           <section className="rv-panel rv-chart-panel rv-volume-panel">
@@ -180,13 +180,13 @@ function OverviewTab({organizationId,user,onNavigate,onOpenTicket,canManage}:Pro
           <section className="rv-panel rv-list-panel"><SectionHeading title="Letzte Tickets" action="Alle ansehen" handleAction={()=>onNavigate?.("tickets")}/>
             <div className="rv-list-content">{visibleTickets.map(ticket=><button type="button" className="rv-ticket-row" key={ticket.id} onClick={()=>onOpenTicket?.(ticket)}>
               <span className="rv-list-avatar"><Headphones size={16}/></span><span className="rv-row-copy"><strong>{ticket.subject}</strong><small>#{ticket.number} · {ticket.customerName||"Kunde"} · {relative(ticket.createdAt)}</small></span><span className={`rv-ticket-status rv-status-${ticket.status}`}>{statusNames[ticket.status]||ticket.status}</span>
-            </button>)}{!visibleTickets.length&&<p className="rv-empty-small">{search?"Keine passenden Tickets in den letzten fünf Einträgen.":"Noch keine Tickets vorhanden."}</p>}</div>
+            </button>)}{!visibleTickets.length&&<p className="rv-empty-small">{search?"Keine passenden Tickets in den letzten fünf Einträgen.":(!data.access.tickets ? "Keine Berechtigung zur Ticketansicht." : "Noch keine Tickets vorhanden.")}</p>}</div>
           </section>
           <section className="rv-panel rv-list-panel"><SectionHeading title="Anstehende Termine" action={canManage?"Verwalten":undefined} handleAction={canManage?()=>window.location.assign("/admin/scheduling"):undefined}/>
             <div className="rv-list-content">{data.upcomingAppointments.map(booking=><div className="rv-appointment-row" key={booking.id}>
               <span className="rv-appointment-icon"><CalendarDays size={17}/></span><span className="rv-row-copy"><strong>{booking.title}</strong><small>{new Date(booking.startsAt).toLocaleString("de-DE",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})} – {new Date(booking.endsAt).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})} · {booking.guestName||"Gast"}</small></span>
               {safeMeetingUrl(booking.meetingUrl)&&<a className="rv-join" href={safeMeetingUrl(booking.meetingUrl)!} target="_blank" rel="noopener noreferrer">Beitreten</a>}
-            </div>)}{!data.upcomingAppointments.length&&<p className="rv-empty-small">Keine bevorstehenden Termine.</p>}</div>
+            </div>)}{!data.upcomingAppointments.length&&<p className="rv-empty-small">{data.access.scheduling ? "Keine bevorstehenden Termine." : "Keine Berechtigung zur Terminansicht."}</p>}</div>
           </section>
           <section className="rv-panel rv-list-panel"><SectionHeading title="Aktivitäten" action="Analytics" handleAction={()=>onNavigate?.("analytics")}/>
             <div className="rv-list-content">{data.activity.map(item=>{const event=eventLabel(item.eventType);return <div className="rv-activity-row" key={item.id}>
