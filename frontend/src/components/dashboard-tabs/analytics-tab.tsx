@@ -11,13 +11,14 @@ import {
 
 type AnalyticsMetrics = {
   totalConversations?: number;
+  aiResolved?: number;
   resolutionRate?: number;
   handoffs?: number;
   openTickets?: number;
   totalKnowledgeSources?: number;
   totalDocumentChunks?: number;
   stateBreakdown?: Record<string, number>;
-  languageBreakdown?: { language: string; count: number }[];
+  languageBreakdown?: { language: string | null; count: number }[];
 };
 
 const STATE_LABELS: Record<string, string> = {
@@ -58,11 +59,14 @@ function AnalyticsTab({
     );
   }
   const conversationCount = count(data.totalConversations);
-  const resolutionRate = Math.max(0, Math.min(100, Number(data?.resolutionRate) || 0));
+  // Overall resolution includes human-handled cases; AI events are tracked separately.
+  const aiResolutionRate = conversationCount > 0
+    ? Math.min(100, Math.max(0, count(data.aiResolved) / conversationCount * 100))
+    : null;
+  const displayedRate = aiResolutionRate === null ? "—" : `${Math.round(aiResolutionRate)}%`;
   const handoffs = count(data?.handoffs);
   const states = Object.entries(data?.stateBreakdown ?? {}).sort((a, b) => b[1] - a[1]);
   const languages = [...(data?.languageBreakdown ?? [])].sort((a, b) => b.count - a.count);
-  const stateCount = states.reduce((sum, [, value]) => sum + count(value), 0);
   const languageCount = languages.reduce((sum, value) => sum + count(value.count), 0);
 
   return (
@@ -80,8 +84,8 @@ function AnalyticsTab({
 
       <div className="rv-section-kpis">
         <WorkspaceMetric label="Unterhaltungen" value={displayCount(data?.totalConversations)} icon={MessageSquare} tone="blue" />
-        <WorkspaceMetric label="AI-Lösungsquote" value={`${resolutionRate.toLocaleString("de-DE")}%`} icon={BrainCircuit} tone="mint" />
-        <WorkspaceMetric label="Übergaben" value={displayCount(data?.handoffs)} icon={Users} tone="amber" />
+        <WorkspaceMetric label="AI-Lösungsquote" value={displayedRate} icon={BrainCircuit} tone="mint" />
+        <WorkspaceMetric label="Aktueller Agentenbedarf" value={displayCount(data?.handoffs)} icon={Users} tone="amber" />
         <WorkspaceMetric label="Offene Tickets" value={displayCount(data?.openTickets)} icon={Ticket} tone="violet" />
       </div>
 
@@ -90,21 +94,21 @@ function AnalyticsTab({
           <div className="rv-insight-donut-row">
             <div
               className="rv-insight-donut"
-              style={{ background: `conic-gradient(#38bfa9 ${resolutionRate}%, #edf1f7 0)` }}
+              style={{ background: `conic-gradient(#38bfa9 ${aiResolutionRate ?? 0}%, #edf1f7 0)` }}
               role="img"
-              aria-label={`AI-Lösungsquote: ${resolutionRate}%`}
+              aria-label={`AI-Lösungsquote: ${displayedRate}`}
             >
-              <span><strong>{resolutionRate}%</strong><small>gelöst</small></span>
+              <span><strong>{displayedRate}</strong><small>AI-gelöst</small></span>
             </div>
-            <p>Wie viele Unterhaltungen konnte die AI eigenständig abschließen?</p>
+            <p>Anteil der Unterhaltungen mit einem erfassten AI-Lösungsereignis.</p>
           </div>
         </WorkspacePanel>
-        <WorkspacePanel title="Mitarbeiterbedarf" description="Übergaben bei Kundenanfragen">
+        <WorkspacePanel title="Mitarbeiterbedarf" description="Gespräche, die aktuell beim Support-Team liegen">
           <div className="rv-insight-number">{displayCount(data?.handoffs)}</div>
-          <p className="rv-insight-description">Unterhaltungen mit menschlicher Unterstützung</p>
+          <p className="rv-insight-description">Unterhaltungen im Status „Wartet auf Agent“ oder „Agent aktiv“</p>
           <div className="rv-insight-track" role="progressbar" aria-valuemin={0} aria-valuemax={100}
             aria-valuenow={Math.round(conversationCount > 0 ? handoffs / conversationCount * 100 : 0)}
-            aria-label="Anteil der Mitarbeiterübergaben">
+            aria-label="Anteil der Gespräche mit aktuellem Agentenbedarf">
             <div style={{ width: `${Math.min(100, conversationCount > 0 ? handoffs / conversationCount * 100 : 0)}%`, background: "#f1b65f" }} />
           </div>
         </WorkspacePanel>
@@ -122,7 +126,7 @@ function AnalyticsTab({
           {states.length > 0 ? (
             <div className="rv-insight-bars">
               {states.map(([state, value], index) => {
-                const percent = stateCount ? count(value) / stateCount * 100 : 0;
+                const percent = conversationCount ? count(value) / conversationCount * 100 : 0;
                 return (
                   <div className="rv-insight-bar" key={state}>
                     <div className="rv-insight-bar-label">
@@ -146,9 +150,9 @@ function AnalyticsTab({
               {languages.map((entry, index) => {
                 const percent = languageCount ? count(entry.count) / languageCount * 100 : 0;
                 return (
-                  <div className="rv-insight-bar" key={entry.language}>
+                  <div className="rv-insight-bar" key={entry.language ?? "unknown"}>
                     <div className="rv-insight-bar-label">
-                      <span>{entry.language.toUpperCase()}</span>
+                      <span>{entry.language?.toUpperCase() || "Unbekannt"}</span>
                       <strong>{displayCount(entry.count)} · {Math.round(percent)}%</strong>
                     </div>
                     <div className="rv-insight-track">
