@@ -99,6 +99,7 @@ export class DashboardOverviewService {
     return {
       generatedAt: now.toISOString(),
       days,
+      access: { tickets: access.canViewTickets, scheduling: access.canViewScheduling },
       kpis: {
         tickets: toNumber(counts?.tickets),
         conversations: toNumber(counts?.conversations),
