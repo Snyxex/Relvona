@@ -3,16 +3,22 @@
 import dynamic from "next/dynamic";
 
 const loading = () => (
-  <div className="mx-auto max-w-7xl space-y-4" aria-live="polite" aria-busy="true">
-    <div className="space-y-2">
-      <div className="h-3 w-24 animate-pulse rounded-full bg-slate-800" />
-      <div className="h-7 w-64 max-w-full animate-pulse rounded-lg bg-slate-800" />
-      <div className="h-4 w-96 max-w-full animate-pulse rounded bg-slate-800/70" />
+  <div className="rv-section-page rv-modern-skeleton" role="status" aria-live="polite" aria-busy="true">
+    <div className="space-y-3">
+      <div className="h-3 w-24 animate-pulse rounded bg-blue-100" />
+      <div className="h-8 w-64 max-w-full animate-pulse rounded-lg bg-slate-200" />
+      <div className="h-4 w-96 max-w-full animate-pulse rounded bg-slate-100" />
     </div>
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      {[0, 1, 2, 3].map((item) => <div key={item} className="h-32 animate-pulse rounded-2xl border border-slate-800 bg-slate-900" />)}
+    <div className="rv-section-kpis">
+      {[0, 1, 2, 3].map((item) => (
+        <div key={item} className="rv-section-metric h-32 animate-pulse" />
+      ))}
     </div>
-    <div className="h-52 animate-pulse rounded-2xl border border-slate-800 bg-slate-900" />
+    <div className="rv-section-grid rv-section-grid-two">
+      {[0, 1].map((item) => (
+        <div key={item} className="rv-section-panel h-56 animate-pulse" />
+      ))}
+    </div>
     <span className="sr-only">Bereich wird geladen…</span>
   </div>
 );
