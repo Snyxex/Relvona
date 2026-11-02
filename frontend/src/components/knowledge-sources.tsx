@@ -1,6 +1,7 @@
 "use client";
 
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { Search } from "lucide-react";
 import { api } from "@/lib/api";
 
 export type KnowledgeSource = {
@@ -15,9 +16,19 @@ function KnowledgeSources({ sources, canManage, onRefresh, notify }: {
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const refreshRef = useRef(onRefresh);
   refreshRef.current = onRefresh;
   const pending = sources.some((source) => ["queued", "processing"].includes(source.status));
+  const visibleSources = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase("de-DE");
+    return sources.filter((source) => {
+      if (statusFilter && source.status !== statusFilter) return false;
+      return !needle || [source.title, source.type, source.status]
+        .some((value) => value.toLocaleLowerCase("de-DE").includes(needle));
+    });
+  }, [sources, query, statusFilter]);
 
   useEffect(() => {
     if (!pending) return;
@@ -67,8 +78,30 @@ function KnowledgeSources({ sources, canManage, onRefresh, notify }: {
     finally { setBusy(null); }
   }
 
-  return <section className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 p-4"><h3 className="text-sm font-semibold">Wissensquellen</h3><button type="button" className="text-xs text-blue-300" onClick={() => { void onRefresh(); }}>Aktualisieren</button></div>
+  return <section className="rv-knowledge-sources overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
+    <div className="rv-source-heading flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 p-4">
+      <div><h3 className="text-sm font-semibold">Wissensquellen</h3><p>{sources.length} Quellen insgesamt</p></div>
+      <button type="button" className="rv-source-refresh text-xs text-blue-300" onClick={() => { void onRefresh(); }}>Aktualisieren</button>
+    </div>
+    <div className="rv-source-filters">
+      <label className="rv-section-search">
+        <Search size={17} aria-hidden="true" />
+        <span className="sr-only">Wissensquellen suchen</span>
+        <input type="search" value={query} onChange={(event) => setQuery(event.target.value)}
+          placeholder="Nach Titel, Typ oder Status suchen" />
+      </label>
+      <label className="rv-source-select">
+        <span className="sr-only">Verarbeitungsstatus filtern</span>
+        <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+          <option value="">Alle Verarbeitungsstatus</option>
+          <option value="queued">Wartend</option>
+          <option value="processing">In Verarbeitung</option>
+          <option value="completed">Abgeschlossen</option>
+          <option value="failed">Fehlgeschlagen</option>
+        </select>
+      </label>
+      <span className="rv-directory-result">{visibleSources.length} Treffer</span>
+    </div>
     {editor && <form className="space-y-3 border-b border-slate-800 p-4" onSubmit={async (event) => {
       event.preventDefault(); setBusy(editor.sourceId);
       try { await api.put(`/knowledge/sources/${editor.sourceId}/content`, editor); setEditor(null); notify("Änderung gespeichert und Neuverarbeitung vorgemerkt."); await onRefresh(); }
@@ -81,8 +114,9 @@ function KnowledgeSources({ sources, canManage, onRefresh, notify }: {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center"><button type="submit" disabled={Boolean(busy)} className="rounded bg-blue-600 px-3 py-2 text-xs disabled:opacity-50">Speichern und neu verarbeiten</button><button type="button" className="rounded px-3 py-2 text-xs" onClick={() => setEditor(null)}>Abbrechen</button></div>
     </form>}
     <div className="overflow-x-auto"><table className="w-full text-left text-xs text-slate-300">
+      <caption className="sr-only">Verfügbare Wissensquellen mit Verarbeitungsstatus und Aktionen</caption>
       <thead className="bg-slate-800/80 text-slate-400"><tr><th className="p-3">Titel</th><th className="p-3">Typ</th><th className="p-3">Chunks</th><th className="p-3">Verarbeitung</th><th className="p-3">Aktionen</th></tr></thead>
-      <tbody className="divide-y divide-slate-800/60">{sources.map((source) => <tr key={source.id}>
+      <tbody className="divide-y divide-slate-800/60">{visibleSources.map((source) => <tr key={source.id}>
         <td className="p-3 font-medium">{source.title}</td><td className="p-3">{source.type}</td><td className="p-3">{source.chunkCount}</td>
         <td className="p-3"><span className={source.status === "failed" ? "text-red-300" : source.status === "completed" ? "text-emerald-300" : "text-amber-300"}>{source.status}</span>{source.job && <p className="mt-1 text-slate-500">Version {source.job.revision} · Versuch {source.job.attempts}/3</p>}{source.securityStatus !== "SAFE" && <p className="text-amber-300">Sicherheitsprüfung: {source.securityStatus} – nicht für KI-Antworten freigegeben</p>}{source.errorMessage && <p className="mt-1 max-w-sm text-red-300">{source.errorMessage}</p>}</td>
         <td className="p-3">{canManage && <div className="flex flex-wrap gap-3">
@@ -90,7 +124,9 @@ function KnowledgeSources({ sources, canManage, onRefresh, notify }: {
           {["document", "faq"].includes(source.type) && <button type="button" disabled={Boolean(busy)} className="text-blue-300 disabled:opacity-40" onClick={() => { void action(source, "edit"); }}>Bearbeiten</button>}
           <button type="button" disabled={Boolean(busy)} className="text-red-300 disabled:opacity-40" onClick={() => { void action(source, "delete"); }}>Löschen</button>
         </div>}</td>
-      </tr>)}{!sources.length && <tr><td colSpan={5} className="p-6 text-slate-400">Noch keine Wissensquellen vorhanden. Füge einen Text, eine FAQ, eine PDF oder eine Website hinzu.</td></tr>}</tbody>
+      </tr>)}{!visibleSources.length && <tr><td colSpan={5} className="p-6 text-slate-400">{sources.length === 0
+        ? "Noch keine Wissensquellen vorhanden. Füge einen Text, eine FAQ, eine PDF oder eine Website hinzu."
+        : "Keine Quellen entsprechen den aktuellen Filtern."}</td></tr>}</tbody>
     </table></div>
   </section>;
 }
