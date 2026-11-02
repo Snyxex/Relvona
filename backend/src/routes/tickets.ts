@@ -101,6 +101,9 @@ router.put("/:id", async (req: AuthRequest, res) => {
 router.get("/:id/comments", async (req: AuthRequest, res) => {
   try {
     const organizationId = req.organization!.id;
+    const [ticket] = await db.select({ id: tickets.id }).from(tickets)
+      .where(and(eq(tickets.id, req.params.id), eq(tickets.organizationId, organizationId))).limit(1);
+    if (!ticket) return res.status(404).json({ error: "Ticket not found" });
     const [localComments, externalComments] = await Promise.all([
       db.select({ comment: ticketComments, user: { id: users.id, name: users.name, email: users.email } })
         .from(ticketComments)
