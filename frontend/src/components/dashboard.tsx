@@ -1147,18 +1147,18 @@ export default function Dashboard({
               { id: "tickets", label: "Tickets", icon: Ticket },
               { id: "knowledge", label: "Wissensdatenbank", icon: BookOpen },
               { id: "websites", label: "Web-Crawler", icon: Globe },
-              { id: "assistant", label: "AI Assistant Settings", icon: Bot },
-              { id: "agents", label: "Support Agents", icon: Users },
+              { id: "assistant", label: "AI-Assistent", icon: Bot },
+              { id: "agents", label: "Support-Team", icon: Users },
               { id: "customers", label: "Kunden", icon: UserCheck },
               {
                 id: "analytics",
                 label: "Analytics",
                 icon: Sparkles,
               },
-              { id: "widget", label: "Widget Designer", icon: Sliders },
+              { id: "widget", label: "Widget-Designer", icon: Sliders },
               {
                 id: "settings",
-                label: "Organization Settings",
+                label: "Organisation",
                 icon: Settings,
               },
               { id: "profile", label: "Profil-Einstellungen", icon: UserCheck },
@@ -1232,7 +1232,7 @@ export default function Dashboard({
           <button
             type="button"
             onClick={handleLogout}
-            title="Sign Out"
+            title="Abmelden"
             className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded transition-colors"
           >
             <LogOut className="w-4 h-4" />
@@ -1240,7 +1240,7 @@ export default function Dashboard({
         </div>
       </aside>
 
-      <main className={activeTab === "overview" ? "rv-main rv-main--overview flex-1 overflow-y-auto" : "rv-main flex-1 bg-slate-950 overflow-y-auto p-6"}>
+      <main className={activeTab === "overview" ? "rv-main rv-main--overview flex-1 overflow-y-auto" : ["analytics", "customers", "agents", "tickets", "conversations"].includes(activeTab) ? "rv-main rv-main--modern flex-1 overflow-y-auto p-6" : "rv-main flex-1 bg-slate-950 overflow-y-auto p-6"}>
         {activeTab === "profile" && (
           <div className="mx-auto max-w-2xl space-y-6">
             <div>
@@ -1425,10 +1425,10 @@ export default function Dashboard({
         )}
 
         {activeTab === "conversations" && (
-          <div className="h-full flex gap-4 max-w-7xl mx-auto">
-            <div className="w-1/3 bg-slate-900 border border-slate-800 rounded-xl overflow-hidden flex flex-col">
+          <div className="rv-inbox-layout h-full flex gap-4 max-w-7xl mx-auto">
+            <div className="rv-inbox-list w-1/3 bg-slate-900 border border-slate-800 rounded-xl overflow-hidden flex flex-col">
               <div className="p-3 border-b border-slate-800 space-y-2">
-                <div className="font-semibold text-sm">Agent Inbox</div>
+                <div className="font-semibold text-sm">Conversation-Inbox</div>
                 <input
                   value={inboxSearch}
                   onChange={(event) => setInboxSearch(event.target.value)}
@@ -1596,7 +1596,7 @@ export default function Dashboard({
               </div>
             </div>
 
-            <div className="w-2/3 bg-slate-900 border border-slate-800 rounded-xl flex flex-col overflow-hidden">
+            <div className="rv-inbox-detail w-2/3 bg-slate-900 border border-slate-800 rounded-xl flex flex-col overflow-hidden">
               {selectedConv ? (
                 <>
                   <div className="p-3 border-b border-slate-800 flex justify-between items-center bg-slate-900">
@@ -1903,10 +1903,10 @@ export default function Dashboard({
         )}
 
         {activeTab === "tickets" && (
-          <div className="space-y-4 max-w-7xl mx-auto">
+          <div className="rv-ticket-workspace space-y-4 max-w-7xl mx-auto">
             <div>
               <h1 className="text-xl font-bold text-white">
-                Customer Support Tickets
+                Support-Tickets
               </h1>
               <p className="mt-1 text-xs text-slate-400">
                 KI-Eskalationen werden automatisch als offene Tickets in diese
@@ -1915,7 +1915,7 @@ export default function Dashboard({
             </div>
 
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-              <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+              <div className="rv-ticket-table bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
                 <table className="w-full text-left text-xs text-slate-300">
                   <thead className="bg-slate-800/80 text-slate-400 uppercase text-[10px] font-semibold">
                     <tr>
@@ -1988,7 +1988,7 @@ export default function Dashboard({
                   </tbody>
                 </table>
               </div>
-              <aside className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+              <aside className="rv-ticket-details rounded-xl border border-slate-800 bg-slate-900 p-4">
                 {selectedTicket ? (
                   <div className="space-y-4">
                     <div>
