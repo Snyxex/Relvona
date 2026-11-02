@@ -27,6 +27,25 @@ router.post("/executions/:id/retry", requireRole(["owner", "admin"]), async (req
   }
 });
 
+router.post("/executions/:id/confirm-remote", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
+  const externalTicketId = req.body?.externalTicketId;
+  if (typeof externalTicketId !== "string" || !/^[0-9]{1,20}$/.test(externalTicketId)) {
+    return res.status(400).json({ error: "Invalid Zendesk ticket id" });
+  }
+  try {
+    return res.json(await IntegrationSyncService.confirmRemoteExecution({
+      organizationId: req.organization!.id,
+      executionId: req.params.id,
+      externalTicketId,
+    }));
+  } catch (error) {
+    const message = (error as Error).message;
+    if (message === "Integration sync execution not found" || message === "Integration sync rule not found") return res.status(404).json({ error: message });
+    if (message === "Execution does not require reconciliation" || message === "Execution reconciliation conflict") return res.status(409).json({ error: message });
+    return sendInternalError(req, res, error, { code: "SYNC_RECONCILIATION_FAILED", message: "Zendesk record could not be verified" });
+  }
+});
+
 router.post("/rules", requireRole(["owner", "admin"]), async (req: AuthRequest, res) => {
   try {
     const { connectionId, eventType, action } = req.body || {};
