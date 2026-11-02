@@ -201,6 +201,7 @@ function OverviewTab({organizationId,user,onNavigate,onOpenTicket,canManage}:Pro
       </div>
       {loading&&<div role="status" className="rv-panel rv-loading">Dashboard-Daten werden geladen …</div>}
       {error&&<div role="alert" className="rv-error">{error} <button type="button" onClick={()=>refreshRef.current()}>Erneut versuchen</button></div>}
+      {!loading&&!error&&!data&&<div className="rv-panel rv-loading" role="status">{organizationId?"Für diesen Zeitraum sind derzeit keine Dashboard-Daten verfügbar.":"Bitte wähle eine Organisation aus, um das Dashboard anzuzeigen."}</div>}
       {!loading&&!error&&data&&metrics&&<>
         <div className="rv-kpi-grid">
           <MetricCard label="Support-Tickets" icon={Ticket} value={formatNumber(metrics.tickets)} detail="zum vorherigen Zeitraum" tone="#4c78f7" change={delta(metrics.tickets,metrics.previous.tickets)} spark={data.volume.map(x=>x.tickets)}/>
