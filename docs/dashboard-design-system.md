@@ -83,6 +83,25 @@ The **known CI blocker** is the Jenkins agent's rootless Podman environment: the
 
 The PR Jenkinsfile previously contained an accidentally truncated `NoNewPrivs` shell condition and a duplicated remainder of the pipeline, causing an independent parse failure. This has been repaired. Workspace-only `post` actions are now conditional on a valid Jenkins FilePath so early agent failures are not masked by `archiveArtifacts` errors. These changes **do not** fix the agent service's underlying `NoNewPrivs=1` / `newuidmap` restriction, which remains a separate host-operator prerequisite.
 
+## Code-first workspace decomposition (2 November 2026)
+
+Refactoring was prioritized before test execution, without changing existing backend APIs or triggering deployment:
+
+- `dashboard.tsx` is now primarily responsible for auth/session context, tenant data, navigation, and the ticket/conversation workflow. It was reduced from roughly 146 KB / 3,350 lines to roughly 95 KB / 2,220 lines.
+- `dashboard-tabs/organization-settings.tsx`: isolated organization API-key management; revealed keys and pending UI state are discarded when the component unmounts. Rotations have a confirmation and the parent validates the target tenant before applying the response.
+- `dashboard-tabs/widget-designer.tsx`: independent appearance controls, true-color preview, hosted page and embed-code management. It reuses the modern light workspace style; key rotation requires confirmation.
+- `dashboard-tabs/knowledge-workspaces.tsx`: typed knowledge base and crawler forms, reusing the original handlers and service endpoints.
+- `dashboard-tabs/assistant-settings.tsx`: typed model/profile editing, API provider settings and guardrails. This is a presentational extraction; state ownership and backend persistence stay in the dashboard.
+- `lib/dashboard-navigation.ts`: type-safe tab IDs, icon metadata and explicit administrator visibility rules; direct `as any` navigation casts are eliminated.
+- Knowledge base and source arrays have explicit TypeScript element types rather than `any[]`.
+- Tenant response handling uses per-load epochs and organization identity checks to prevent older requests overwriting current data. Switching tenants also clears ticket details, conversations, search results, knowledge and AI configuration immediately. Ticket detail fetches are similarly guarded.
+
+### Intentionally deferred validation and remaining code debt
+
+As requested, full tests and CI remediation are **not** part of this refactoring pass. TypeScript, Biome and browser validation must still be run and any follow-up errors resolved before merging. The existing Jenkins host service's Rootless-Podman `NoNewPrivs` issue remains separate.
+
+The ticket and conversation workflow, authentication/login section, and remaining global state inside `dashboard.tsx` are still candidates for extraction into dedicated hooks and components. Their extraction should preserve tenant cancellation, server-side RBAC enforcement, and websocket cleanup rather than merely relocate JSX.
+
 ## Limits and follow-up
 
 The reference mockup is a **visual specification**, not a source of example customer names, event counts, dates or ratings. The first rollout updates the employee homepage and its shared sidebar; pre-existing admin settings, editors, profile and portal flows retain their own established UI until they undergo deliberate component-by-component migration.
