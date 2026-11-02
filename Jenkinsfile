@@ -32,6 +32,26 @@ pipeline {
                     # credentials must never appear in the Jenkins console log.
                     set +x
                     set -eu
+                    # Diagnose the Jenkins identity and kernel user-namespace restrictions
+                    # before invoking Podman. These values contain no CI secrets.
+                    echo 'Rootless Podman host diagnostics:'
+                    id
+                    grep -E '^(NoNewPrivs|Seccomp|CapEff):' /proc/self/status || true
+                    for f in /proc/sys/user/max_user_namespaces /proc/sys/kernel/unprivileged_userns_clone; do
+                      if [ -r "$f" ]; then printf '%s=' "$f"; cat "$f"; fi
+                    done
+                    for f in /usr/bin/newuidmap /usr/bin/newgidmap; do
+                      if [ -e "$f" ]; then stat -c '%a %U:%G %n' "$f"; fi
+                    done
+                    if command -v getcap >/dev/null 2>&1; then
+                      getcap /usr/bin/newuidmap /usr/bin/newgidmap || true
+                    fi
+                    if [ -r /etc/subuid ]; then
+                      grep -F "$(id -un):" /etc/subuid || true
+                    fi
+                    if [ -r /etc/subgid ]; then
+                      grep -F "$(id -un):" /etc/subgid || true
+                    fi
                     # Only the rootless container engine owned by this Jenkins agent is allowed.
                     # A Jenkins node label does not change which user or socket the CLI uses.
                     command -v podman >/dev/null 2>&1 || {
