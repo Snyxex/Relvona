@@ -28,6 +28,7 @@ pipeline {
         stage('Environment Validation') {
             steps {
                 sh '''
+                    set +x
                     set -eu
                     podman version
                     podman info --format '{{.Host.Security.Rootless}}'
