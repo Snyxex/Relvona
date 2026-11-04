@@ -220,7 +220,7 @@ pipeline {
                 sh '''
                     set -eu
                     podman compose --env-file "${CI_ENV_FILE}" -f docker-compose.yml config --quiet
-                    podman compose --env-file "${CI_ENV_FILE}" -f docker-compose.local.yml config --quiet
+                    LOCAL_ENV_FILE="${CI_ENV_FILE}" podman compose --env-file "${CI_ENV_FILE}" -f docker-compose.local.yml config --quiet
                     podman compose --env-file "${CI_ENV_FILE}" -f docker-compose.prod.yml config --quiet
                     podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" up -d --build --wait backend frontend
                     podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci node -e \
