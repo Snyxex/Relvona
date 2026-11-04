@@ -5,7 +5,7 @@ import { requireNewPasswordPolicy } from "../auth/password.js";
 // Synthetic fixture only; no credential or externally issued token is used here.
 const token = `bootstrap-test-only-${"a".repeat(40)}`;
 assert.equal(isBootstrapTokenAuthorized(token, token, true), true);
-assert.equal(isBootstrapTokenAuthorized(token.slice(0, -1) + "a", token, true), false);
+assert.equal(isBootstrapTokenAuthorized(token.slice(0, -1) + "b", token, true), false);
 assert.equal(isBootstrapTokenAuthorized(undefined, token, true), false);
 assert.equal(isBootstrapTokenAuthorized(token, undefined, true), false, "production requires token configuration");
 assert.equal(isBootstrapTokenAuthorized(token, "short", true), false);
