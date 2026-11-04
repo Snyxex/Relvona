@@ -227,10 +227,7 @@ pipeline {
                         podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" ps -a || true
                         echo "Backend startup errors (redacted):"
                         podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" logs --no-color --tail=100 backend 2>&1 |
-                            sed -E \
-                              -e 's#(postgres(ql)?://)[^[:space:]]+#\1[REDACTED]#g' \
-                              -e 's#(redis://)[^[:space:]]+#\1[REDACTED]#g' \
-                              -e 's#(token|secret|password|api[_-]?key)([=: ]+)[^[:space:]]+#\1\2[REDACTED]#Ig' || true
+                            awk '{ if (tolower($0) ~ /password|secret|token|authorization|api.key|postgres:|postgresql:|redis:|credential/) print "[REDACTED: sensitive diagnostic line]"; else print $0 }' || true
                         exit 1
                     fi
                     podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci node -e \
