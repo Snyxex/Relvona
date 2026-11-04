@@ -91,8 +91,10 @@ services:
   backend:
     build:
       context: ./backend
-    entrypoint: []
-    command: ["node", "dist/index.js"]
+    # Explicitly bypass the image Infisical entrypoint for isolated CI smoke tests.
+    # An empty entrypoint is not reliably preserved by all Podman Compose providers.
+    entrypoint: ["node"]
+    command: ["dist/index.js"]
     environment:
       NODE_ENV: production
       PORT: "8080"
