@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { isAxiosError } from "axios";
 import { api } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 
@@ -52,14 +53,18 @@ export default function PlatformAdminSetupPage() {
       if (result.error)
         throw new Error(result.error.message || "Anmeldung fehlgeschlagen.");
       window.location.assign("/");
-    } catch (e: any) {
-      const responseError = e.response?.data?.error;
+    } catch (e: unknown) {
+      const responseError = isAxiosError(e) ? e.response?.data?.error : undefined;
       setError(
         typeof responseError === "string"
           ? responseError
           : responseError?.code === "INTERNAL_ERROR"
             ? "Die Einrichtung konnte nicht abgeschlossen werden. Bitte versuchen Sie es erneut."
-            : responseError?.message || e.message || "Setup fehlgeschlagen.",
+            : typeof responseError?.message === "string"
+              ? responseError.message
+              : e instanceof Error
+                ? e.message
+                : "Setup fehlgeschlagen.",
       );
     } finally {
       setSaving(false);
