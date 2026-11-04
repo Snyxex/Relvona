@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { isBootstrapTokenAuthorized } from "../auth/bootstrapGuard.js";
 import { requireNewPasswordPolicy } from "../auth/password.js";
 
-const token = "VnMc-U6N2B4jxg5XcBSZa8xKD5qP9Y21KZgaFsW7mZk";
+// Synthetic fixture only; no credential or externally issued token is used here.
+const token = `bootstrap-test-only-${"a".repeat(40)}`;
 assert.equal(isBootstrapTokenAuthorized(token, token, true), true);
 assert.equal(isBootstrapTokenAuthorized(token.slice(0, -1) + "a", token, true), false);
 assert.equal(isBootstrapTokenAuthorized(undefined, token, true), false);
