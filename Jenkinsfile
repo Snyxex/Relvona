@@ -222,7 +222,17 @@ pipeline {
                     podman compose --env-file "${CI_ENV_FILE}" -f docker-compose.yml config --quiet
                     LOCAL_ENV_FILE="${CI_ENV_FILE}" podman compose --env-file "${CI_ENV_FILE}" -f docker-compose.local.yml config --quiet
                     podman compose --env-file "${CI_ENV_FILE}" -f docker-compose.prod.yml config --quiet
-                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" up -d --build --wait backend frontend
+                    if ! podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" up -d --build --wait backend frontend; then
+                        echo "Compose startup failed. Backend/frontend state:"
+                        podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" ps -a || true
+                        echo "Backend startup errors (redacted):"
+                        podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" logs --no-color --tail=100 backend 2>&1 |
+                            sed -E \
+                              -e 's#(postgres(ql)?://)[^[:space:]]+#\\1[REDACTED]#g' \
+                              -e 's#(redis://)[^[:space:]]+#\\1[REDACTED]#g' \
+                              -e 's#(token|secret|password|api[_-]?key)([=: ]+)[^[:space:]]+#\\1\\2[REDACTED]#Ig' || true
+                        exit 1
+                    fi
                     podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci node -e \
                       "Promise.all([fetch('http://backend:8080/health/live'), fetch('http://backend:8080/health/ready'), fetch('http://frontend:3000')]).then(rs => { if (rs.some(r => !r.ok)) process.exit(1); console.log('Backend and frontend smoke checks passed'); }).catch(error => { console.error(error); process.exit(1); })"
                 '''
