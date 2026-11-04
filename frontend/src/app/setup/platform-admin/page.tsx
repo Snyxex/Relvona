@@ -33,13 +33,21 @@ export default function PlatformAdminSetupPage() {
       return setError("Passwörter stimmen nicht überein.");
     setSaving(true);
     try {
-      await api.post("/auth/setup/platform-admin", {
-        name,
-        organizationName,
-        email,
-        password,
-        passwordConfirmation: confirmation,
-      }, { headers: bootstrapToken ? { "X-Platform-Bootstrap-Token": bootstrapToken } : {} });
+      await api.post(
+        "/auth/setup/platform-admin",
+        {
+          name,
+          organizationName,
+          email,
+          password,
+          passwordConfirmation: confirmation,
+        },
+        {
+          headers: bootstrapToken
+            ? { "X-Platform-Bootstrap-Token": bootstrapToken }
+            : {},
+        },
+      );
       const result = await authClient.signIn.email({ email, password });
       if (result.error)
         throw new Error(result.error.message || "Anmeldung fehlgeschlagen.");
@@ -92,7 +100,8 @@ export default function PlatformAdminSetupPage() {
             {error}
           </p>
         )}
-        <label className="block text-sm text-slate-300">Setup-Token (aus der Serverkonfiguration)
+        <label className="block text-sm text-slate-300">
+          Setup-Token (aus der Serverkonfiguration)
           <input
             type="password"
             autoComplete="off"
