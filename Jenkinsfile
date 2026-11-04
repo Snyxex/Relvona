@@ -208,7 +208,7 @@ pipeline {
                 sh '''
                     podman run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
                       --tmpfs /tmp:rw,noexec,nosuid,size=64m --volume "${PWD}:/repo:ro" \
-                      zricethezav/gitleaks@sha256:cdbb7c955abce02001a9f6c9f602fb195b7fadc1e812065883f695d1eeaba854 \
+                      docker.io/zricethezav/gitleaks@sha256:cdbb7c955abce02001a9f6c9f602fb195b7fadc1e812065883f695d1eeaba854 \
                       detect --source=/repo --config=/repo/.gitleaks.toml --log-opts=--all --redact --no-banner
                 '''
             }
