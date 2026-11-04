@@ -24,7 +24,14 @@ export default function InvitePage({
         return api.get(`/auth/invitations/${token}`);
       })
       .then((response) => setInvite(response.data))
-      .catch((e: unknown) => setError(isAxiosError(e) ? e.response?.data?.error || "Einladung ungültig." : "Einladung ungültig."));
+      .catch((e: unknown) => {
+        const responseError = isAxiosError(e) ? e.response?.data?.error : undefined;
+        setError(
+          typeof responseError === "string"
+            ? responseError
+            : "Einladung ungültig.",
+        );
+      });
   }, [params]);
   const accept = async (event: React.FormEvent) => {
     event.preventDefault();
