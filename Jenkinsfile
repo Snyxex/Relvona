@@ -228,9 +228,9 @@ pipeline {
                         echo "Backend startup errors (redacted):"
                         podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" logs --no-color --tail=100 backend 2>&1 |
                             sed -E \
-                              -e 's#(postgres(ql)?://)[^[:space:]]+#\\1[REDACTED]#g' \
-                              -e 's#(redis://)[^[:space:]]+#\\1[REDACTED]#g' \
-                              -e 's#(token|secret|password|api[_-]?key)([=: ]+)[^[:space:]]+#\\1\\2[REDACTED]#Ig' || true
+                              -e 's#(postgres(ql)?://)[^[:space:]]+#\1[REDACTED]#g' \
+                              -e 's#(redis://)[^[:space:]]+#\1[REDACTED]#g' \
+                              -e 's#(token|secret|password|api[_-]?key)([=: ]+)[^[:space:]]+#\1\2[REDACTED]#Ig' || true
                         exit 1
                     fi
                     podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci node -e \
