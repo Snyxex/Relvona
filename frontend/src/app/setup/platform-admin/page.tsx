@@ -54,7 +54,9 @@ export default function PlatformAdminSetupPage() {
         throw new Error(result.error.message || "Anmeldung fehlgeschlagen.");
       window.location.assign("/");
     } catch (e: unknown) {
-      const responseError = isAxiosError(e) ? e.response?.data?.error : undefined;
+      const responseError = isAxiosError(e)
+        ? e.response?.data?.error
+        : undefined;
       setError(
         typeof responseError === "string"
           ? responseError
