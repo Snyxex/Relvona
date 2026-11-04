@@ -64,6 +64,7 @@ export class EntraAuthService {
     if (!state) throw new Error("SSO_INVALID_STATE");
     // Pre-upgrade states do not have PKCE and must be restarted rather than downgraded.
     if (!state.pkceVerifierEncrypted) throw new Error("SSO_PKCE_REQUIRED");
+    const pkceVerifierEncrypted = state.pkceVerifierEncrypted;
 
     return withTenantTransaction(state.organizationId, async (tx) => {
       const [record] = await tx.select({
@@ -84,7 +85,7 @@ export class EntraAuthService {
       return {
         organizationId: state.organizationId,
         nonce: state.nonce,
-        pkceVerifierEncrypted: state.pkceVerifierEncrypted,
+        pkceVerifierEncrypted,
         tenantId: record.tenantId,
         clientId: record.clientId,
         clientSecretEncrypted: record.clientSecretEncrypted,
