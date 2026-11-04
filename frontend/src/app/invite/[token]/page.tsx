@@ -9,7 +9,9 @@ export default function InvitePage({
   params: Promise<{ token: string }>;
 }) {
   const [token, setToken] = useState("");
-  const [invite, setInvite] = useState<{ email: string; role: string } | null>(null);
+  const [invite, setInvite] = useState<{ email: string; role: string } | null>(
+    null,
+  );
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -25,7 +27,9 @@ export default function InvitePage({
       })
       .then((response) => setInvite(response.data))
       .catch((e: unknown) => {
-        const responseError = isAxiosError(e) ? e.response?.data?.error : undefined;
+        const responseError = isAxiosError(e)
+          ? e.response?.data?.error
+          : undefined;
         setError(
           typeof responseError === "string"
             ? responseError
