@@ -180,8 +180,9 @@ export default function AnswerQualityPage() {
         >
           <h2 className="text-lg font-semibold">Ergebnis: {resultTitle}</h2>
           <p className="text-sm">
-            {preview.evidenceCount} referenzierte Quellen · {preview.citationCount}{" "}
-            Quellenmarker · {preview.issues.length} Hinweise
+            {preview.evidenceCount} referenzierte Quellen ·{" "}
+            {preview.citationCount} Quellenmarker · {preview.issues.length}{" "}
+            Hinweise
           </p>
           <ul className="list-disc space-y-2 pl-5">
             {preview.issues.map((issue) => (
