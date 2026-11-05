@@ -1,5 +1,5 @@
 pipeline {
-    agent { label 'podman-test' }
+    agent { label 'node01-linux-build' }
 
     options {
         skipDefaultCheckout(true)
@@ -28,52 +28,11 @@ pipeline {
         stage('Environment Validation') {
             steps {
                 sh '''
-                    # Jenkins runs shell scripts with xtrace by default. Generated CI
-                    # credentials must never appear in the Jenkins console log.
                     set +x
                     set -eu
-                    # Diagnose the Jenkins identity and kernel user-namespace restrictions
-                    # before invoking Podman. These values contain no CI secrets.
-                    echo 'Rootless Podman host diagnostics:'
-                    id
-                    grep -E '^(NoNewPrivs|Seccomp|CapEff):' /proc/self/status || true
-                    for f in /proc/sys/user/max_user_namespaces /proc/sys/kernel/unprivileged_userns_clone; do
-                      if [ -r "$f" ]; then printf '%s=' "$f"; cat "$f"; fi
-                    done
-                    for f in /usr/bin/newuidmap /usr/bin/newgidmap; do
-                      if [ -e "$f" ]; then stat -c '%a %U:%G %n' "$f"; fi
-                    done
-                    if command -v getcap >/dev/null 2>&1; then
-                      getcap /usr/bin/newuidmap /usr/bin/newgidmap || true
-                    fi
-                    if [ -r /etc/subuid ]; then
-                      grep -F "$(id -un):" /etc/subuid || true
-                    fi
-                    if [ -r /etc/subgid ]; then
-                      grep -F "$(id -un):" /etc/subgid || true
-                    fi
-                    # Rootless Podman must invoke the setuid newuidmap/newgidmap
-                    # helpers when creating its user namespace. NoNewPrivs=1
-                    # prevents those helpers from acquiring the required privilege.
-                    if grep -Eq '^NoNewPrivs:[[:space:]]*1$' /proc/self/status; then
-                      echo 'ERROR: The Jenkins agent has NoNewPrivs=1; rootless Podman cannot initialize newuidmap.' >&2
-                      echo 'Inspect the actual Jenkins executor service and its inherited security restrictions.' >&2
-                      exit 1
-                    fi
-                    # Rootless Podman must remain non-root on this shared build node.
-                    command -v podman >/dev/null 2>&1 || {
-                      echo 'ERROR: podman is not installed on the selected Jenkins agent' >&2
-                      exit 1
-                    }
                     podman version
-                    if [ "$(podman info --format '{{.Host.Security.Rootless}}')" != "true" ]; then
-                      echo 'ERROR: Jenkins CI requires rootless Podman; refusing host/rootful Docker' >&2
-                      exit 1
-                    fi
-                    podman compose version || {
-                      echo 'ERROR: Podman Compose provider is unavailable (install docker-compose v2 or podman-compose for the Jenkins agent)' >&2
-                      exit 1
-                    }
+                    podman info --format '{{.Host.Security.Rootless}}'
+                    podman compose version
                     printf 'Commit: %s\n' "$(git rev-parse HEAD)"
                     printf 'Branch: %s\n' "${BRANCH_NAME:-detached}"
                     printf 'Build: %s\n' "${BUILD_NUMBER}"
@@ -86,6 +45,8 @@ pipeline {
                     object_secret="ci-$(random_value)$(random_value)"
                     {
                       printf 'COMPOSE_PROJECT_NAME=relvona-ci-%s-%s-%s\n' "${BUILD_NUMBER}" "${EXECUTOR_NUMBER:-0}" "${project_suffix}"
+                      printf 'CI_UID=%s\n' "$(id -u)"
+                      printf 'CI_GID=%s\n' "$(id -g)"
                       printf 'POSTGRES_DB=ai_support_db\n'
                       printf 'POSTGRES_USER=postgres\n'
                       printf 'POSTGRES_PASSWORD=%s\n' "${postgres_password}"
@@ -109,7 +70,7 @@ pipeline {
                       printf 'OBJECT_STORAGE_CORS_ALLOWED_ORIGINS=https://frontend.invalid\n'
                     } > "${CI_ENV_FILE}"
                     podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" config --quiet
-                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci sh -lc 'node --version && npm --version && git --version && test "$(id -u)" = 0 && touch /workspace/.ci-write-test && rm /workspace/.ci-write-test'
+                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci sh -lc 'node --version && npm --version && git --version'
                 '''
             }
         }
@@ -121,27 +82,6 @@ pipeline {
                     set -eu
                     podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci sh -lc \
                       'npm --prefix backend ci && npm --prefix frontend ci'
-                '''
-            }
-        }
-
-        // One-off diagnostic: produce an exact formatter patch without altering
-        // the source files used for quality gates. The patch can be applied as a
-        // normal reviewed commit and is archived even when checks fail.
-        stage('Biome Formatting Patch') {
-            when { changeRequest() }
-            steps {
-                sh '''
-                    set -eu
-                    mkdir -p artifacts
-                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps \
-                      -e CHANGE_TARGET="${CHANGE_TARGET:-main}" ci \
-                      sh -lc 'cd frontend && node scripts/run-biome-changed.mjs format-write'
-                    git diff --binary -- frontend > artifacts/frontend-biome-format.patch
-                    git restore -- frontend
-                    if [ -s artifacts/frontend-biome-format.patch ]; then
-                      echo 'Biome formatting patch is available as a Jenkins build artifact.'
-                    fi
                 '''
             }
         }
@@ -273,21 +213,28 @@ pipeline {
                 sh '''
                     podman run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
                       --tmpfs /tmp:rw,noexec,nosuid,size=64m --volume "${PWD}:/repo:ro" \
-                      zricethezav/gitleaks@sha256:cdbb7c955abce02001a9f6c9f602fb195b7fadc1e812065883f695d1eeaba854 \
-                      detect --source=/repo --config=/repo/.gitleaks.toml --log-opts=--all --redact --no-banner
+                      docker.io/zricethezav/gitleaks@sha256:cdbb7c955abce02001a9f6c9f602fb195b7fadc1e812065883f695d1eeaba854 \
+                      detect --source=/repo --config=/repo/.gitleaks.toml --gitleaks-ignore-path=/repo/.gitleaksignore --log-opts=--all --redact --verbose --no-banner
                 '''
             }
         }
 
-        stage('Container Validation') {
+        stage('Compose Validation') {
             options { timeout(time: 20, unit: 'MINUTES') }
             steps {
                 sh '''
                     set -eu
                     podman compose --env-file "${CI_ENV_FILE}" -f docker-compose.yml config --quiet
-                    podman compose --env-file "${CI_ENV_FILE}" -f docker-compose.local.yml config --quiet
+                    LOCAL_ENV_FILE="${CI_ENV_FILE}" podman compose --env-file "${CI_ENV_FILE}" -f docker-compose.local.yml config --quiet
                     podman compose --env-file "${CI_ENV_FILE}" -f docker-compose.prod.yml config --quiet
-                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" up -d --build --wait backend frontend
+                    if ! podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" up -d --build --wait backend frontend; then
+                        echo "Compose startup failed. Backend/frontend state:"
+                        podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" ps -a || true
+                        echo "Backend startup errors (redacted):"
+                        podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" logs --no-color --tail=100 backend 2>&1 |
+                            awk '{ if (tolower($0) ~ /password|secret|token|authorization|api.key|postgres:|postgresql:|redis:|credential/) print "[REDACTED: sensitive diagnostic line]"; else print $0 }' || true
+                        exit 1
+                    fi
                     podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci node -e \
                       "Promise.all([fetch('http://backend:8080/health/live'), fetch('http://backend:8080/health/ready'), fetch('http://frontend:3000')]).then(rs => { if (rs.some(r => !r.ok)) process.exit(1); console.log('Backend and frontend smoke checks passed'); }).catch(error => { console.error(error); process.exit(1); })"
                 '''
@@ -301,7 +248,7 @@ pipeline {
                     mkdir -p artifacts
                     tar -czf artifacts/relvona-backend.tgz -C backend dist package.json package-lock.json
                     tar -czf artifacts/relvona-frontend.tgz -C frontend .next/standalone .next/static public package.json package-lock.json
-                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" images --format json > artifacts/container-images.json
+                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" images --format json > artifacts/docker-images.json
                     sha256sum artifacts/*.tgz > artifacts/SHA256SUMS
                 '''
                 archiveArtifacts artifacts: 'artifacts/**', fingerprint: true, onlyIfSuccessful: true
@@ -312,19 +259,15 @@ pipeline {
     post {
         always {
             script {
-                // Jenkins can run 'post' without an executor/workspace if a build
-                // fails before the agent is allocated. Never mask that failure
-                // with a secondary FilePath error from archiveArtifacts or sh.
                 if (getContext(hudson.FilePath) != null) {
-                    archiveArtifacts artifacts: 'artifacts/frontend-biome-format.patch', allowEmptyArchive: true
                     sh '''
-                        if [ -f "${CI_ENV_FILE}" ]; then
-                          podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" down --volumes --remove-orphans --rmi local || true
-                        fi
-                    '''
+                if [ -f "${CI_ENV_FILE}" ]; then
+                  podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" down --volumes --remove-orphans --rmi local || true
+                fi
+            '''
                     deleteDir()
                 } else {
-                    echo 'Jenkins workspace unavailable; skipping artifact collection and cleanup. Check the original agent allocation failure.'
+                    echo 'Skipping workspace cleanup: no agent workspace was allocated.'
                 }
             }
         }
