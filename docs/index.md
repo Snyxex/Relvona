@@ -10,6 +10,7 @@ Welcome to the Relvona documentation. This documentation is written for administ
 - [Integrations](integrations.md) — HubSpot, Zendesk, Google Calendar, Microsoft Calendar, webhooks, and synchronization.
 - [Support automation](support-automation-guide.md) — rule setup, simulation, rollout, operational safeguards, and troubleshooting.
 - [Security and privacy](security.md) — tenant isolation, authentication, secrets, PII protection, RLS, uploads, rate limits, and operational security.
+- [Answer quality preview](answer-quality-preview.md) — manual draft review, citation checks, and explicitly limited heuristics.
 
 ## Administration and operations
 
