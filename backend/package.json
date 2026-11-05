@@ -95,6 +95,14 @@
     "pipex": "git+https://github.com/snyxex/pipex.git#4923c168228268f1422dfd1553759ce18e250224",
     "socket.io": "^4.7.5"
   },
+  "overrides": {
+    "@esbuild-kit/core-utils": {
+      "esbuild": "0.25.12"
+    },
+    "gcp-metadata": {
+      "gaxios": "7.3.1"
+    }
+  },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.17",
