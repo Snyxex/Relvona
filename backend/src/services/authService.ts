@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { eq, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { authAccounts, organizationMembers, organizationSettings, organizations, users } from "../db/schema.js";
-import { hashPassword, LEGACY_PASSWORD_SENTINEL } from "../auth/password.js";
+import { hashPassword, LEGACY_PASSWORD_SENTINEL, requireNewPasswordPolicy } from "../auth/password.js";
 import { platformRoles, PLATFORM_ADMIN_ROLE } from "../db/platformRoles.js";
 
 export class AuthService {
@@ -12,6 +12,7 @@ export class AuthService {
   }
 
   static async bootstrapPlatformAdmin(data: { name: string; email: string; password: string; organizationName: string }) {
+    requireNewPasswordPolicy(data.password);
     return db.transaction(async (tx) => {
       // PostgreSQL advisory locking is intentionally the only raw statement in
       // this flow. It serializes the one-time bootstrap across all instances.

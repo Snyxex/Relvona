@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { isAxiosError } from "axios";
 import { api } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 export default function InvitePage({
@@ -8,7 +9,9 @@ export default function InvitePage({
   params: Promise<{ token: string }>;
 }) {
   const [token, setToken] = useState("");
-  const [invite, setInvite] = useState<any>();
+  const [invite, setInvite] = useState<{ email: string; role: string } | null>(
+    null,
+  );
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -23,10 +26,20 @@ export default function InvitePage({
         return api.get(`/auth/invitations/${token}`);
       })
       .then((response) => setInvite(response.data))
-      .catch((e) => setError(e.response?.data?.error || "Einladung ungültig."));
+      .catch((e: unknown) => {
+        const responseError = isAxiosError(e)
+          ? e.response?.data?.error
+          : undefined;
+        setError(
+          typeof responseError === "string"
+            ? responseError
+            : "Einladung ungültig.",
+        );
+      });
   }, [params]);
   const accept = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (!invite) return;
     try {
       await api.post(`/auth/invitations/${token}/accept`, { name, password });
       const result = await authClient.signIn.email({
@@ -36,11 +49,14 @@ export default function InvitePage({
       if (result.error)
         throw new Error(result.error.message || "Anmeldung fehlgeschlagen.");
       window.location.assign("/");
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const apiError = isAxiosError(e) ? e.response?.data?.error : undefined;
       setError(
-        e.response?.data?.error ||
-          e.message ||
-          "Einladung konnte nicht angenommen werden.",
+        typeof apiError === "string"
+          ? apiError
+          : e instanceof Error
+            ? e.message
+            : "Einladung konnte nicht angenommen werden.",
       );
     }
   };
@@ -48,9 +64,12 @@ export default function InvitePage({
     try {
       await api.post(`/auth/invitations/${token}/accept-existing`);
       window.location.assign("/");
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const apiError = isAxiosError(e) ? e.response?.data?.error : undefined;
       setError(
-        e.response?.data?.error || "Einladung konnte nicht angenommen werden.",
+        typeof apiError === "string"
+          ? apiError
+          : "Einladung konnte nicht angenommen werden.",
       );
     }
   };
@@ -93,7 +112,8 @@ export default function InvitePage({
           />
           <input
             required
-            minLength={12}
+            minLength={15}
+            maxLength={128}
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}

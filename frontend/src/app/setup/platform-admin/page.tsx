@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { isAxiosError } from "axios";
 import { api } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 
@@ -11,6 +12,7 @@ export default function PlatformAdminSetupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
+  const [bootstrapToken, setBootstrapToken] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   useEffect(() => {
@@ -32,25 +34,39 @@ export default function PlatformAdminSetupPage() {
       return setError("Passwörter stimmen nicht überein.");
     setSaving(true);
     try {
-      await api.post("/auth/setup/platform-admin", {
-        name,
-        organizationName,
-        email,
-        password,
-        passwordConfirmation: confirmation,
-      });
+      await api.post(
+        "/auth/setup/platform-admin",
+        {
+          name,
+          organizationName,
+          email,
+          password,
+          passwordConfirmation: confirmation,
+        },
+        {
+          headers: bootstrapToken
+            ? { "X-Platform-Bootstrap-Token": bootstrapToken }
+            : {},
+        },
+      );
       const result = await authClient.signIn.email({ email, password });
       if (result.error)
         throw new Error(result.error.message || "Anmeldung fehlgeschlagen.");
       window.location.assign("/");
-    } catch (e: any) {
-      const responseError = e.response?.data?.error;
+    } catch (e: unknown) {
+      const responseError = isAxiosError(e)
+        ? e.response?.data?.error
+        : undefined;
       setError(
         typeof responseError === "string"
           ? responseError
           : responseError?.code === "INTERNAL_ERROR"
             ? "Die Einrichtung konnte nicht abgeschlossen werden. Bitte versuchen Sie es erneut."
-            : responseError?.message || e.message || "Setup fehlgeschlagen.",
+            : typeof responseError?.message === "string"
+              ? responseError.message
+              : e instanceof Error
+                ? e.message
+                : "Setup fehlgeschlagen.",
       );
     } finally {
       setSaving(false);
@@ -91,6 +107,17 @@ export default function PlatformAdminSetupPage() {
             {error}
           </p>
         )}
+        <label className="block text-sm text-slate-300">
+          Setup-Token (aus der Serverkonfiguration)
+          <input
+            type="password"
+            autoComplete="off"
+            value={bootstrapToken}
+            onChange={(event) => setBootstrapToken(event.target.value)}
+            placeholder="PLATFORM_BOOTSTRAP_TOKEN"
+            className="mt-2 w-full rounded bg-slate-800 p-3"
+          />
+        </label>
         <input
           required
           minLength={2}
@@ -118,7 +145,8 @@ export default function PlatformAdminSetupPage() {
         />
         <input
           required
-          minLength={12}
+          minLength={15}
+          maxLength={128}
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -127,7 +155,8 @@ export default function PlatformAdminSetupPage() {
         />
         <input
           required
-          minLength={12}
+          minLength={15}
+          maxLength={128}
           type="password"
           value={confirmation}
           onChange={(e) => setConfirmation(e.target.value)}
