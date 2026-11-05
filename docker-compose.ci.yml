@@ -32,8 +32,10 @@ services:
       RUSTFS_ADDRESS: ":9000"
       RUSTFS_CONSOLE_ENABLE: "false"
       RUSTFS_OBS_LOGGER_LEVEL: error
-    tmpfs:
-      - /data:uid=10001,gid=10001,mode=0700
+    # Named volume supports rootless Podman without unsupported tmpfs uid/gid mount options.
+    # Compose cleanup removes this isolated test data with --volumes.
+    volumes:
+      - rustfs_ci_data:/data
 
   ci:
     image: node:22-bookworm@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7
@@ -89,8 +91,10 @@ services:
   backend:
     build:
       context: ./backend
-    entrypoint: []
-    command: ["node", "dist/index.js"]
+    # Explicitly bypass the image Infisical entrypoint for isolated CI smoke tests.
+    # An empty entrypoint is not reliably preserved by all Podman Compose providers.
+    entrypoint: ["node"]
+    command: ["dist/index.js"]
     environment:
       NODE_ENV: production
       PORT: "8080"
@@ -148,3 +152,6 @@ services:
       timeout: 5s
       retries: 20
       start_period: 10s
+
+volumes:
+  rustfs_ci_data:

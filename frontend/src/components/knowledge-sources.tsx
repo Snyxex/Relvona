@@ -1,98 +1,402 @@
 "use client";
 
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { Search } from "lucide-react";
 import { api } from "@/lib/api";
 
 export type KnowledgeSource = {
-  id: string; title: string; type: string; chunkCount: number; status: string;
-  securityStatus: string; errorMessage: string | null; createdAt: string;
-  job?: { attempts: number; revision: number; errorMessage: string | null } | null;
+  id: string;
+  title: string;
+  type: string;
+  chunkCount: number;
+  status: string;
+  securityStatus: string;
+  errorMessage: string | null;
+  createdAt: string;
+  job?: {
+    attempts: number;
+    revision: number;
+    errorMessage: string | null;
+  } | null;
 };
-type Editor = { sourceId: string; title: string; content: string; category: string; language: string };
+type Editor = {
+  sourceId: string;
+  title: string;
+  content: string;
+  category: string;
+  language: string;
+};
 
-function KnowledgeSources({ sources, canManage, onRefresh, notify }: {
-  sources: KnowledgeSource[]; canManage: boolean; onRefresh: () => Promise<void>; notify: (message: string) => void;
+const SOURCE_STATUS: Record<string, string> = {
+  queued: "Wartend",
+  processing: "In Verarbeitung",
+  completed: "Abgeschlossen",
+  failed: "Fehlgeschlagen",
+};
+
+function KnowledgeSources({
+  sources,
+  canManage,
+  onRefresh,
+  notify,
+}: {
+  sources: KnowledgeSource[];
+  canManage: boolean;
+  onRefresh: () => Promise<void>;
+  notify: (message: string) => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const refreshRef = useRef(onRefresh);
   refreshRef.current = onRefresh;
-  const pending = sources.some((source) => ["queued", "processing"].includes(source.status));
+  const pending = sources.some((source) =>
+    ["queued", "processing"].includes(source.status),
+  );
+  const visibleSources = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase("de-DE");
+    return sources.filter((source) => {
+      if (statusFilter && source.status !== statusFilter) return false;
+      return (
+        !needle ||
+        [source.title, source.type, source.status].some((value) =>
+          value.toLocaleLowerCase("de-DE").includes(needle),
+        )
+      );
+    });
+  }, [sources, query, statusFilter]);
 
   useEffect(() => {
     if (!pending) return;
+    let disposed = false;
+    let inFlight = false;
     let timer: number | undefined;
 
-    const schedule = () => {
-      if (timer) window.clearTimeout(timer);
-      if (document.visibilityState !== "visible") return;
-      timer = window.setTimeout(async () => {
-        await refreshRef.current();
-        schedule();
-      }, 5000);
-    };
-
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") {
-        void refreshRef.current();
-        schedule();
-      } else if (timer) {
+    const clearTimer = () => {
+      if (timer !== undefined) {
         window.clearTimeout(timer);
         timer = undefined;
+      }
+    };
+    const schedule = () => {
+      if (disposed || inFlight || document.visibilityState !== "visible")
+        return;
+      clearTimer();
+      timer = window.setTimeout(() => {
+        void refresh();
+      }, 5000);
+    };
+    const refresh = async () => {
+      if (disposed || inFlight || document.visibilityState !== "visible")
+        return;
+      clearTimer();
+      inFlight = true;
+      try {
+        await refreshRef.current();
+      } catch {
+        // A transient network failure must not stop subsequent status polling.
+      } finally {
+        inFlight = false;
+        schedule();
+      }
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState !== "visible") {
+        clearTimer();
+      } else {
+        void refresh();
       }
     };
 
     schedule();
     document.addEventListener("visibilitychange", handleVisibility);
     return () => {
+      disposed = true;
+      clearTimer();
       document.removeEventListener("visibilitychange", handleVisibility);
-      if (timer) window.clearTimeout(timer);
     };
   }, [pending]);
 
-  async function action(source: KnowledgeSource, operation: "reprocess" | "delete" | "edit") {
-    if (operation === "delete" && !window.confirm(`„${source.title}“ und alle zugehörigen Chunks löschen?`)) return;
+  async function action(
+    source: KnowledgeSource,
+    operation: "reprocess" | "delete" | "edit",
+  ) {
+    if (
+      operation === "delete" &&
+      !window.confirm(`„${source.title}“ und alle zugehörigen Chunks löschen?`)
+    )
+      return;
     setBusy(source.id);
     try {
       if (operation === "edit") {
-        const response = await api.get(`/knowledge/sources/${source.id}/content`);
-        setEditor({ sourceId: source.id, title: response.data.title, content: response.data.content, category: response.data.category || "", language: response.data.language || "und" });
+        const response = await api.get(
+          `/knowledge/sources/${source.id}/content`,
+        );
+        setEditor({
+          sourceId: source.id,
+          title: response.data.title,
+          content: response.data.content,
+          category: response.data.category || "",
+          language: response.data.language || "und",
+        });
       } else {
-        if (operation === "delete") await api.delete(`/knowledge/sources/${source.id}`);
+        if (operation === "delete")
+          await api.delete(`/knowledge/sources/${source.id}`);
         else await api.post(`/knowledge/sources/${source.id}/reprocess`);
-        notify(operation === "delete" ? "Quelle gelöscht." : "Neuverarbeitung vorgemerkt.");
+        notify(
+          operation === "delete"
+            ? "Quelle gelöscht."
+            : "Neuverarbeitung vorgemerkt.",
+        );
         await onRefresh();
       }
-    } catch { notify("Aktion fehlgeschlagen. Bei alten Dokumenten kann ein erneuter Upload erforderlich sein."); }
-    finally { setBusy(null); }
+    } catch {
+      notify(
+        "Aktion fehlgeschlagen. Bei alten Dokumenten kann ein erneuter Upload erforderlich sein.",
+      );
+    } finally {
+      setBusy(null);
+    }
   }
 
-  return <section className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 p-4"><h3 className="text-sm font-semibold">Wissensquellen</h3><button type="button" className="text-xs text-blue-300" onClick={() => { void onRefresh(); }}>Aktualisieren</button></div>
-    {editor && <form className="space-y-3 border-b border-slate-800 p-4" onSubmit={async (event) => {
-      event.preventDefault(); setBusy(editor.sourceId);
-      try { await api.put(`/knowledge/sources/${editor.sourceId}/content`, editor); setEditor(null); notify("Änderung gespeichert und Neuverarbeitung vorgemerkt."); await onRefresh(); }
-      catch { notify("Änderung konnte nicht gespeichert werden."); }
-      finally { setBusy(null); }
-    }}>
-      <label className="block text-xs">Titel / FAQ-Frage<input className="mt-1 block w-full rounded bg-slate-800 p-2" required maxLength={300} value={editor.title} onChange={(event) => setEditor({ ...editor, title: event.target.value })} /></label>
-      <label className="block text-xs">Inhalt / FAQ-Antwort<textarea className="mt-1 block w-full rounded bg-slate-800 p-2" required rows={8} maxLength={500000} value={editor.content} onChange={(event) => setEditor({ ...editor, content: event.target.value })} /></label>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><label className="min-w-0 text-xs">Kategorie<input className="mt-1 block w-full rounded bg-slate-800 p-2" maxLength={120} value={editor.category} onChange={(event) => setEditor({ ...editor, category: event.target.value })} /></label><label className="min-w-0 text-xs">Sprache<input className="mt-1 block w-full rounded bg-slate-800 p-2" required pattern="[a-z]{2,3}(-[A-Za-z]{2,8})?" value={editor.language} onChange={(event) => setEditor({ ...editor, language: event.target.value })} /></label></div>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center"><button type="submit" disabled={Boolean(busy)} className="rounded bg-blue-600 px-3 py-2 text-xs disabled:opacity-50">Speichern und neu verarbeiten</button><button type="button" className="rounded px-3 py-2 text-xs" onClick={() => setEditor(null)}>Abbrechen</button></div>
-    </form>}
-    <div className="overflow-x-auto"><table className="w-full text-left text-xs text-slate-300">
-      <thead className="bg-slate-800/80 text-slate-400"><tr><th className="p-3">Titel</th><th className="p-3">Typ</th><th className="p-3">Chunks</th><th className="p-3">Verarbeitung</th><th className="p-3">Aktionen</th></tr></thead>
-      <tbody className="divide-y divide-slate-800/60">{sources.map((source) => <tr key={source.id}>
-        <td className="p-3 font-medium">{source.title}</td><td className="p-3">{source.type}</td><td className="p-3">{source.chunkCount}</td>
-        <td className="p-3"><span className={source.status === "failed" ? "text-red-300" : source.status === "completed" ? "text-emerald-300" : "text-amber-300"}>{source.status}</span>{source.job && <p className="mt-1 text-slate-500">Version {source.job.revision} · Versuch {source.job.attempts}/3</p>}{source.securityStatus !== "SAFE" && <p className="text-amber-300">Sicherheitsprüfung: {source.securityStatus} – nicht für KI-Antworten freigegeben</p>}{source.errorMessage && <p className="mt-1 max-w-sm text-red-300">{source.errorMessage}</p>}</td>
-        <td className="p-3">{canManage && <div className="flex flex-wrap gap-3">
-          <button type="button" disabled={Boolean(busy) || ["queued", "processing"].includes(source.status)} className="text-blue-300 disabled:opacity-40" onClick={() => { void action(source, "reprocess"); }}>{source.type === "website" ? "Erneut crawlen" : "Neu verarbeiten"}</button>
-          {["document", "faq"].includes(source.type) && <button type="button" disabled={Boolean(busy)} className="text-blue-300 disabled:opacity-40" onClick={() => { void action(source, "edit"); }}>Bearbeiten</button>}
-          <button type="button" disabled={Boolean(busy)} className="text-red-300 disabled:opacity-40" onClick={() => { void action(source, "delete"); }}>Löschen</button>
-        </div>}</td>
-      </tr>)}{!sources.length && <tr><td colSpan={5} className="p-6 text-slate-400">Noch keine Wissensquellen vorhanden. Füge einen Text, eine FAQ, eine PDF oder eine Website hinzu.</td></tr>}</tbody>
-    </table></div>
-  </section>;
+  return (
+    <section className="rv-knowledge-sources overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
+      <div className="rv-source-heading flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 p-4">
+        <div>
+          <h3 className="text-sm font-semibold">Wissensquellen</h3>
+          <p>{sources.length} Quellen insgesamt</p>
+        </div>
+        <button
+          type="button"
+          className="rv-source-refresh text-xs text-blue-300"
+          onClick={() => {
+            void onRefresh();
+          }}
+        >
+          Aktualisieren
+        </button>
+      </div>
+      <div className="rv-source-filters">
+        <label className="rv-section-search">
+          <Search size={17} aria-hidden="true" />
+          <span className="sr-only">Wissensquellen suchen</span>
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Nach Titel, Typ oder Status suchen"
+          />
+        </label>
+        <label className="rv-source-select">
+          <span className="sr-only">Verarbeitungsstatus filtern</span>
+          <select
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value)}
+          >
+            <option value="">Alle Verarbeitungsstatus</option>
+            <option value="queued">Wartend</option>
+            <option value="processing">In Verarbeitung</option>
+            <option value="completed">Abgeschlossen</option>
+            <option value="failed">Fehlgeschlagen</option>
+          </select>
+        </label>
+        <span className="rv-directory-result" role="status" aria-live="polite">
+          {visibleSources.length} Treffer
+        </span>
+      </div>
+      {editor && (
+        <form
+          className="space-y-3 border-b border-slate-800 p-4"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            setBusy(editor.sourceId);
+            try {
+              await api.put(
+                `/knowledge/sources/${editor.sourceId}/content`,
+                editor,
+              );
+              setEditor(null);
+              notify("Änderung gespeichert und Neuverarbeitung vorgemerkt.");
+              await onRefresh();
+            } catch {
+              notify("Änderung konnte nicht gespeichert werden.");
+            } finally {
+              setBusy(null);
+            }
+          }}
+        >
+          <label className="block text-xs">
+            Titel / FAQ-Frage
+            <input
+              className="mt-1 block w-full rounded bg-slate-800 p-2"
+              required
+              maxLength={300}
+              value={editor.title}
+              onChange={(event) =>
+                setEditor({ ...editor, title: event.target.value })
+              }
+            />
+          </label>
+          <label className="block text-xs">
+            Inhalt / FAQ-Antwort
+            <textarea
+              className="mt-1 block w-full rounded bg-slate-800 p-2"
+              required
+              rows={8}
+              maxLength={500000}
+              value={editor.content}
+              onChange={(event) =>
+                setEditor({ ...editor, content: event.target.value })
+              }
+            />
+          </label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="min-w-0 text-xs">
+              Kategorie
+              <input
+                className="mt-1 block w-full rounded bg-slate-800 p-2"
+                maxLength={120}
+                value={editor.category}
+                onChange={(event) =>
+                  setEditor({ ...editor, category: event.target.value })
+                }
+              />
+            </label>
+            <label className="min-w-0 text-xs">
+              Sprache
+              <input
+                className="mt-1 block w-full rounded bg-slate-800 p-2"
+                required
+                pattern="[a-z]{2,3}(-[A-Za-z]{2,8})?"
+                value={editor.language}
+                onChange={(event) =>
+                  setEditor({ ...editor, language: event.target.value })
+                }
+              />
+            </label>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <button
+              type="submit"
+              disabled={Boolean(busy)}
+              className="rounded bg-blue-600 px-3 py-2 text-xs disabled:opacity-50"
+            >
+              Speichern und neu verarbeiten
+            </button>
+            <button
+              type="button"
+              className="rounded px-3 py-2 text-xs"
+              onClick={() => setEditor(null)}
+            >
+              Abbrechen
+            </button>
+          </div>
+        </form>
+      )}
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-xs text-slate-300">
+          <caption className="sr-only">
+            Verfügbare Wissensquellen mit Verarbeitungsstatus und Aktionen
+          </caption>
+          <thead className="bg-slate-800/80 text-slate-400">
+            <tr>
+              <th className="p-3">Titel</th>
+              <th className="p-3">Typ</th>
+              <th className="p-3">Chunks</th>
+              <th className="p-3">Verarbeitung</th>
+              <th className="p-3">Aktionen</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800/60">
+            {visibleSources.map((source) => (
+              <tr key={source.id}>
+                <td className="p-3 font-medium">{source.title}</td>
+                <td className="p-3">{source.type}</td>
+                <td className="p-3">{source.chunkCount}</td>
+                <td className="p-3">
+                  <span
+                    className={`rv-source-status rv-source-status--${source.status} ${source.status === "failed" ? "text-red-300" : source.status === "completed" ? "text-emerald-300" : "text-amber-300"}`}
+                  >
+                    {SOURCE_STATUS[source.status] || source.status}
+                  </span>
+                  {source.job && (
+                    <p className="mt-1 text-slate-500">
+                      Version {source.job.revision} · Versuch{" "}
+                      {source.job.attempts}/3
+                    </p>
+                  )}
+                  {source.securityStatus !== "SAFE" && (
+                    <p className="text-amber-300">
+                      Sicherheitsprüfung: {source.securityStatus} – nicht für
+                      KI-Antworten freigegeben
+                    </p>
+                  )}
+                  {source.errorMessage && (
+                    <p className="mt-1 max-w-sm text-red-300">
+                      {source.errorMessage}
+                    </p>
+                  )}
+                </td>
+                <td className="p-3">
+                  {canManage && (
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        disabled={
+                          Boolean(busy) ||
+                          ["queued", "processing"].includes(source.status)
+                        }
+                        className="text-blue-300 disabled:opacity-40"
+                        onClick={() => {
+                          void action(source, "reprocess");
+                        }}
+                      >
+                        {source.type === "website"
+                          ? "Erneut crawlen"
+                          : "Neu verarbeiten"}
+                      </button>
+                      {["document", "faq"].includes(source.type) && (
+                        <button
+                          type="button"
+                          disabled={Boolean(busy)}
+                          className="text-blue-300 disabled:opacity-40"
+                          onClick={() => {
+                            void action(source, "edit");
+                          }}
+                        >
+                          Bearbeiten
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        disabled={Boolean(busy)}
+                        className="text-red-300 disabled:opacity-40"
+                        onClick={() => {
+                          void action(source, "delete");
+                        }}
+                      >
+                        Löschen
+                      </button>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {!visibleSources.length && (
+              <tr>
+                <td colSpan={5} className="p-6 text-slate-400">
+                  {sources.length === 0
+                    ? "Noch keine Wissensquellen vorhanden. Füge einen Text, eine FAQ, eine PDF oder eine Website hinzu."
+                    : "Keine Quellen entsprechen den aktuellen Filtern."}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
 }
 
 export default memo(KnowledgeSources);
