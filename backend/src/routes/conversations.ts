@@ -88,6 +88,21 @@ router.get("/meta/agents", async (req: AuthRequest, res) => {
 });
 router.put("/meta/presence", async (req: AuthRequest, res) => { const { status } = req.body || {}; if (!["ONLINE", "AWAY", "OFFLINE"].includes(status)) return res.status(400).json({ error: "Invalid presence" }); const [presence] = await db.insert(agentPresence).values({ organizationId: req.organization!.id, userId: req.user!.id, status, updatedAt: new Date() }).onConflictDoUpdate({ target: [agentPresence.organizationId, agentPresence.userId], set: { status, updatedAt: new Date() } }).returning(); return res.json(presence); });
 
+// All child-resource reads require the parent conversation in the active tenant.
+async function requireScopedConversation(req: AuthRequest, res: import("express").Response, next: import("express").NextFunction) {
+  try {
+    const [conversation] = await db.select({ id: conversations.id }).from(conversations)
+      .where(and(eq(conversations.id, req.params.id), eq(conversations.organizationId, req.organization!.id))).limit(1);
+    if (!conversation) return res.status(404).json({ error: "Conversation not found" });
+    return next();
+  } catch (error) {
+    return sendInternalError(req, res, error, { code: "CONVERSATION_SCOPE_FAILED", message: "Unable to resolve conversation" });
+  }
+}
+router.use("/:id/timeline", requireScopedConversation);
+router.use("/:id/handoff", requireScopedConversation);
+router.use("/:id/messages", requireScopedConversation);
+
 router.get("/:id/timeline", async (req: AuthRequest, res) => res.json(await db.select().from(conversationActivities).where(and(eq(conversationActivities.organizationId, req.organization!.id), eq(conversationActivities.conversationId, req.params.id))).orderBy(asc(conversationActivities.createdAt))));
 router.get("/:id/handoff", async (req: AuthRequest, res) => {
   const [handoff] = await db.select().from(conversationHandoffs).where(and(eq(conversationHandoffs.organizationId, req.organization!.id), eq(conversationHandoffs.conversationId, req.params.id))).orderBy(desc(conversationHandoffs.createdAt)).limit(1);

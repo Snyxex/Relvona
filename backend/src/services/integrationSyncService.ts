@@ -1,7 +1,7 @@
 import { and, desc, eq, isNotNull, lt, or } from "drizzle-orm";
-import { db } from "../db/index.js";
+import { db, withTenantTransaction } from "../db/index.js";
 import { setDatabaseTenant, withDatabaseTenantContext } from "../db/tenantContext.js";
-import { customers, organizations, ticketComments, tickets } from "../db/schema.js";
+import { auditLogs, customers, organizations, ticketComments, tickets } from "../db/schema.js";
 import { integrationConnections } from "../db/integrationConnectionSchema.js";
 import { integrationSyncExecutions, integrationSyncRules } from "../db/integrationSyncSchema.js";
 import type { DomainEvent } from "./domainEventBus.js";
@@ -92,17 +92,116 @@ export class IntegrationSyncService {
     if (!execution) throw new Error("Integration sync execution not found");
     if (execution.status !== "failed") throw new Error("Only failed sync executions can be retried");
 
-    const [rule] = await db.select({ id: integrationSyncRules.id, enabled: integrationSyncRules.enabled })
+    const [rule] = await db.select({ id: integrationSyncRules.id, enabled: integrationSyncRules.enabled, connectionId: integrationSyncRules.connectionId })
       .from(integrationSyncRules)
       .where(and(eq(integrationSyncRules.organizationId, organizationId), eq(integrationSyncRules.id, execution.ruleId)))
       .limit(1);
     if (!rule) throw new Error("Integration sync rule not found");
     if (!rule.enabled) throw new Error("Integration sync rule is disabled");
+    const [connection] = await db.select({ id: integrationConnections.id }).from(integrationConnections)
+      .where(and(eq(integrationConnections.organizationId, organizationId),
+        eq(integrationConnections.id, rule.connectionId),
+        eq(integrationConnections.provider, "zendesk"),
+        eq(integrationConnections.enabled, true))).limit(1);
+    if (!connection) throw new Error("Integration connection disabled or missing");
 
     const [updated] = await db.update(integrationSyncExecutions).set({ status: "pending", error: null, updatedAt: new Date() })
       .where(and(eq(integrationSyncExecutions.organizationId, organizationId), eq(integrationSyncExecutions.id, id), eq(integrationSyncExecutions.status, "failed")))
       .returning();
     if (!updated) throw new Error("Integration sync execution is no longer retryable");
+    return updated;
+  }
+
+  // Explicit manual reconciliation after an operator verifies the remote record.
+  // Never re-dispatch an uncertain external operation from this endpoint.
+  static async confirmRemoteExecution(data: {
+    organizationId: string;
+    executionId: string;
+    externalTicketId: string;
+    actorUserId: string;
+  }) {
+    if (!/^[0-9]{1,20}$/.test(data.externalTicketId)) throw new Error("Invalid Zendesk ticket id");
+    const [execution] = await db.select({
+      id: integrationSyncExecutions.id,
+      ruleId: integrationSyncExecutions.ruleId,
+      status: integrationSyncExecutions.status,
+      entityId: integrationSyncExecutions.entityId,
+    }).from(integrationSyncExecutions).where(and(
+      eq(integrationSyncExecutions.organizationId, data.organizationId),
+      eq(integrationSyncExecutions.id, data.executionId),
+    )).limit(1);
+    if (!execution) throw new Error("Integration sync execution not found");
+    if (execution.status !== "needs_review") throw new Error("Execution does not require reconciliation");
+    const [rule] = await db.select({ id: integrationSyncRules.id, connectionId: integrationSyncRules.connectionId, action: integrationSyncRules.action })
+      .from(integrationSyncRules).where(and(
+        eq(integrationSyncRules.organizationId, data.organizationId),
+        eq(integrationSyncRules.id, execution.ruleId),
+      )).limit(1);
+    if (!rule) throw new Error("Integration sync rule not found");
+    // Validate that the claimed remote ticket actually exists in this tenant's
+    // configured Zendesk account before recording the execution as successful.
+    const remote = await ZendeskAdapter.getTicket(data.organizationId, data.externalTicketId, rule.connectionId);
+    const remoteId = (remote as { ticket?: { id?: string | number } })?.ticket?.id;
+    if (String(remoteId ?? "") !== data.externalTicketId) throw new Error("Zendesk ticket could not be verified");
+    if (rule.action === "zendesk.create_ticket") {
+      const [local] = await db.select({ id: tickets.id }).from(tickets).where(and(
+        eq(tickets.organizationId, data.organizationId),
+        eq(tickets.id, execution.entityId),
+      )).limit(1);
+      if (!local) throw new Error("Local ticket not found");
+      // The remote external_id is written when Relvona creates new tickets.
+      // Legacy tickets lacking this marker cannot be safely confirmed here.
+      const remoteExternalId = (remote as { ticket?: { external_id?: string | null } })?.ticket?.external_id;
+      if (remoteExternalId !== local.id) throw new Error("Zendesk ticket identity mismatch");
+    } else {
+      const localTicketId = rule.action === "zendesk.add_comment"
+        ? (await db.select({ ticketId: ticketComments.ticketId }).from(ticketComments).where(and(
+            eq(ticketComments.organizationId, data.organizationId),
+            eq(ticketComments.id, execution.entityId),
+            eq(ticketComments.isInternal, false),
+          )).limit(1))[0]?.ticketId
+        : execution.entityId;
+      if (!localTicketId) throw new Error("Local ticket not found");
+      const linkedId = await this.linkedZendeskTicketId(data.organizationId, rule.connectionId, localTicketId);
+      if (linkedId !== data.externalTicketId) throw new Error("Zendesk ticket identity mismatch");
+    }
+    // Ticket identity alone does not prove that a specific update or comment
+    // was applied. Do not mark those actions succeeded without action-level
+    // evidence; retain needs_review for a future audited reconciliation flow.
+    if (rule.action !== "zendesk.create_ticket") {
+      throw new Error("Action-level Zendesk evidence required");
+    }
+    // Both the status transition and audit record must commit atomically.
+    // The generic AuditService intentionally swallows errors, so it is not
+    // appropriate for this security-sensitive confirmation path.
+    const updated = await withTenantTransaction(data.organizationId, async (tx) => {
+      const [row] = await tx.update(integrationSyncExecutions).set({
+        status: "succeeded",
+        externalId: data.externalTicketId,
+        error: null,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(integrationSyncExecutions.organizationId, data.organizationId),
+        eq(integrationSyncExecutions.id, data.executionId),
+        eq(integrationSyncExecutions.status, "needs_review"),
+      )).returning();
+      if (!row) throw new Error("Execution reconciliation conflict");
+      await tx.insert(auditLogs).values({
+        organizationId: data.organizationId,
+        actorUserId: data.actorUserId,
+        action: "integration.sync.remote_confirmed",
+        resourceType: "integration_sync_execution",
+        resourceId: data.executionId,
+        metadata: {
+          ruleId: execution.ruleId,
+          externalTicketId: data.externalTicketId,
+          fromStatus: "needs_review",
+          toStatus: "succeeded",
+          verification: "manual_confirmation_and_remote_identity_match",
+        },
+      });
+      return row;
+    });
     return updated;
   }
 
@@ -141,7 +240,7 @@ export class IntegrationSyncService {
   private static async linkedZendeskTicketId(organizationId: string, connectionId: string, ticketId: string) {
     const [link] = await db.select({ externalId: integrationSyncExecutions.externalId })
       .from(integrationSyncExecutions)
-      .innerJoin(integrationSyncRules, eq(integrationSyncExecutions.ruleId, integrationSyncRules.id))
+      .innerJoin(integrationSyncRules, and(eq(integrationSyncExecutions.ruleId, integrationSyncRules.id), eq(integrationSyncRules.organizationId, organizationId)))
       .where(and(
         eq(integrationSyncExecutions.organizationId, organizationId),
         eq(integrationSyncExecutions.entityId, ticketId),
@@ -159,9 +258,20 @@ export class IntegrationSyncService {
 
   static async processPending(organizationId: string, limit = 25) {
     const staleBefore = new Date(Date.now() - PROCESSING_STALE_MS);
+    // A stale "processing" job may have completed its remote side effect before
+    // the worker died. Never dispatch it again without reconciliation.
+    await db.update(integrationSyncExecutions).set({
+      status: "needs_review",
+      error: "Worker interrupted during remote operation; reconcile with provider before replay",
+      updatedAt: new Date(),
+    }).where(and(
+      eq(integrationSyncExecutions.organizationId, organizationId),
+      eq(integrationSyncExecutions.status, "processing"),
+      lt(integrationSyncExecutions.updatedAt, staleBefore),
+    ));
     const candidates = await db.select().from(integrationSyncExecutions).where(and(
       eq(integrationSyncExecutions.organizationId, organizationId),
-      or(eq(integrationSyncExecutions.status, "pending"), and(eq(integrationSyncExecutions.status, "processing"), lt(integrationSyncExecutions.updatedAt, staleBefore))),
+      eq(integrationSyncExecutions.status, "pending"),
     )).orderBy(integrationSyncExecutions.createdAt).limit(limit);
 
     let succeeded = 0;
@@ -170,10 +280,11 @@ export class IntegrationSyncService {
       const [claimed] = await db.update(integrationSyncExecutions).set({ status: "processing", updatedAt: new Date() }).where(and(
         eq(integrationSyncExecutions.organizationId, organizationId),
         eq(integrationSyncExecutions.id, candidate.id),
-        or(eq(integrationSyncExecutions.status, "pending"), and(eq(integrationSyncExecutions.status, "processing"), lt(integrationSyncExecutions.updatedAt, staleBefore))),
+        eq(integrationSyncExecutions.status, "pending"),
       )).returning();
       if (!claimed) continue;
 
+      let remoteAttempted = false;
       try {
         const [rule] = await db.select().from(integrationSyncRules).where(and(
           eq(integrationSyncRules.organizationId, organizationId),
@@ -182,6 +293,12 @@ export class IntegrationSyncService {
         )).limit(1);
         if (!rule) throw new Error("Integration sync rule is disabled or missing");
         if (!isAllowedRule(rule.eventType, rule.action)) throw new Error("Unsupported integration sync execution");
+        const [connection] = await db.select({ id: integrationConnections.id }).from(integrationConnections)
+          .where(and(eq(integrationConnections.id, rule.connectionId),
+            eq(integrationConnections.organizationId, organizationId),
+            eq(integrationConnections.provider, "zendesk"),
+            eq(integrationConnections.enabled, true))).limit(1);
+        if (!connection) throw new Error("Integration connection disabled or missing");
 
         let externalId: string | null = null;
         if (rule.eventType === "ticket.comment.created" && rule.action === "zendesk.add_comment") {
@@ -193,21 +310,24 @@ export class IntegrationSyncService {
           if (!comment) throw new Error("Public local ticket comment not found");
           const linkedId = await this.linkedZendeskTicketId(organizationId, rule.connectionId, comment.ticketId);
           if (!linkedId) throw new Error("Zendesk ticket link not found; create sync must succeed first");
+          remoteAttempted = true;
           await ZendeskExtendedAdapter.addComment(organizationId, { ticketId: linkedId, body: comment.content, public: true }, rule.connectionId);
           externalId = linkedId;
         } else {
           const [row] = await db.select({ ticket: tickets, customer: customers }).from(tickets)
-            .innerJoin(customers, eq(tickets.customerId, customers.id))
+            .innerJoin(customers, and(eq(tickets.customerId, customers.id), eq(customers.organizationId, organizationId)))
             .where(and(eq(tickets.organizationId, organizationId), eq(tickets.id, claimed.entityId))).limit(1);
           if (!row) throw new Error("Local ticket not found");
 
           if (rule.eventType === "ticket.created" && rule.action === "zendesk.create_ticket") {
+            remoteAttempted = true;
             const result = await ZendeskAdapter.createTicket(organizationId, {
               subject: row.ticket.subject,
               body: row.ticket.description || `Support ticket #${row.ticket.ticketNumber}`,
               priority: row.ticket.priority,
               requesterEmail: row.customer.email || undefined,
               requesterName: row.customer.name || undefined,
+              externalId: row.ticket.id,
             }, rule.connectionId);
             const rawExternalId = (result as any)?.ticket?.id;
             externalId = typeof rawExternalId === "number" || typeof rawExternalId === "string" ? String(rawExternalId) : null;
@@ -215,6 +335,7 @@ export class IntegrationSyncService {
           } else {
             const linkedId = await this.linkedZendeskTicketId(organizationId, rule.connectionId, claimed.entityId);
             if (!linkedId) throw new Error("Zendesk ticket link not found; create sync must succeed first");
+            remoteAttempted = true;
             await ZendeskExtendedAdapter.updateTicket(organizationId, {
               ticketId: linkedId,
               status: zendeskStatus(row.ticket.status),
@@ -228,7 +349,11 @@ export class IntegrationSyncService {
           .where(and(eq(integrationSyncExecutions.organizationId, organizationId), eq(integrationSyncExecutions.id, claimed.id)));
         succeeded += 1;
       } catch (error) {
-        await db.update(integrationSyncExecutions).set({ status: "failed", error: (error as Error).message.slice(0, 1000), updatedAt: new Date() })
+        await db.update(integrationSyncExecutions).set({
+          status: remoteAttempted ? "needs_review" : "failed",
+          error: remoteAttempted ? "Remote side effect may have succeeded; reconcile before retry" : (error as Error).message.slice(0, 1000),
+          updatedAt: new Date(),
+        })
           .where(and(eq(integrationSyncExecutions.organizationId, organizationId), eq(integrationSyncExecutions.id, claimed.id)));
         failed += 1;
       }

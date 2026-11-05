@@ -11,6 +11,10 @@ router.post("/:organizationId/:connectionId", async (req: RawBodyRequest, res) =
   const invocationId = req.header("x-zendesk-webhook-invocation-id") || "";
   const organizationId = req.params.organizationId;
   const connectionId = req.params.connectionId;
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuid.test(organizationId) || !uuid.test(connectionId)) {
+    return res.status(400).json({ error: "Invalid Zendesk webhook route" });
+  }
 
   try {
     const result = await withDatabaseTenantContext(async () => {

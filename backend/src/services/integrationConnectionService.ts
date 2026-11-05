@@ -226,10 +226,14 @@ export class ZendeskAdapter {
     return IntegrationConnectionService.request({ organizationId, provider: "zendesk", connectionId, method: "GET", path: `/api/v2/tickets/${ticketId}.json` });
   }
 
-  static async createTicket(organizationId: string, input: { subject?: string; body: string; priority?: string; requesterEmail?: string; requesterName?: string }, connectionId?: string) {
+  static async createTicket(organizationId: string, input: { subject?: string; body: string; priority?: string; requesterEmail?: string; requesterName?: string; externalId?: string }, connectionId?: string) {
     const body = input.body.trim();
     if (!body || body.length > 10_000) throw new Error("Invalid Zendesk ticket body");
     const ticket: Record<string, unknown> = { comment: { body } };
+    if (input.externalId !== undefined) {
+      if (!/^[0-9a-f-]{36}$/i.test(input.externalId)) throw new Error("Invalid local ticket reference");
+      ticket.external_id = input.externalId;
+    }
     if (input.subject?.trim()) ticket.subject = input.subject.trim().slice(0, 300);
     if (["low", "normal", "high", "urgent"].includes(input.priority || "")) ticket.priority = input.priority;
     if (input.requesterEmail?.trim()) {
