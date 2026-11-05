@@ -155,6 +155,11 @@ pipeline {
                                 sh 'podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix backend run test:ci:ai'
                             }
                         }
+                        stage('Frontend UI Utility Tests') {
+                            steps {
+                                sh 'podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix frontend run test:ui-utils'
+                            }
+                        }
                         stage('Security Tests') {
                             steps {
                                 sh '''
@@ -208,8 +213,8 @@ pipeline {
                 sh '''
                     podman run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
                       --tmpfs /tmp:rw,noexec,nosuid,size=64m --volume "${PWD}:/repo:ro" \
-                      zricethezav/gitleaks@sha256:cdbb7c955abce02001a9f6c9f602fb195b7fadc1e812065883f695d1eeaba854 \
-                      detect --source=/repo --config=/repo/.gitleaks.toml --log-opts=--all --redact --no-banner
+                      docker.io/zricethezav/gitleaks@sha256:cdbb7c955abce02001a9f6c9f602fb195b7fadc1e812065883f695d1eeaba854 \
+                      detect --source=/repo --config=/repo/.gitleaks.toml --gitleaks-ignore-path=/repo/.gitleaksignore --log-opts=--all --redact --verbose --no-banner
                 '''
             }
         }
@@ -220,9 +225,16 @@ pipeline {
                 sh '''
                     set -eu
                     podman compose --env-file "${CI_ENV_FILE}" -f docker-compose.yml config --quiet
-                    podman compose --env-file "${CI_ENV_FILE}" -f docker-compose.local.yml config --quiet
+                    LOCAL_ENV_FILE="${CI_ENV_FILE}" podman compose --env-file "${CI_ENV_FILE}" -f docker-compose.local.yml config --quiet
                     podman compose --env-file "${CI_ENV_FILE}" -f docker-compose.prod.yml config --quiet
-                    podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" up -d --build --wait backend frontend
+                    if ! podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" up -d --build --wait backend frontend; then
+                        echo "Compose startup failed. Backend/frontend state:"
+                        podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" ps -a || true
+                        echo "Backend startup errors (redacted):"
+                        podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" logs --no-color --tail=100 backend 2>&1 |
+                            awk '{ if (tolower($0) ~ /password|secret|token|authorization|api.key|postgres:|postgresql:|redis:|credential/) print "[REDACTED: sensitive diagnostic line]"; else print $0 }' || true
+                        exit 1
+                    fi
                     podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci node -e \
                       "Promise.all([fetch('http://backend:8080/health/live'), fetch('http://backend:8080/health/ready'), fetch('http://frontend:3000')]).then(rs => { if (rs.some(r => !r.ok)) process.exit(1); console.log('Backend and frontend smoke checks passed'); }).catch(error => { console.error(error); process.exit(1); })"
                 '''

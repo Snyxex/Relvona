@@ -10,7 +10,7 @@ import {
   organizationSettings,
   users,
 } from "../db/schema.js";
-import { hashPassword, LEGACY_PASSWORD_SENTINEL } from "../auth/password.js";
+import { hashPassword, LEGACY_PASSWORD_SENTINEL, requireNewPasswordPolicy } from "../auth/password.js";
 
 const tokenHash = (token: string) => crypto.createHash("sha256").update(token).digest("hex");
 
@@ -70,6 +70,7 @@ export class InvitationService {
         const [existing] = await tx.select({ id: users.id }).from(users).where(eq(users.email, invite.email.toLowerCase())).limit(1);
         if (existing) throw new Error("LOGIN_REQUIRED");
 
+        requireNewPasswordPolicy(profile.password);
         const credentialHash = await hashPassword(profile.password);
         const [created] = await tx.insert(users).values({
           email: invite.email.toLowerCase(),

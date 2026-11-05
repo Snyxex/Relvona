@@ -8,6 +8,7 @@ Welcome to the Relvona documentation. This documentation is written for administ
 - [Getting started](getting-started.md) — first setup, creating an organization, configuring an assistant, and publishing the widget.
 - [User guide](user-guide.md) — daily work with conversations, customers, tickets, agents, analytics, knowledge, and the customer portal.
 - [Integrations](integrations.md) — HubSpot, Zendesk, Google Calendar, Microsoft Calendar, webhooks, and synchronization.
+- [Support automation](support-automation-guide.md) — rule setup, simulation, rollout, operational safeguards, and troubleshooting.
 - [Security and privacy](security.md) — tenant isolation, authentication, secrets, PII protection, RLS, uploads, rate limits, and operational security.
 - [Answer quality preview](answer-quality-preview.md) — manual draft review, citation checks, and explicitly limited heuristics.
 
