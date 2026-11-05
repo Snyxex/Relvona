@@ -155,6 +155,11 @@ pipeline {
                                 sh 'podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix backend run test:ci:ai'
                             }
                         }
+                        stage('Frontend UI Utility Tests') {
+                            steps {
+                                sh 'podman compose --env-file "${CI_ENV_FILE}" -f "${CI_COMPOSE_FILE}" run --rm --no-deps ci npm --prefix frontend run test:ui-utils'
+                            }
+                        }
                         stage('Security Tests') {
                             steps {
                                 sh '''

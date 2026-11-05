@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 const require = createRequire(import.meta.url);
 
 const mode = process.argv[2];
-if (mode !== "lint" && mode !== "format")
+if (mode !== "lint" && mode !== "format" && mode !== "format-write")
   throw new Error(`Unsupported Biome mode: ${mode ?? "<missing>"}`);
 
 const target = process.env.CHANGE_TARGET;
@@ -51,9 +51,18 @@ if (files.length === 0) {
 console.log(`Biome ${mode} base: ${base}`);
 console.log(files.join("\n"));
 const biomeEntrypoint = require.resolve("@biomejs/biome/bin/biome");
-const result = spawnSync(process.execPath, [biomeEntrypoint, mode, ...files], {
-  env: process.env,
-  stdio: "inherit",
-});
+// Keep lint errors visible even when legacy CSS produces hundreds of advisory warnings.
+const lintArgs =
+  mode === "lint" ? ["--diagnostic-level=error", "--max-diagnostics=100"] : [];
+const formatArgs = mode === "format-write" ? ["--write"] : [];
+const command = mode === "format-write" ? "format" : mode;
+const result = spawnSync(
+  process.execPath,
+  [biomeEntrypoint, command, ...lintArgs, ...formatArgs, ...files],
+  {
+    env: process.env,
+    stdio: "inherit",
+  },
+);
 if (result.error) throw result.error;
 process.exit(result.status ?? 1);

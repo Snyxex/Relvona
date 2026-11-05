@@ -1,37 +1,53 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { io } from "socket.io-client";
 import {
   Bot,
-  FileText,
   Globe,
-  MessageSquare,
   Ticket,
-  BarChart3,
-  Settings,
-  Upload,
-  UserCheck,
-  Sparkles,
-  Plus,
-  Trash2,
   CheckCircle,
   AlertCircle,
   Users,
   LogOut,
-  RefreshCw,
-  Sliders,
-  BookOpen,
+  CalendarDays,
+  Workflow,
 } from "lucide-react";
-import KnowledgeSources from "@/components/knowledge-sources";
 import ProfileSecuritySettings from "@/components/profile-security-settings";
+import OrganizationSettings from "@/components/dashboard-tabs/organization-settings";
+import WidgetDesigner from "@/components/dashboard-tabs/widget-designer";
+import AssistantSettings from "@/components/dashboard-tabs/assistant-settings";
+import TicketsWorkspace from "@/components/dashboard-tabs/tickets-workspace";
+import ConversationsWorkspace, {
+  type ConversationTag,
+  type InboxAgent,
+  type InboxConversation,
+  type InboxMessage,
+  type InboxTimelineEvent,
+  type InboxHandoff,
+  type InboxSuggestion,
+} from "@/components/dashboard-tabs/conversations-workspace";
+import { useConversationRealtime } from "@/hooks/use-conversation-realtime";
+import {
+  KnowledgeWorkspace,
+  WebsiteCrawlerWorkspace,
+  type KnowledgeBase,
+} from "@/components/dashboard-tabs/knowledge-workspaces";
+import type { KnowledgeSource } from "@/components/knowledge-sources";
+import {
+  WorkspaceEmpty,
+  WorkspaceHeader,
+} from "@/components/dashboard-tabs/workspace-primitives";
 import {
   LazyAgentsTab,
   LazyAnalyticsTab,
   LazyCustomersTab,
   LazyOverviewTab,
 } from "@/components/dashboard-tabs/lazy-tabs";
-import { api, API_BASE_URL } from "@/lib/api";
+import { api } from "@/lib/api";
+import {
+  type DashboardTab,
+  dashboardNavigation,
+} from "@/lib/dashboard-navigation";
 import { authClient } from "@/lib/auth-client";
 import {
   type DashboardLanguage,
@@ -44,25 +60,6 @@ import {
   LIGHT_USER_THEME,
   type UserThemePreferences,
 } from "@/lib/user-theme";
-
-const DEFAULT_WIDGET_SETTINGS = {
-  primaryColor: "#3B82F6",
-  backgroundColor: "#F8FAFC",
-  surfaceColor: "#FFFFFF",
-  agentBubbleColor: "#E2E8F0",
-  textColor: "#0F172A",
-  borderRadius: 16,
-  launcherRadius: 30,
-  launcherSize: 60,
-  windowWidth: 380,
-  offset: 24,
-  position: "bottom-right",
-  fontFamily: "sans",
-  launcherIcon: "💬",
-  headerTitle: "",
-  inputPlaceholder: "Wie können wir helfen?",
-  sendLabel: "Senden",
-};
 
 export default function Dashboard({
   administration = false,
@@ -77,20 +74,9 @@ export default function Dashboard({
   } | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
   const [activeOrg, setActiveOrg] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<
-    | "overview"
-    | "conversations"
-    | "tickets"
-    | "knowledge"
-    | "websites"
-    | "assistant"
-    | "agents"
-    | "customers"
-    | "analytics"
-    | "widget"
-    | "settings"
-    | "profile"
-  >(initialTab ?? (administration ? "assistant" : "overview"));
+  const [activeTab, setActiveTab] = useState<DashboardTab>(
+    initialTab ?? (administration ? "assistant" : "overview"),
+  );
 
   // Auth Form State
   const [isRegistering, setIsRegistering] = useState(false);
@@ -104,9 +90,13 @@ export default function Dashboard({
 
   // Data States
   const [overviewMetrics, setOverviewMetrics] = useState<any>(null);
-  const [conversationsList, setConversationsList] = useState<any[]>([]);
-  const [selectedConv, setSelectedConv] = useState<any>(null);
-  const [convMessages, setConvMessages] = useState<any[]>([]);
+  const [conversationsList, setConversationsList] = useState<
+    InboxConversation[]
+  >([]);
+  const [selectedConv, setSelectedConv] = useState<InboxConversation | null>(
+    null,
+  );
+  const [convMessages, setConvMessages] = useState<InboxMessage[]>([]);
   const [agentMsgInput, setAgentMsgInput] = useState("");
   const [internalNoteInput, setInternalNoteInput] = useState("");
   const [inboxState, setInboxState] = useState("");
@@ -115,22 +105,21 @@ export default function Dashboard({
   const [inboxFrom, setInboxFrom] = useState("");
   const [inboxTo, setInboxTo] = useState("");
   const [inboxSearch, setInboxSearch] = useState("");
+  const [debouncedInboxSearch, setDebouncedInboxSearch] = useState("");
   const [inboxSort, setInboxSort] = useState("newest");
-  const [inboxTags, setInboxTags] = useState<any[]>([]);
-  const [inboxAgents, setInboxAgents] = useState<any[]>([]);
+  const [inboxTags, setInboxTags] = useState<ConversationTag[]>([]);
+  const [inboxAgents, setInboxAgents] = useState<InboxAgent[]>([]);
   const [agentPresence, setAgentPresence] = useState("OFFLINE");
   const [presenceLoaded, setPresenceLoaded] = useState(false);
   const [inboxTagId, setInboxTagId] = useState("");
-  const [inboxTimeline, setInboxTimeline] = useState<any[]>([]);
-  const [inboxHandoff, setInboxHandoff] = useState<any | null>(null);
-  const [suggestion, setSuggestion] = useState<{
-    content: string;
-    sources: string[];
-    conversationId: string;
-  } | null>(null);
+  const [inboxTimeline, setInboxTimeline] = useState<InboxTimelineEvent[]>([]);
+  const [inboxHandoff, setInboxHandoff] = useState<InboxHandoff | null>(null);
+  const [suggestion, setSuggestion] = useState<InboxSuggestion | null>(null);
   const [suggesting, setSuggesting] = useState(false);
   const [connected, setConnected] = useState(false);
   const selectedConversationId = useRef<string | undefined>(undefined);
+  const conversationDetailRequestId = useRef(0);
+  const suggestionRequestId = useRef(0);
   selectedConversationId.current = selectedConv?.id;
 
   const [ticketsList, setTicketsList] = useState<any[]>([]);
@@ -138,8 +127,10 @@ export default function Dashboard({
   const [ticketCommentsList, setTicketCommentsList] = useState<any[]>([]);
   const [commentInput, setCommentInput] = useState("");
 
-  const [knowledgeBases, setKnowledgeBases] = useState<any[]>([]);
-  const [knowledgeSources, setKnowledgeSources] = useState<any[]>([]);
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
+  const [knowledgeSources, setKnowledgeSources] = useState<KnowledgeSource[]>(
+    [],
+  );
   const [assistantsList, setAssistantsList] = useState<any[]>([]);
   const [activeAssistant, setActiveAssistant] = useState<any>(null);
   const [agentsList, setAgentsList] = useState<any[]>([]);
@@ -161,9 +152,8 @@ export default function Dashboard({
   const [translations, setTranslations] = useState<Record<string, string>>({});
   const [profileName, setProfileName] = useState("");
   const [profileAvatarUrl, setProfileAvatarUrl] = useState<string | null>(null);
-  const [themePreferences, setThemePreferences] = useState<UserThemePreferences>(
-    DEFAULT_USER_THEME,
-  );
+  const [themePreferences, setThemePreferences] =
+    useState<UserThemePreferences>(DEFAULT_USER_THEME);
 
   useEffect(() => {
     let active = true;
@@ -191,7 +181,9 @@ export default function Dashboard({
           setProfileName(user.name || "");
           setProfileAvatarUrl(user.avatarUrl || null);
           setThemePreferences(completeUserTheme(user.themePreferences));
-          setActiveOrg(orgs.find((org: any) => org.id === activeOrgId) || orgs[0]);
+          setActiveOrg(
+            orgs.find((org: any) => org.id === activeOrgId) || orgs[0],
+          );
           return;
         }
         const [me, memberships] = await Promise.all([
@@ -206,7 +198,8 @@ export default function Dashboard({
         setProfileName(user.name || "");
         setProfileAvatarUrl(user.avatarUrl || null);
         setThemePreferences(completeUserTheme(user.themePreferences));
-        const currentOrg = orgs.find((o: any) => o.id === activeOrgId) || orgs[0];
+        const currentOrg =
+          orgs.find((o: any) => o.id === activeOrgId) || orgs[0];
         if (currentOrg) {
           setActiveOrg(currentOrg);
           localStorage.setItem("active_org_id", currentOrg.id);
@@ -223,6 +216,14 @@ export default function Dashboard({
     };
   }, [administration]);
 
+  useEffect(() => {
+    const timer = window.setTimeout(
+      () => setDebouncedInboxSearch(inboxSearch),
+      350,
+    );
+    return () => window.clearTimeout(timer);
+  }, [inboxSearch]);
+
   // A visible, authenticated dashboard provides the freshness signal for routing.
   // Persisted AWAY/OFFLINE values are never overridden by a heartbeat.
   useEffect(() => {
@@ -230,22 +231,42 @@ export default function Dashboard({
     if (administration || !userId || !activeOrg?.id) return;
     let mounted = true;
     setPresenceLoaded(false);
-    void api.get("/conversations/meta/agents").then(({ data }) => {
-      if (!mounted) return;
-      const status = data.find((agent: { id: string; presence?: string }) => agent.id === userId)?.presence;
-      setAgentPresence(["ONLINE", "AWAY", "OFFLINE"].includes(status) ? status : "OFFLINE");
-      setPresenceLoaded(true);
-    }).catch(() => {
-      if (mounted) { setAgentPresence("OFFLINE"); setPresenceLoaded(false); }
-    });
-    return () => { mounted = false; };
+    void api
+      .get("/conversations/meta/agents")
+      .then(({ data }) => {
+        if (!mounted) return;
+        const status = data.find(
+          (agent: { id: string; presence?: string }) => agent.id === userId,
+        )?.presence;
+        setAgentPresence(
+          ["ONLINE", "AWAY", "OFFLINE"].includes(status) ? status : "OFFLINE",
+        );
+        setPresenceLoaded(true);
+      })
+      .catch(() => {
+        if (mounted) {
+          setAgentPresence("OFFLINE");
+          setPresenceLoaded(false);
+        }
+      });
+    return () => {
+      mounted = false;
+    };
   }, [administration, auth?.user?.id, activeOrg?.id]);
 
   useEffect(() => {
-    if (administration || !presenceLoaded || agentPresence !== "ONLINE" || !activeOrg?.id) return;
+    if (
+      administration ||
+      !presenceLoaded ||
+      agentPresence !== "ONLINE" ||
+      !activeOrg?.id
+    )
+      return;
     const heartbeat = () => {
       if (document.visibilityState !== "visible") return;
-      void api.put("/conversations/meta/presence", { status: "ONLINE" }).catch(() => undefined);
+      void api
+        .put("/conversations/meta/presence", { status: "ONLINE" })
+        .catch(() => undefined);
     };
     heartbeat();
     const id = window.setInterval(heartbeat, 60_000);
@@ -269,70 +290,15 @@ export default function Dashboard({
     return () => observer.disconnect();
   }, [preferredLanguage]);
 
-  useEffect(() => {
-    setSuggestion(null);
-    if (
-      !auth ||
-      !activeOrg?.id ||
-      !selectedConv?.id ||
-      selectedConv.organizationId !== activeOrg.id
-    )
-      return;
-    let active = true;
-    const conversationId = selectedConv.id;
-    const socket = io(new URL(API_BASE_URL, window.location.origin).origin, {
-      withCredentials: true,
-    });
-    socket.on("connect", () => {
-      setConnected(true);
-      socket.emit("join_room", {
-        organizationId: activeOrg.id,
-        conversationId,
-      });
-      void api
-        .get(`/conversations/${conversationId}/messages`)
-        .then((response) => {
-          if (active)
-            setConvMessages((current) => {
-              const byId = new Map(
-                response.data.map((message: any) => [message.id, message]),
-              );
-              for (const message of current)
-                if (message.conversationId === conversationId)
-                  byId.set(message.id, message);
-              return [...byId.values()].sort(
-                (a: any, b: any) =>
-                  a.createdAt.localeCompare(b.createdAt) ||
-                  a.id.localeCompare(b.id),
-              );
-            });
-        })
-        .catch(() => {
-          if (active)
-            setNotification("Nachrichten konnten nicht aktualisiert werden.");
-        });
-    });
-    socket.on("new_message", (message) => {
-      if (message.conversationId !== conversationId) return;
-      setConvMessages((current) =>
-        current.some((item) => item.id === message.id)
-          ? current
-          : [...current, message].sort(
-              (a, b) =>
-                a.createdAt.localeCompare(b.createdAt) ||
-                a.id.localeCompare(b.id),
-            ),
-      );
-    });
-    socket.on("disconnect", () => setConnected(false));
-    socket.on("connect_error", () => setConnected(false));
-    socket.on("error", () => setConnected(false));
-    return () => {
-      active = false;
-      socket.disconnect();
-      setConnected(false);
-    };
-  }, [auth, activeOrg?.id, selectedConv?.id, selectedConv?.organizationId]);
+  useConversationRealtime({
+    enabled: Boolean(auth) && activeTab === "conversations",
+    organizationId: activeOrg?.id,
+    conversationId: selectedConv?.id,
+    conversationOrganizationId: selectedConv?.organizationId,
+    setMessages: setConvMessages,
+    setConnected,
+    setNotification,
+  });
 
   const showNotify = (msg: string) => {
     setNotification(msg);
@@ -383,10 +349,18 @@ export default function Dashboard({
   const handleTwoFactorLogin = async () => {
     setAuthError("");
     try {
-      const result = await authClient.twoFactor.verifyTotp({ code: twoFactorLoginCode, trustDevice: true });
-      if (result.error) throw new Error(result.error.message || "Der Authenticator-Code ist ungültig.");
+      const result = await authClient.twoFactor.verifyTotp({
+        code: twoFactorLoginCode,
+        trustDevice: true,
+      });
+      if (result.error)
+        throw new Error(
+          result.error.message || "Der Authenticator-Code ist ungültig.",
+        );
       const { data } = await api.get("/auth/me");
-      window.location.assign(data.user.systemRole === "superadmin" ? "/admin" : "/");
+      window.location.assign(
+        data.user.systemRole === "superadmin" ? "/admin" : "/",
+      );
     } catch (error: any) {
       setAuthError(error.message || "2FA-Bestätigung fehlgeschlagen.");
     }
@@ -395,6 +369,33 @@ export default function Dashboard({
   const handleLogout = async () => {
     await authClient.signOut();
     localStorage.removeItem("active_org_id");
+    tenantFetchEpoch.current += 1;
+    conversationDetailRequestId.current += 1;
+    suggestionRequestId.current += 1;
+    ticketDetailRequestId.current += 1;
+    selectedConversationId.current = undefined;
+    setSelectedConv(null);
+    setConvMessages([]);
+    setConversationsList([]);
+    setInboxTimeline([]);
+    setInboxHandoff(null);
+    setInboxTags([]);
+    setInboxAgents([]);
+    setSuggestion(null);
+    setSuggesting(false);
+    setConnected(false);
+    setTranslations({});
+    setSelectedTicket(null);
+    setTicketCommentsList([]);
+    setTicketsList([]);
+    setKnowledgeBases([]);
+    setKnowledgeSources([]);
+    setAssistantsList([]);
+    setActiveAssistant(null);
+    setCustomersList([]);
+    setAgentsList([]);
+    setAgentMsgInput("");
+    setInternalNoteInput("");
     setAuth(null);
     setActiveOrg(null);
   };
@@ -408,11 +409,23 @@ export default function Dashboard({
     );
   };
 
+  // A response belongs to both a specific organization and a specific load.
+  // Older requests must not overwrite newer filter/organization results.
+  const tenantFetchEpoch = useRef(0);
+  const activeOrgIdRef = useRef<string | undefined>(activeOrg?.id);
+  activeOrgIdRef.current = activeOrg?.id;
+
   const fetchTenantData = useCallback(async () => {
+    const requestedOrgId: string | undefined = activeOrg?.id;
+    if (!requestedOrgId) return;
+    const epoch = ++tenantFetchEpoch.current;
+    const isFresh = () =>
+      epoch === tenantFetchEpoch.current &&
+      activeOrgIdRef.current === requestedOrgId;
     try {
       if (activeTab === "overview" || activeTab === "analytics") {
         const res = await api.get("/analytics/overview");
-        setOverviewMetrics(res.data);
+        if (isFresh()) setOverviewMetrics(res.data);
       }
 
       if (activeTab === "conversations") {
@@ -424,15 +437,17 @@ export default function Dashboard({
             tagId: inboxTagId || undefined,
             from: inboxFrom || undefined,
             to: inboxTo || undefined,
-            q: inboxSearch || undefined,
+            q: debouncedInboxSearch || undefined,
             sort: inboxSort,
           },
         });
+        if (!isFresh()) return;
         setConversationsList(res.data);
         const [tags, agents] = await Promise.all([
           api.get("/conversations/meta/tags"),
           api.get("/conversations/meta/agents"),
         ]);
+        if (!isFresh()) return;
         setInboxTags(tags.data);
         setInboxAgents(agents.data);
         const ownPresence = agents.data.find(
@@ -443,7 +458,7 @@ export default function Dashboard({
 
       if (activeTab === "tickets") {
         const res = await api.get("/tickets");
-        setTicketsList(res.data);
+        if (isFresh()) setTicketsList(res.data);
       }
 
       if (activeTab === "knowledge" || activeTab === "websites") {
@@ -451,6 +466,7 @@ export default function Dashboard({
           api.get("/knowledge/bases"),
           api.get("/knowledge/sources"),
         ]);
+        if (!isFresh()) return;
         setKnowledgeBases(kbRes.data);
         setKnowledgeSources(srcRes.data);
         if (kbRes.data.length > 0 && !selectedKbId) {
@@ -460,21 +476,22 @@ export default function Dashboard({
 
       if (activeTab === "assistant" || activeTab === "widget") {
         const res = await api.get("/assistants");
+        if (!isFresh()) return;
         setAssistantsList(res.data);
-        if (res.data.length > 0) setActiveAssistant(res.data[0]);
+        setActiveAssistant(res.data[0] ?? null);
       }
 
       if (activeTab === "agents") {
         const res = await api.get("/agents");
-        setAgentsList(res.data);
+        if (isFresh()) setAgentsList(res.data);
       }
 
       if (activeTab === "customers") {
         const res = await api.get("/customers");
-        setCustomersList(res.data);
+        if (isFresh()) setCustomersList(res.data);
       }
     } catch (err: any) {
-      console.error("Failed to load tenant data", err);
+      if (isFresh()) console.error("Failed to load tenant data", err);
     }
   }, [
     activeTab,
@@ -484,14 +501,19 @@ export default function Dashboard({
     inboxAgentId,
     inboxFrom,
     inboxTo,
-    inboxSearch,
+    debouncedInboxSearch,
     inboxSort,
     inboxTagId,
     auth?.user?.id,
+    activeOrg?.id,
   ]);
 
   useEffect(() => {
     if (auth && activeOrg) void fetchTenantData();
+    return () => {
+      // Invalidate requests during tab/filter changes and unmount.
+      tenantFetchEpoch.current += 1;
+    };
   }, [auth, activeOrg, fetchTenantData]);
 
   // --- Handlers for Data Actions ---
@@ -603,89 +625,199 @@ export default function Dashboard({
     }
   };
 
-  const handleSelectConversation = async (conv: any) => {
+  const handleSelectConversation = async (conv: InboxConversation) => {
+    const organizationId = activeOrgIdRef.current;
+    if (
+      !organizationId ||
+      (conv.organizationId && conv.organizationId !== organizationId)
+    )
+      return;
+    const requestId = ++conversationDetailRequestId.current;
+    const changedConversation = selectedConversationId.current !== conv.id;
+    selectedConversationId.current = conv.id;
     setSelectedConv(conv);
-    setInboxHandoff(null);
+    if (changedConversation) {
+      suggestionRequestId.current += 1;
+      setConvMessages([]);
+      setInboxTimeline([]);
+      setInboxHandoff(null);
+      setSuggestion(null);
+      setSuggesting(false);
+      setTranslations({});
+      setAgentMsgInput("");
+      setInternalNoteInput("");
+    }
+    const valid = () =>
+      conversationDetailRequestId.current === requestId &&
+      activeOrgIdRef.current === organizationId &&
+      selectedConversationId.current === conv.id;
     try {
       const [messages, timeline, handoff] = await Promise.all([
         api.get(`/conversations/${conv.id}/messages`),
         api.get(`/conversations/${conv.id}/timeline`),
         api.get(`/conversations/${conv.id}/handoff`).catch(() => null),
       ]);
-      setConvMessages(messages.data);
+      if (!valid()) return;
+      setConvMessages((current) => {
+        const latest = new Map<string, InboxMessage>();
+        for (const message of messages.data) {
+          if (message.conversationId === conv.id)
+            latest.set(message.id, message);
+        }
+        if (!changedConversation) {
+          for (const message of current) {
+            if (message.conversationId === conv.id)
+              latest.set(message.id, message);
+          }
+        }
+        return [...latest.values()].sort(
+          (a, b) =>
+            a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
+        );
+      });
       setInboxTimeline(timeline.data);
       setInboxHandoff(handoff?.data || null);
-    } catch (err) {}
-  };
-
-  const handleInboxAction = async (path: string, body?: any) => {
-    if (!selectedConv) return;
-    try {
-      const result = await api.put(
-        `/conversations/${selectedConv.id}/${path}`,
-        body,
-      );
-      if (result.data?.id)
-        setSelectedConv((current: any) => ({ ...current, ...result.data }));
-      await handleSelectConversation({
-        ...selectedConv,
-        ...(result.data || {}),
-      });
-      void fetchTenantData();
-    } catch (err: any) {
-      showNotify(
-        err.response?.data?.error || "Aktion konnte nicht ausgeführt werden.",
-      );
+    } catch {
+      if (valid())
+        showNotify("Unterhaltungsdetails konnten nicht geladen werden.");
     }
   };
 
-  const handleToggleConversationTag = async (tag: any) => {
+  const handleSuggestReply = async () => {
+    if (!selectedConv || suggesting) return;
+    const conversationId = selectedConv.id;
+    const organizationId = activeOrgIdRef.current;
+    const requestId = ++suggestionRequestId.current;
+    setSuggesting(true);
+    setSuggestion(null);
+    const valid = () =>
+      suggestionRequestId.current === requestId &&
+      selectedConversationId.current === conversationId &&
+      activeOrgIdRef.current === organizationId;
+    try {
+      const { data } = await api.post(
+        `/conversations/${conversationId}/suggested-reply`,
+      );
+      if (!valid()) return;
+      setSuggestion({
+        conversationId,
+        content: typeof data.content === "string" ? data.content : "",
+        sources: Array.isArray(data.sources)
+          ? data.sources.filter(
+              (v: unknown): v is string => typeof v === "string",
+            )
+          : [],
+      });
+    } catch {
+      if (valid()) showNotify("Antwortvorschlag konnte nicht erstellt werden.");
+    } finally {
+      if (valid()) setSuggesting(false);
+    }
+  };
+
+  const handleInboxAction = async (
+    path: string,
+    body?: Record<string, unknown>,
+  ) => {
     if (!selectedConv) return;
-    const existing = selectedConv.tags || [];
-    const nextTags = existing.some((item: any) => item.id === tag.id)
-      ? existing.filter((item: any) => item.id !== tag.id)
+    const selected = selectedConv;
+    const organizationId = activeOrgIdRef.current;
+    const isCurrent = () =>
+      selectedConversationId.current === selected.id &&
+      activeOrgIdRef.current === organizationId;
+    try {
+      const result = await api.put(
+        `/conversations/${selected.id}/${path}`,
+        body,
+      );
+      if (!isCurrent()) return;
+      const updated = { ...selected, ...(result.data || {}) };
+      setSelectedConv(updated);
+      await handleSelectConversation(updated);
+      if (isCurrent()) void fetchTenantData();
+    } catch (err: any) {
+      if (isCurrent())
+        showNotify(
+          err.response?.data?.error || "Aktion konnte nicht ausgeführt werden.",
+        );
+    }
+  };
+
+  const handleToggleConversationTag = async (tag: {
+    id: string;
+    name: string;
+  }) => {
+    if (!selectedConv) return;
+    const selected = selectedConv;
+    const organizationId = activeOrgIdRef.current;
+    const current = () =>
+      activeOrgIdRef.current === organizationId &&
+      selectedConversationId.current === selected.id;
+    const existing = selected.tags || [];
+    const nextTags = existing.some((item: { id: string }) => item.id === tag.id)
+      ? existing.filter((item: { id: string }) => item.id !== tag.id)
       : [...existing, tag];
     try {
-      await api.put(`/conversations/${selectedConv.id}/tags`, {
-        tagIds: nextTags.map((item: any) => item.id),
+      await api.put(`/conversations/${selected.id}/tags`, {
+        tagIds: nextTags.map((item: { id: string }) => item.id),
       });
-      setSelectedConv((current: any) => ({ ...current, tags: nextTags }));
-      await handleSelectConversation({ ...selectedConv, tags: nextTags });
-      void fetchTenantData();
+      if (!current()) return;
+      const updated = { ...selected, tags: nextTags };
+      setSelectedConv(updated);
+      await handleSelectConversation(updated);
+      if (current()) void fetchTenantData();
     } catch (err: any) {
-      showNotify(
-        err.response?.data?.error || "Tags konnten nicht aktualisiert werden.",
-      );
+      if (current())
+        showNotify(
+          err.response?.data?.error ||
+            "Tags konnten nicht aktualisiert werden.",
+        );
     }
   };
 
   const handlePresenceChange = async (status: string) => {
+    if (!["ONLINE", "AWAY", "OFFLINE"].includes(status)) return;
+    const organizationId = activeOrgIdRef.current;
     try {
       await api.put("/conversations/meta/presence", { status });
+      if (activeOrgIdRef.current !== organizationId) return;
       setAgentPresence(status);
       setPresenceLoaded(true);
-      showNotify(`Presence: ${status}`);
+      showNotify(`Präsenzstatus: ${status}`);
     } catch (err: any) {
-      showNotify(
-        err.response?.data?.error || "Presence konnte nicht gespeichert werden.",
-      );
+      if (activeOrgIdRef.current === organizationId) {
+        showNotify(
+          err.response?.data?.error ||
+            "Präsenzstatus konnte nicht gespeichert werden.",
+        );
+      }
     }
   };
 
   const handleAddInternalNote = async () => {
     if (!selectedConv || !internalNoteInput.trim()) return;
+    const conversationId = selectedConv.id;
+    const organizationId = activeOrgIdRef.current;
+    const content = internalNoteInput.trim();
+    const current = () =>
+      selectedConversationId.current === conversationId &&
+      activeOrgIdRef.current === organizationId;
     try {
-      const res = await api.post(
-        `/conversations/${selectedConv.id}/internal-notes`,
-        { content: internalNoteInput },
+      const { data } = await api.post(
+        `/conversations/${conversationId}/internal-notes`,
+        { content },
       );
-      setConvMessages((current) => [...current, res.data]);
-      setInternalNoteInput("");
+      if (!current()) return;
+      setConvMessages((messages) =>
+        messages.some((m) => m.id === data.id) ? messages : [...messages, data],
+      );
+      setInternalNoteInput((value) => (value === content ? "" : value));
       showNotify("Interne Notiz gespeichert.");
     } catch (err: any) {
-      showNotify(
-        err.response?.data?.error || "Notiz konnte nicht gespeichert werden.",
-      );
+      if (current())
+        showNotify(
+          err.response?.data?.error || "Notiz konnte nicht gespeichert werden.",
+        );
     }
   };
 
@@ -726,49 +858,80 @@ export default function Dashboard({
     }
   };
 
-  const handleTranslateMessage = async (message: any) => {
+  const handleTranslateMessage = async (message: { id: string }) => {
     if (!selectedConv || translations[message.id]) return;
+    const conversationId = selectedConv.id;
+    const organizationId = activeOrgIdRef.current;
+    const targetLanguage = preferredLanguage;
     try {
-      const res = await api.post(
-        `/conversations/${selectedConv.id}/messages/${message.id}/translation`,
-        { targetLanguage: preferredLanguage },
+      const { data } = await api.post(
+        `/conversations/${conversationId}/messages/${message.id}/translation`,
+        { targetLanguage },
       );
+      if (
+        selectedConversationId.current !== conversationId ||
+        activeOrgIdRef.current !== organizationId
+      )
+        return;
       setTranslations((current) => ({
         ...current,
-        [message.id]: res.data.translatedContent,
+        [message.id]: data.translatedContent,
       }));
     } catch (err: any) {
-      showNotify(err.response?.data?.error || "Translation failed");
+      if (
+        selectedConversationId.current === conversationId &&
+        activeOrgIdRef.current === organizationId
+      ) {
+        showNotify(err.response?.data?.error || "Übersetzung fehlgeschlagen.");
+      }
     }
   };
 
   const handleSendAgentMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedConv || !agentMsgInput) return;
+    if (!selectedConv || !agentMsgInput.trim()) return;
+    const conversationId = selectedConv.id;
+    const organizationId = activeOrgIdRef.current;
+    const content = agentMsgInput.trim();
+    const current = () =>
+      selectedConversationId.current === conversationId &&
+      activeOrgIdRef.current === organizationId;
     try {
-      const res = await api.post(`/conversations/${selectedConv.id}/messages`, {
-        content: agentMsgInput,
-      });
-      if (selectedConversationId.current === res.data.conversationId) {
-        setConvMessages((current) =>
-          current.some((message) => message.id === res.data.id)
-            ? current
-            : [...current, res.data],
-        );
-        setAgentMsgInput("");
-      }
-      showNotify("Response sent to customer");
+      const { data } = await api.post(
+        `/conversations/${conversationId}/messages`,
+        { content },
+      );
+      if (!current()) return;
+      setConvMessages((messages) =>
+        messages.some((message) => message.id === data.id)
+          ? messages
+          : [...messages, data],
+      );
+      setAgentMsgInput((value) => (value === content ? "" : value));
+      showNotify("Antwort an Kunden gesendet.");
     } catch (err: any) {
-      showNotify(err.response?.data?.error || "Failed to send message");
+      if (current())
+        showNotify(
+          err.response?.data?.error || "Antwort konnte nicht gesendet werden.",
+        );
     }
   };
 
   const handleResolveConversation = async (convId: string) => {
+    const organizationId = activeOrgIdRef.current;
     try {
       await api.post(`/conversations/${convId}/resolve`);
-      showNotify("Conversation resolved");
+      if (activeOrgIdRef.current !== organizationId) return;
+      showNotify("Unterhaltung gelöst.");
       void fetchTenantData();
-    } catch (err) {}
+    } catch (err: any) {
+      if (activeOrgIdRef.current === organizationId) {
+        showNotify(
+          err.response?.data?.error ||
+            "Unterhaltung konnte nicht gelöst werden.",
+        );
+      }
+    }
   };
 
   const handleSaveAssistantSettings = async (e: React.FormEvent) => {
@@ -786,16 +949,14 @@ export default function Dashboard({
     }
   };
 
-  const handleRegenerateApiKey = async () => {
-    try {
-      const res = await api.post("/organizations/api-key");
-      setActiveOrg({ ...activeOrg, apiKey: res.data.apiKey });
-      showNotify("New Organization API Key generated!");
-    } catch (err) {}
-  };
-
   const handleRotateWidgetKey = async () => {
     if (!activeAssistant) return;
+    if (
+      !window.confirm(
+        "Widget-Schlüssel erneuern? Der bisherige Schlüssel wird ungültig und alle eingebundenen Websites müssen ihren Widget-Key aktualisieren.",
+      )
+    )
+      return;
     try {
       const res = await api.post(
         `/assistants/${activeAssistant.id}/widget-key/rotate`,
@@ -814,14 +975,27 @@ export default function Dashboard({
     }
   };
 
-  const handleSelectTicket = async (ticket: any) => {
+  const ticketDetailRequestId = useRef(0);
+  const handleSelectTicket = async (ticket: { id: string }) => {
+    const organizationId = activeOrgIdRef.current;
+    const requestId = ++ticketDetailRequestId.current;
     setSelectedTicket(ticket);
     setTicketCommentsList([]);
     try {
       const res = await api.get(`/tickets/${ticket.id}/comments`);
-      setTicketCommentsList(res.data);
+      if (
+        ticketDetailRequestId.current === requestId &&
+        activeOrgIdRef.current === organizationId
+      ) {
+        setTicketCommentsList(res.data);
+      }
     } catch (err) {
-      console.error("Failed to load ticket comments", err);
+      if (
+        ticketDetailRequestId.current === requestId &&
+        activeOrgIdRef.current === organizationId
+      ) {
+        console.error("Failed to load ticket comments", err);
+      }
     }
   };
 
@@ -865,25 +1039,31 @@ export default function Dashboard({
 
   const handleOpenTicketConversation = async () => {
     if (!selectedTicket?.conversationId) {
-      showNotify("Diesem Ticket ist keine Unterhaltung zugeordnet");
+      showNotify("Diesem Ticket ist keine Unterhaltung zugeordnet.");
       return;
     }
+    const organizationId = activeOrgIdRef.current;
+    const conversationId = selectedTicket.conversationId;
     try {
-      const res = await api.get("/conversations");
-      const conversation = res.data.find(
-        (item: any) => item.id === selectedTicket.conversationId,
+      const { data } = await api.get("/conversations");
+      if (activeOrgIdRef.current !== organizationId) return;
+      const conversation = data.find(
+        (item: { id: string }) => item.id === conversationId,
       );
       if (!conversation) {
-        showNotify("Die zugehörige Unterhaltung ist nicht mehr verfügbar");
+        showNotify("Die zugehörige Unterhaltung ist nicht mehr verfügbar.");
         return;
       }
-      setConversationsList(res.data);
+      setConversationsList(data);
       setActiveTab("conversations");
       await handleSelectConversation(conversation);
     } catch (err: any) {
-      showNotify(
-        err.response?.data?.error || "Unterhaltung konnte nicht geladen werden",
-      );
+      if (activeOrgIdRef.current === organizationId) {
+        showNotify(
+          err.response?.data?.error ||
+            "Unterhaltung konnte nicht geladen werden.",
+        );
+      }
     }
   };
 
@@ -999,56 +1179,100 @@ export default function Dashboard({
               </button>
             </form>
           ) : (
-            <form onSubmit={awaitingTwoFactor ? (event) => { event.preventDefault(); void handleTwoFactorLogin(); } : handleLogin} className="space-y-4">
+            <form
+              onSubmit={
+                awaitingTwoFactor
+                  ? (event) => {
+                      event.preventDefault();
+                      void handleTwoFactorLogin();
+                    }
+                  : handleLogin
+              }
+              className="space-y-4"
+            >
               {awaitingTwoFactor ? (
                 <>
-                  <label htmlFor="two-factor-login" className="block text-xs font-semibold uppercase text-slate-300">Authenticator-Code</label>
-                  <input id="two-factor-login" inputMode="numeric" autoComplete="one-time-code" value={twoFactorLoginCode} onChange={(event) => setTwoFactorLoginCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="123456" required className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm" />
-                  <button type="button" disabled={twoFactorLoginCode.length !== 6} onClick={() => void handleTwoFactorLogin()} className="w-full rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50">Anmeldung bestätigen</button>
-                  <button type="button" onClick={() => { setAwaitingTwoFactor(false); setTwoFactorLoginCode(""); }} className="w-full text-xs text-slate-400">Zurück zur Anmeldung</button>
+                  <label
+                    htmlFor="two-factor-login"
+                    className="block text-xs font-semibold uppercase text-slate-300"
+                  >
+                    Authenticator-Code
+                  </label>
+                  <input
+                    id="two-factor-login"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    value={twoFactorLoginCode}
+                    onChange={(event) =>
+                      setTwoFactorLoginCode(
+                        event.target.value.replace(/\D/g, "").slice(0, 6),
+                      )
+                    }
+                    placeholder="123456"
+                    required
+                    className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm"
+                  />
+                  <button
+                    type="button"
+                    disabled={twoFactorLoginCode.length !== 6}
+                    onClick={() => void handleTwoFactorLogin()}
+                    className="w-full rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    Anmeldung bestätigen
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAwaitingTwoFactor(false);
+                      setTwoFactorLoginCode("");
+                    }}
+                    className="w-full text-xs text-slate-400"
+                  >
+                    Zurück zur Anmeldung
+                  </button>
                 </>
               ) : (
                 <>
-              <div>
-                <label
-                  htmlFor="support-field-5"
-                  className="block text-xs font-semibold text-slate-300 uppercase mb-1"
-                >
-                  Work Email
-                </label>
-                <input
-                  id="support-field-5"
-                  type="email"
-                  required
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                  value={authEmail}
-                  onChange={(e) => setAuthEmail(e.target.value)}
-                  placeholder="admin@company.com"
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="support-field-6"
-                  className="block text-xs font-semibold text-slate-300 uppercase mb-1"
-                >
-                  Password
-                </label>
-                <input
-                  id="support-field-6"
-                  type="password"
-                  required
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                  value={authPassword}
-                  onChange={(e) => setAuthPassword(e.target.value)}
-                  placeholder="••••••••"
-                />
-              </div>
-              <button
-                type="submit"
-                className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-sm shadow-md transition-colors"
-              >
-                Sign In to Dashboard
-              </button>
+                  <div>
+                    <label
+                      htmlFor="support-field-5"
+                      className="block text-xs font-semibold text-slate-300 uppercase mb-1"
+                    >
+                      Work Email
+                    </label>
+                    <input
+                      id="support-field-5"
+                      type="email"
+                      required
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                      value={authEmail}
+                      onChange={(e) => setAuthEmail(e.target.value)}
+                      placeholder="admin@company.com"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="support-field-6"
+                      className="block text-xs font-semibold text-slate-300 uppercase mb-1"
+                    >
+                      Password
+                    </label>
+                    <input
+                      id="support-field-6"
+                      type="password"
+                      required
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                      value={authPassword}
+                      onChange={(e) => setAuthPassword(e.target.value)}
+                      placeholder="••••••••"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-sm shadow-md transition-colors"
+                  >
+                    Sign In to Dashboard
+                  </button>
                 </>
               )}
             </form>
@@ -1062,21 +1286,11 @@ export default function Dashboard({
     );
   }
 
-  const widgetSettings = {
-    ...DEFAULT_WIDGET_SETTINGS,
-    ...(activeAssistant?.widgetSettings || {}),
-  };
-  const updateWidgetSetting = (key: string, value: string | number) => {
-    if (!activeAssistant) return;
-    setActiveAssistant({
-      ...activeAssistant,
-      widgetSettings: { ...widgetSettings, [key]: value },
-    });
-  };
-
   // --- Main SaaS Dashboard Layout ---
   return (
-    <div className="flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">
+    <div
+      className={`relvona-workspace flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden ${activeTab === "overview" ? "relvona-workspace--overview" : ""}`}
+    >
       {notification && (
         <div className="fixed top-4 right-4 z-50 bg-blue-600 text-white px-4 py-2.5 rounded-lg shadow-xl text-sm flex items-center gap-2 animate-bounce">
           <CheckCircle className="w-4 h-4" />
@@ -1084,16 +1298,16 @@ export default function Dashboard({
         </div>
       )}
 
-      <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between shrink-0">
+      <aside className="rv-sidebar w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between shrink-0">
         <div>
           <div className="p-4 border-b border-slate-800 flex items-center justify-between">
             <div className="flex items-center gap-2.5 overflow-hidden">
-              <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-white shrink-0">
-                <Bot className="w-5 h-5" />
+              <div className="rv-brand-mark w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-white shrink-0">
+                R
               </div>
               <div className="truncate">
                 <h2 className="text-sm font-bold truncate text-white">
-                  {activeOrg?.name || "Organization"}
+                  Relvona
                 </h2>
                 <span className="text-[10px] bg-blue-950 text-blue-400 px-1.5 py-0.5 rounded font-mono border border-blue-800">
                   {activeOrg?.role || "member"}
@@ -1111,7 +1325,39 @@ export default function Dashboard({
                   const selected = auth.organizations.find(
                     (o) => o.id === e.target.value,
                   );
-                  if (selected) {
+                  if (selected && selected.id !== activeOrg?.id) {
+                    tenantFetchEpoch.current += 1;
+                    ticketDetailRequestId.current += 1;
+                    conversationDetailRequestId.current += 1;
+                    suggestionRequestId.current += 1;
+                    selectedConversationId.current = undefined;
+                    setSuggesting(false);
+                    setOverviewMetrics(null);
+                    setConversationsList([]);
+                    setSelectedConv(null);
+                    setConvMessages([]);
+                    setInboxSearch("");
+                    setDebouncedInboxSearch("");
+                    setInboxTags([]);
+                    setInboxAgents([]);
+                    setInboxTimeline([]);
+                    setInboxHandoff(null);
+                    setSuggestion(null);
+                    setSelectedTicket(null);
+                    setTicketCommentsList([]);
+                    setTicketsList([]);
+                    setKnowledgeBases([]);
+                    setKnowledgeSources([]);
+                    setSelectedKbId("");
+                    setAssistantsList([]);
+                    setActiveAssistant(null);
+                    setAgentsList([]);
+                    setCustomersList([]);
+                    setTranslations({});
+                    setPdfFile(null);
+                    setDocTitle("");
+                    setDocContent("");
+                    setCrawlUrl("");
                     setActiveOrg(selected);
                     localStorage.setItem("active_org_id", selected.id);
                   }
@@ -1126,7 +1372,7 @@ export default function Dashboard({
             </div>
           )}
 
-          <nav className="p-3 space-y-1">
+          <nav className="rv-main-nav p-3 space-y-1">
             {administration && (
               <a href="/admin" className="block p-3 text-sm text-blue-400">
                 Plattformverwaltung
@@ -1137,64 +1383,42 @@ export default function Dashboard({
                 Plattformverwaltung
               </a>
             )}
-            {[
-              { id: "overview", label: "Overview", icon: BarChart3 },
-              {
-                id: "conversations",
-                label: "Conversations Inbox",
-                icon: MessageSquare,
-              },
-              { id: "tickets", label: "Support Tickets", icon: Ticket },
-              { id: "knowledge", label: "Knowledge Bases", icon: BookOpen },
-              { id: "websites", label: "Web Crawler", icon: Globe },
-              { id: "assistant", label: "AI Assistant Settings", icon: Bot },
-              { id: "agents", label: "Support Agents", icon: Users },
-              { id: "customers", label: "Customer Directory", icon: UserCheck },
-              {
-                id: "analytics",
-                label: "Analytics & Insights",
-                icon: Sparkles,
-              },
-              { id: "widget", label: "Widget Designer", icon: Sliders },
-              {
-                id: "settings",
-                label: "Organization Settings",
-                icon: Settings,
-              },
-              { id: "profile", label: "Profil-Einstellungen", icon: UserCheck },
-            ]
-              .filter((item) =>
-                administration
-                  ? [
-                      "assistant",
-                      "agents",
-                      "widget",
-                      "settings",
-                      "profile",
-                    ].includes(item.id)
-                  : !["assistant", "agents", "widget", "settings"].includes(
-                      item.id,
-                    ),
-              )
-              .map((item) => {
-                const Icon = item.icon;
-                const isActive = activeTab === item.id;
-                return (
-                  <button
-                    type="button"
-                    key={item.id}
-                    onClick={() => setActiveTab(item.id as any)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                      isActive
-                        ? "bg-blue-600 text-white font-semibold"
-                        : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-                    }`}
-                  >
-                    <Icon className="w-4 h-4 shrink-0" />
-                    <span className="truncate">{item.label}</span>
-                  </button>
-                );
-              })}
+            {dashboardNavigation(administration).map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  type="button"
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id)}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                    isActive
+                      ? "bg-blue-600 text-white font-semibold"
+                      : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                  }`}
+                >
+                  <Icon className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{item.label}</span>
+                </button>
+              );
+            })}
+            {!administration && auth.user.systemRole === "superadmin" && (
+              <div className="rv-nav-secondary">
+                <p>Workspace</p>
+                <a href="/admin/scheduling">
+                  <CalendarDays size={16} /> Termine
+                </a>
+                <a href="/admin/support-automations">
+                  <Workflow size={16} /> AI-Automationen
+                </a>
+                <a href="/admin/employees">
+                  <Users size={16} /> Mitarbeiter
+                </a>
+                <a href="/admin/integrations">
+                  <Globe size={16} /> Integrationen
+                </a>
+              </div>
+            )}
           </nav>
         </div>
 
@@ -1223,7 +1447,7 @@ export default function Dashboard({
           <button
             type="button"
             onClick={handleLogout}
-            title="Sign Out"
+            title="Abmelden"
             className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded transition-colors"
           >
             <LogOut className="w-4 h-4" />
@@ -1231,11 +1455,32 @@ export default function Dashboard({
         </div>
       </aside>
 
-      <main className="flex-1 bg-slate-950 overflow-y-auto p-6">
+      <main
+        className={
+          activeTab === "overview"
+            ? "rv-main rv-main--overview flex-1 overflow-y-auto"
+            : [
+                  "analytics",
+                  "customers",
+                  "agents",
+                  "tickets",
+                  "conversations",
+                  "knowledge",
+                  "websites",
+                  "assistant",
+                  "widget",
+                  "settings",
+                ].includes(activeTab)
+              ? "rv-main rv-main--modern flex-1 overflow-y-auto p-6"
+              : "rv-main flex-1 bg-slate-950 overflow-y-auto p-6"
+        }
+      >
         {activeTab === "profile" && (
           <div className="mx-auto max-w-2xl space-y-6">
             <div>
-              <h1 className="text-xl font-bold text-white">Profil-Einstellungen</h1>
+              <h1 className="text-xl font-bold text-white">
+                Profil-Einstellungen
+              </h1>
               <p className="text-xs text-slate-400">
                 Name, Profilbild, Sprache und dein persönliches Theme verwalten.
               </p>
@@ -1322,27 +1567,62 @@ export default function Dashboard({
               <fieldset className="space-y-4 border-t border-slate-700 pt-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <legend className="text-sm font-semibold text-slate-100">Persönliches Erscheinungsbild</legend>
-                    <p className="text-xs text-slate-400">Gilt nur für dein Benutzerkonto und wird sofort als Vorschau angezeigt.</p>
+                    <legend className="text-sm font-semibold text-slate-100">
+                      Persönliches Erscheinungsbild
+                    </legend>
+                    <p className="text-xs text-slate-400">
+                      Gilt nur für dein Benutzerkonto und wird sofort als
+                      Vorschau angezeigt.
+                    </p>
                   </div>
                   <div className="flex gap-2">
-                    <button type="button" onClick={() => setThemePreferences(DEFAULT_USER_THEME)} className="rounded border border-slate-700 px-3 py-2 text-xs text-slate-200">Dunkel</button>
-                    <button type="button" onClick={() => setThemePreferences(LIGHT_USER_THEME)} className="rounded border border-slate-700 px-3 py-2 text-xs text-slate-200">Hell</button>
+                    <button
+                      type="button"
+                      onClick={() => setThemePreferences(DEFAULT_USER_THEME)}
+                      className="rounded border border-slate-700 px-3 py-2 text-xs text-slate-200"
+                    >
+                      Dunkel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setThemePreferences(LIGHT_USER_THEME)}
+                      className="rounded border border-slate-700 px-3 py-2 text-xs text-slate-200"
+                    >
+                      Hell
+                    </button>
                   </div>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  {([
-                    ["backgroundColor", "Hintergrund"],
-                    ["surfaceColor", "Flächen"],
-                    ["textColor", "Schrift"],
-                    ["mutedTextColor", "Sekundärschrift"],
-                    ["primaryColor", "Akzentfarbe"],
-                  ] as const).map(([key, label]) => (
-                    <label key={key} className="flex items-center justify-between gap-3 text-xs font-semibold text-slate-300">
+                  {(
+                    [
+                      ["backgroundColor", "Hintergrund"],
+                      ["surfaceColor", "Flächen"],
+                      ["textColor", "Schrift"],
+                      ["mutedTextColor", "Sekundärschrift"],
+                      ["primaryColor", "Akzentfarbe"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <label
+                      key={key}
+                      className="flex items-center justify-between gap-3 text-xs font-semibold text-slate-300"
+                    >
                       <span>{label}</span>
                       <span className="flex items-center gap-2">
-                        <input type="color" aria-label={label} value={themePreferences[key]} onChange={(event) => setThemePreferences({ ...themePreferences, [key]: event.target.value })} className="h-10 w-12 rounded border border-slate-700 bg-slate-800 p-1" />
-                        <code className="w-16 text-[10px] font-normal text-slate-400">{themePreferences[key]}</code>
+                        <input
+                          type="color"
+                          aria-label={label}
+                          value={themePreferences[key]}
+                          onChange={(event) =>
+                            setThemePreferences({
+                              ...themePreferences,
+                              [key]: event.target.value,
+                            })
+                          }
+                          className="h-10 w-12 rounded border border-slate-700 bg-slate-800 p-1"
+                        />
+                        <code className="w-16 text-[10px] font-normal text-slate-400">
+                          {themePreferences[key]}
+                        </code>
                       </span>
                     </label>
                   ))}
@@ -1350,23 +1630,73 @@ export default function Dashboard({
                 <div className="grid gap-4 sm:grid-cols-2">
                   <label className="text-xs font-semibold text-slate-300">
                     Schriftart
-                    <select value={themePreferences.fontFamily} onChange={(event) => setThemePreferences({ ...themePreferences, fontFamily: event.target.value as UserThemePreferences["fontFamily"] })} className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100">
-                      <option value="sans">Sans Serif</option><option value="serif">Serif</option><option value="mono">Monospace</option>
+                    <select
+                      value={themePreferences.fontFamily}
+                      onChange={(event) =>
+                        setThemePreferences({
+                          ...themePreferences,
+                          fontFamily: event.target
+                            .value as UserThemePreferences["fontFamily"],
+                        })
+                      }
+                      className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
+                    >
+                      <option value="sans">Sans Serif</option>
+                      <option value="serif">Serif</option>
+                      <option value="mono">Monospace</option>
                     </select>
                   </label>
                   <label className="text-xs font-semibold text-slate-300">
                     Abstände
-                    <select value={themePreferences.density} onChange={(event) => setThemePreferences({ ...themePreferences, density: event.target.value as UserThemePreferences["density"] })} className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100">
-                      <option value="compact">Kompakt</option><option value="comfortable">Komfortabel</option><option value="spacious">Großzügig</option>
+                    <select
+                      value={themePreferences.density}
+                      onChange={(event) =>
+                        setThemePreferences({
+                          ...themePreferences,
+                          density: event.target
+                            .value as UserThemePreferences["density"],
+                        })
+                      }
+                      className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
+                    >
+                      <option value="compact">Kompakt</option>
+                      <option value="comfortable">Komfortabel</option>
+                      <option value="spacious">Großzügig</option>
                     </select>
                   </label>
                   <label className="text-xs font-semibold text-slate-300">
                     Schriftgröße: {themePreferences.fontSize}px
-                    <input type="range" min="12" max="20" step="1" value={themePreferences.fontSize} onChange={(event) => setThemePreferences({ ...themePreferences, fontSize: Number(event.target.value) })} className="mt-2 w-full" />
+                    <input
+                      type="range"
+                      min="12"
+                      max="20"
+                      step="1"
+                      value={themePreferences.fontSize}
+                      onChange={(event) =>
+                        setThemePreferences({
+                          ...themePreferences,
+                          fontSize: Number(event.target.value),
+                        })
+                      }
+                      className="mt-2 w-full"
+                    />
                   </label>
                   <label className="text-xs font-semibold text-slate-300">
                     Eckenradius: {themePreferences.radius}px
-                    <input type="range" min="0" max="24" step="1" value={themePreferences.radius} onChange={(event) => setThemePreferences({ ...themePreferences, radius: Number(event.target.value) })} className="mt-2 w-full" />
+                    <input
+                      type="range"
+                      min="0"
+                      max="24"
+                      step="1"
+                      value={themePreferences.radius}
+                      onChange={(event) =>
+                        setThemePreferences({
+                          ...themePreferences,
+                          radius: Number(event.target.value),
+                        })
+                      }
+                      className="mt-2 w-full"
+                    />
                   </label>
                 </div>
               </fieldset>
@@ -1385,7 +1715,33 @@ export default function Dashboard({
         )}
 
         {activeTab === "overview" && (
-          <LazyOverviewTab overviewMetrics={overviewMetrics} />
+          <LazyOverviewTab
+            key={activeOrg?.id ?? "no-organization"}
+            organizationId={activeOrg?.id}
+            user={auth.user}
+            canManage={auth.user.systemRole === "superadmin"}
+            onNavigate={(tab) => setActiveTab(tab)}
+            onOpenTicket={(ticket) => {
+              const selectedOrganizationId = activeOrg?.id;
+              if (!selectedOrganizationId) return;
+              setActiveTab("tickets");
+              void api
+                .get("/tickets")
+                .then(({ data }) => {
+                  if (activeOrgIdRef.current !== selectedOrganizationId) return;
+                  setTicketsList(data);
+                  const fullTicket = data.find(
+                    (candidate: { id: string }) => candidate.id === ticket.id,
+                  );
+                  if (fullTicket) void handleSelectTicket(fullTicket);
+                })
+                .catch(() => {
+                  if (activeOrgIdRef.current === selectedOrganizationId) {
+                    showNotify("Ticketliste konnte nicht geladen werden.");
+                  }
+                });
+            }}
+          />
         )}
 
         {activeTab === "analytics" && (
@@ -1402,1863 +1758,179 @@ export default function Dashboard({
         )}
 
         {activeTab === "conversations" && (
-          <div className="h-full flex gap-4 max-w-7xl mx-auto">
-            <div className="w-1/3 bg-slate-900 border border-slate-800 rounded-xl overflow-hidden flex flex-col">
-              <div className="p-3 border-b border-slate-800 space-y-2">
-                <div className="font-semibold text-sm">Agent Inbox</div>
-                <input
-                  value={inboxSearch}
-                  onChange={(event) => setInboxSearch(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") void fetchTenantData();
-                  }}
-                  placeholder="Kunde, E-Mail, ID oder Nachricht"
-                  className="w-full rounded bg-slate-800 px-2 py-1.5 text-xs"
-                />
-                <div className="flex items-center justify-between gap-2 text-[10px] text-slate-400">
-                  <span>Meine Presence</span>
-                  <select
-                    value={agentPresence}
-                    onChange={(event) =>
-                      void handlePresenceChange(event.target.value)
-                    }
-                    className="rounded bg-slate-800 p-1 text-[10px] text-slate-200"
-                  >
-                    <option>ONLINE</option>
-                    <option>AWAY</option>
-                    <option>OFFLINE</option>
-                  </select>
-                </div>
-                <div className="grid grid-cols-2 gap-1">
-                  <select
-                    value={inboxState}
-                    onChange={(event) => setInboxState(event.target.value)}
-                    className="rounded bg-slate-800 p-1 text-[10px]"
-                  >
-                    <option value="">Alle Status</option>
-                    {[
-                      "AI_ACTIVE",
-                      "NEEDS_HUMAN",
-                      "WAITING_FOR_AGENT",
-                      "AGENT_ACTIVE",
-                      "WAITING_FOR_CUSTOMER",
-                      "RESOLVED",
-                      "CLOSED",
-                    ].map((state) => (
-                      <option key={state}>{state}</option>
-                    ))}
-                  </select>
-                  <select
-                    value={inboxAgentId}
-                    onChange={(event) => setInboxAgentId(event.target.value)}
-                    className="rounded bg-slate-800 p-1 text-[10px]"
-                  >
-                    <option value="">Alle Agenten</option>
-                    <option value="unassigned">Nicht zugewiesen</option>
-                    {inboxAgents.map((agent) => (
-                      <option key={agent.id} value={agent.id}>
-                        {agent.name || agent.email}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={inboxTagId}
-                    onChange={(event) => setInboxTagId(event.target.value)}
-                    className="rounded bg-slate-800 p-1 text-[10px]"
-                  >
-                    <option value="">Alle Tags</option>
-                    {inboxTags.map((tag) => (
-                      <option key={tag.id} value={tag.id}>
-                        {tag.name}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="date"
-                    value={inboxFrom}
-                    onChange={(event) => setInboxFrom(event.target.value)}
-                    aria-label="Von Datum"
-                    className="rounded bg-slate-800 p-1 text-[10px]"
-                  />
-                  <input
-                    type="date"
-                    value={inboxTo}
-                    onChange={(event) => setInboxTo(event.target.value)}
-                    aria-label="Bis Datum"
-                    className="rounded bg-slate-800 p-1 text-[10px]"
-                  />
-                  <select
-                    value={inboxPriority}
-                    onChange={(event) => setInboxPriority(event.target.value)}
-                    className="rounded bg-slate-800 p-1 text-[10px]"
-                  >
-                    <option value="">Alle Prioritäten</option>
-                    {["LOW", "NORMAL", "HIGH", "URGENT"].map((priority) => (
-                      <option key={priority}>{priority}</option>
-                    ))}
-                  </select>
-                  <select
-                    value={inboxSort}
-                    onChange={(event) => setInboxSort(event.target.value)}
-                    className="col-span-2 rounded bg-slate-800 p-1 text-[10px]"
-                  >
-                    <option value="newest">Neueste Aktivität</option>
-                    <option value="oldest_waiting">
-                      Älteste wartende Anfrage
-                    </option>
-                    <option value="priority">Höchste Priorität</option>
-                    <option value="sla_risk">SLA-Risiko</option>
-                  </select>
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto divide-y divide-slate-800/60">
-                {conversationsList.map((conv) => (
-                  <button
-                    type="button"
-                    key={conv.id}
-                    onClick={() => handleSelectConversation(conv)}
-                    className={`w-full p-3 text-left transition-colors flex flex-col gap-1 ${
-                      selectedConv?.id === conv.id
-                        ? "bg-blue-950/60 border-l-4 border-blue-500"
-                        : "hover:bg-slate-800/40"
-                    }`}
-                  >
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs font-semibold text-slate-200">
-                        {conv.customer?.name || "Visitor"}
-                      </span>
-                      <span
-                        className={`text-[10px] font-semibold ${
-                          conv.priority === "URGENT"
-                            ? "text-red-400"
-                            : conv.priority === "HIGH"
-                              ? "text-amber-400"
-                              : "text-slate-400"
-                        }`}
-                      >
-                        {conv.priority || "NORMAL"}
-                      </span>
-                      <span
-                        className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
-                          conv.state === "WAITING_FOR_AGENT"
-                            ? "bg-amber-950 text-amber-400 border border-amber-800"
-                            : conv.state === "RESOLVED"
-                              ? "bg-emerald-950 text-emerald-400 border border-emerald-800"
-                              : "bg-blue-950 text-blue-400 border border-blue-800"
-                        }`}
-                      >
-                        {conv.state}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center text-[10px] text-slate-500 mt-1">
-                      <span>Lang: {conv.detectedLanguage}</span>
-                      {conv.sentiment && (
-                        <span
-                          className={`capitalize font-bold ${
-                            conv.sentiment === "frustrated"
-                              ? "text-red-400 font-extrabold animate-pulse"
-                              : conv.sentiment === "negative"
-                                ? "text-amber-400"
-                                : conv.sentiment === "positive"
-                                  ? "text-emerald-400"
-                                  : "text-slate-400"
-                          }`}
-                        >
-                          ● {conv.sentiment}
-                        </span>
-                      )}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="w-2/3 bg-slate-900 border border-slate-800 rounded-xl flex flex-col overflow-hidden">
-              {selectedConv ? (
-                <>
-                  <div className="p-3 border-b border-slate-800 flex justify-between items-center bg-slate-900">
-                    <div>
-                      <h3 className="text-sm font-semibold text-slate-200">
-                        {selectedConv.customer?.name}
-                      </h3>
-                      <p className="text-[10px] text-slate-400">
-                        {selectedConv.customer?.email}
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      <select
-                        value={selectedConv.priority || "NORMAL"}
-                        onChange={(event) =>
-                          void handleInboxAction("priority", {
-                            priority: event.target.value,
-                          })
-                        }
-                        className="rounded bg-slate-800 px-2 text-[10px]"
-                      >
-                        {["LOW", "NORMAL", "HIGH", "URGENT"].map(
-                          (priority) => (
-                            <option key={priority}>{priority}</option>
-                          ),
-                        )}
-                      </select>
-                      <select
-                        value={selectedConv.assignedAgentId || ""}
-                        onChange={(event) =>
-                          void handleInboxAction("assignment", {
-                            agentId: event.target.value || null,
-                          })
-                        }
-                        className="max-w-32 rounded bg-slate-800 px-2 text-[10px]"
-                      >
-                        <option value="">Unassign</option>
-                        {inboxAgents.map((agent) => (
-                          <option key={agent.id} value={agent.id}>
-                            {agent.name || agent.email}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void handleInboxAction("assignment", {
-                            agentId: auth?.user?.id,
-                          })
-                        }
-                        className="rounded bg-violet-700 px-2 py-1 text-xs"
-                      >
-                        Assign to me
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleResolveConversation(selectedConv.id)
-                        }
-                        className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded"
-                      >
-                        Mark Resolved
-                      </button>
-                    </div>
-                  </div>
-
-                  {inboxTags.length > 0 && (
-                    <div className="flex flex-wrap gap-1 border-b border-slate-800 bg-slate-900 px-3 py-2">
-                      {inboxTags.map((tag) => {
-                        const active = (selectedConv.tags || []).some(
-                          (item: any) => item.id === tag.id,
-                        );
-                        return (
-                          <button
-                            type="button"
-                            key={tag.id}
-                            onClick={() => void handleToggleConversationTag(tag)}
-                            className={`rounded px-2 py-1 text-[10px] ${
-                              active
-                                ? "bg-blue-700 text-white"
-                                : "bg-slate-800 text-slate-400 hover:text-white"
-                            }`}
-                          >
-                            {active ? "✓ " : "+ "}
-                            {tag.name}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                  <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-950/40">
-                    {inboxHandoff && (
-                      <section className="rounded-lg border border-amber-800/80 bg-amber-950/35 p-3 text-xs text-amber-100">
-                        <div className="flex items-center justify-between gap-2">
-                          <strong>Human Handoff</strong>
-                          <span className="rounded bg-amber-900/70 px-1.5 py-0.5 font-mono text-[10px]">
-                            {inboxHandoff.requestedPriority}
-                          </span>
-                        </div>
-                        <p className="mt-1">Grund: {inboxHandoff.reason}</p>
-                        {inboxHandoff.aiConfidence !== null && (
-                          <p className="mt-1">
-                            AI Confidence:{" "}
-                            {Math.round(Number(inboxHandoff.aiConfidence) * 100)}%
-                          </p>
-                        )}
-                        {inboxHandoff.lastAiAttempt && (
-                          <p className="mt-2 rounded bg-slate-950/50 p-2 text-slate-300">
-                            Letzter AI-Versuch: {inboxHandoff.lastAiAttempt}
-                          </p>
-                        )}
-                        <p className="mt-2 text-[10px] text-amber-300">
-                          {inboxHandoff.claimedAt
-                            ? `Übernommen am ${new Date(inboxHandoff.claimedAt).toLocaleString()}`
-                            : `Eskaliert am ${new Date(inboxHandoff.createdAt).toLocaleString()}`}
-                        </p>
-                      </section>
-                    )}
-                    {inboxTimeline.length > 0 && (
-                      <section className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-xs">
-                        <h4 className="font-semibold text-slate-200">
-                          Activity Timeline
-                        </h4>
-                        <ol className="mt-2 space-y-2 border-l border-slate-700 pl-3">
-                          {inboxTimeline.slice(-8).map((event) => {
-                            const labels: Record<string, string> = {
-                              handoff_requested: "Human handoff requested",
-                              assignment_changed: "Assignment changed",
-                              unassigned: "Conversation unassigned",
-                              priority_changed: "Priority changed",
-                              tags_changed: "Tags updated",
-                              internal_note_added: "Internal note added",
-                              status_changed: "Status changed",
-                              auto_closed: "Automatically closed",
-                            };
-                            return (
-                              <li
-                                key={event.id}
-                                className="relative text-slate-400 before:absolute before:-left-[17px] before:top-1.5 before:size-1.5 before:rounded-full before:bg-blue-400"
-                              >
-                                <span className="text-slate-200">
-                                  {labels[event.eventType] || event.eventType}
-                                </span>
-                                {event.payload?.to && (
-                                  <span className="ml-1 text-slate-500">
-                                    → {event.payload.to}
-                                  </span>
-                                )}
-                                <time className="ml-2 text-[10px] text-slate-500">
-                                  {new Date(event.createdAt).toLocaleString()}
-                                </time>
-                              </li>
-                            );
-                          })}
-                        </ol>
-                      </section>
-                    )}
-                    {convMessages.map((m) => (
-                      <div
-                        key={m.id}
-                        className={`max-w-md p-3 rounded-xl text-xs ${
-                          m.senderType === "internal_note"
-                            ? "bg-amber-950/60 text-amber-100 mr-auto rounded border border-amber-800"
-                            : m.senderType === "customer"
-                              ? "bg-blue-600 text-white ml-auto rounded-br-none"
-                              : m.senderType === "agent"
-                                ? "bg-purple-700 text-white ml-auto rounded-br-none"
-                                : "bg-slate-800 text-slate-200 mr-auto rounded-bl-none border border-slate-700"
-                        }`}
-                      >
-                        <div className="font-semibold text-[10px] opacity-75 mb-1">
-                          {m.senderName || m.senderType}
-                        </div>
-                        <p className="leading-relaxed">{m.content}</p>
-                        {m.senderType === "customer" && (
-                          <div className="mt-2 border-t border-white/15 pt-2">
-                            {translations[m.id] ? (
-                              <p className="leading-relaxed text-white/80">
-                                <span className="mr-1 text-[10px] font-semibold uppercase opacity-70">
-                                  {preferredLanguage}
-                                </span>
-                                {translations[m.id]}
-                              </p>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => handleTranslateMessage(m)}
-                                className="text-[10px] font-medium text-blue-200 hover:text-white"
-                              >
-                                Übersetzen ({preferredLanguage.toUpperCase()})
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="p-3 border-t border-slate-800 text-xs space-y-2">
-                    <span>
-                      {connected
-                        ? "Live verbunden"
-                        : "Live-Verbindung unterbrochen"}
-                    </span>
-                    <button
-                      type="button"
-                      disabled={suggesting}
-                      className="ml-3 text-blue-300 disabled:opacity-50"
-                      onClick={async () => {
-                        setSuggesting(true);
-                        try {
-                          const response = await api.post(
-                            `/conversations/${selectedConv.id}/suggested-reply`,
-                          );
-                          setSuggestion({
-                            ...response.data,
-                            conversationId: selectedConv.id,
-                          });
-                        } catch {
-                          showNotify(
-                            "Antwortvorschlag konnte nicht erstellt werden.",
-                          );
-                        } finally {
-                          setSuggesting(false);
-                        }
-                      }}
-                    >
-                      {suggesting
-                        ? "Vorschlag wird erstellt …"
-                        : "Antwortvorschlag erstellen"}
-                    </button>
-                    {suggestion?.conversationId === selectedConv.id &&
-                      suggestion && (
-                        <div className="rounded bg-slate-800 p-3 space-y-2">
-                          <p>{suggestion.content}</p>
-                          <p>{suggestion.sources.join(" · ")}</p>
-                          <button
-                            type="button"
-                            className="mr-3 text-blue-300"
-                            onClick={() => {
-                              setAgentMsgInput(suggestion.content);
-                              setSuggestion(null);
-                            }}
-                          >
-                            Übernehmen und bearbeiten
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setSuggestion(null)}
-                          >
-                            Verwerfen
-                          </button>
-                        </div>
-                      )}
-                  </div>
-                  <div className="border-t border-amber-900/70 bg-amber-950/20 p-3">
-                    <p className="mb-2 text-[10px] font-semibold uppercase text-amber-300">
-                      Interne Notiz — wird niemals an den Kunden gesendet
-                    </p>
-                    <div className="flex gap-2">
-                      <input
-                        value={internalNoteInput}
-                        onChange={(event) =>
-                          setInternalNoteInput(event.target.value)
-                        }
-                        className="flex-1 rounded border border-amber-800 bg-slate-900 px-3 py-2 text-xs"
-                        placeholder="Notiz für das Support-Team"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleAddInternalNote}
-                        className="rounded bg-amber-700 px-3 text-xs font-semibold"
-                      >
-                        Notiz speichern
-                      </button>
-                    </div>
-                  </div>
-                  <form
-                    onSubmit={handleSendAgentMessage}
-                    className="p-3 border-t border-slate-800 bg-slate-900 flex gap-2"
-                  >
-                    <input
-                      type="text"
-                      className="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-blue-500"
-                      placeholder="Type agent response..."
-                      value={agentMsgInput}
-                      onChange={(e) => setAgentMsgInput(e.target.value)}
-                    />
-                    <button
-                      type="submit"
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded"
-                    >
-                      Send Reply
-                    </button>
-                  </form>
-                </>
-              ) : (
-                <div className="flex-1 flex items-center justify-center text-slate-500 text-xs">
-                  Select a conversation from the left inbox to respond
-                </div>
-              )}
-            </div>
-          </div>
+          <ConversationsWorkspace
+            key={activeOrg?.id ?? "no-organization"}
+            currentUserId={auth?.user?.id}
+            conversationsList={conversationsList}
+            selectedConv={selectedConv}
+            convMessages={convMessages}
+            agentMsgInput={agentMsgInput}
+            setAgentMsgInput={setAgentMsgInput}
+            internalNoteInput={internalNoteInput}
+            setInternalNoteInput={setInternalNoteInput}
+            inboxState={inboxState}
+            setInboxState={setInboxState}
+            inboxPriority={inboxPriority}
+            setInboxPriority={setInboxPriority}
+            inboxAgentId={inboxAgentId}
+            setInboxAgentId={setInboxAgentId}
+            inboxFrom={inboxFrom}
+            setInboxFrom={setInboxFrom}
+            inboxTo={inboxTo}
+            setInboxTo={setInboxTo}
+            inboxSearch={inboxSearch}
+            setInboxSearch={setInboxSearch}
+            inboxSort={inboxSort}
+            setInboxSort={setInboxSort}
+            inboxTags={inboxTags}
+            inboxAgents={inboxAgents}
+            agentPresence={agentPresence}
+            inboxTagId={inboxTagId}
+            setInboxTagId={setInboxTagId}
+            inboxTimeline={inboxTimeline}
+            inboxHandoff={inboxHandoff}
+            suggestion={suggestion}
+            setSuggestion={setSuggestion}
+            suggesting={suggesting}
+            connected={connected}
+            translations={translations}
+            preferredLanguage={preferredLanguage}
+            handleSelectConversation={handleSelectConversation}
+            handleSendAgentMessage={handleSendAgentMessage}
+            handleResolveConversation={handleResolveConversation}
+            handleTranslateMessage={handleTranslateMessage}
+            handlePresenceChange={handlePresenceChange}
+            handleInboxAction={handleInboxAction}
+            handleToggleConversationTag={handleToggleConversationTag}
+            handleAddInternalNote={handleAddInternalNote}
+            handleSuggestReply={handleSuggestReply}
+          />
         )}
 
         {activeTab === "tickets" && (
-          <div className="space-y-4 max-w-7xl mx-auto">
-            <div>
-              <h1 className="text-xl font-bold text-white">
-                Customer Support Tickets
-              </h1>
-              <p className="mt-1 text-xs text-slate-400">
-                KI-Eskalationen werden automatisch als offene Tickets in diese
-                Warteschlange übernommen.
-              </p>
-            </div>
-
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-              <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
-                <table className="w-full text-left text-xs text-slate-300">
-                  <thead className="bg-slate-800/80 text-slate-400 uppercase text-[10px] font-semibold">
-                    <tr>
-                      <th className="p-3"># Ticket</th>
-                      <th className="p-3">Subject</th>
-                      <th className="p-3">Customer</th>
-                      <th className="p-3">Priority</th>
-                      <th className="p-3">Status</th>
-                      <th className="p-3">Created</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60">
-                    {ticketsList.length === 0 && (
-                      <tr>
-                        <td
-                          colSpan={6}
-                          className="p-8 text-center text-slate-500"
-                        >
-                          Keine offenen Tickets. Neue KI-Eskalationen erscheinen
-                          automatisch hier.
-                        </td>
-                      </tr>
-                    )}
-                    {ticketsList.map((tk) => (
-                      <tr
-                        key={tk.id}
-                        onClick={() => handleSelectTicket(tk)}
-                        className={`cursor-pointer hover:bg-slate-800/40 ${
-                          selectedTicket?.id === tk.id ? "bg-blue-950/20" : ""
-                        }`}
-                      >
-                        <td className="p-3 font-mono font-bold text-blue-400">
-                          #{tk.ticketNumber}
-                        </td>
-                        <td className="p-3 font-medium text-slate-200">
-                          <div>{tk.subject}</div>
-                          {Array.isArray(tk.tags) &&
-                            tk.tags.includes("ai-escalation") && (
-                              <span className="mt-1 inline-block rounded border border-violet-800 bg-violet-950/50 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-violet-300">
-                                KI-Eskalation
-                              </span>
-                            )}
-                        </td>
-                        <td className="p-3">
-                          {tk.customer?.name || "Visitor"}
-                        </td>
-                        <td className="p-3">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
-                              tk.priority === "urgent"
-                                ? "bg-red-950 text-red-400 border border-red-800"
-                                : tk.priority === "high"
-                                  ? "bg-amber-950 text-amber-400 border border-amber-800"
-                                  : "bg-slate-800 text-slate-300"
-                            }`}
-                          >
-                            {tk.priority}
-                          </span>
-                        </td>
-                        <td className="p-3">
-                          <span className="px-2 py-0.5 bg-blue-950 text-blue-400 rounded text-[10px] border border-blue-800 uppercase font-semibold">
-                            {tk.status}
-                          </span>
-                        </td>
-                        <td className="p-3 text-slate-500">
-                          {new Date(tk.createdAt).toLocaleDateString()}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <aside className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-                {selectedTicket ? (
-                  <div className="space-y-4">
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase text-blue-400">
-                        Ticket #{selectedTicket.ticketNumber}
-                      </p>
-                      <h2 className="mt-1 text-sm font-semibold text-white">
-                        {selectedTicket.subject}
-                      </h2>
-                    </div>
-                    <p className="whitespace-pre-wrap text-xs leading-5 text-slate-300">
-                      {selectedTicket.description ||
-                        "Keine zusätzliche Beschreibung."}
-                    </p>
-                    {selectedTicket.githubIssueUrl && (
-                      <a
-                        href={selectedTicket.githubIssueUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex text-xs font-medium text-blue-400 hover:text-blue-300"
-                      >
-                        GitHub Issue #{selectedTicket.githubIssueNumber} öffnen
-                      </a>
-                    )}
-                    {selectedTicket.githubIssueError && (
-                      <p className="rounded border border-amber-800 bg-amber-950/30 p-2 text-xs text-amber-200">
-                        GitHub-Synchronisierung fehlgeschlagen:{" "}
-                        {selectedTicket.githubIssueError}
-                      </p>
-                    )}
-                    <div className="flex flex-wrap gap-2">
-                      {selectedTicket.conversationId && (
-                        <button
-                          type="button"
-                          onClick={handleOpenTicketConversation}
-                          className="rounded border border-violet-800 bg-violet-950/50 px-2.5 py-1.5 text-[11px] font-semibold text-violet-300 hover:bg-violet-950"
-                        >
-                          Unterhaltung öffnen
-                        </button>
-                      )}
-                      {selectedTicket.status !== "in_progress" && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleTicketStatusChange("in_progress")
-                          }
-                          className="rounded bg-blue-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-blue-500"
-                        >
-                          Bearbeiten
-                        </button>
-                      )}
-                      {selectedTicket.status !== "resolved" && (
-                        <button
-                          type="button"
-                          onClick={() => handleTicketStatusChange("resolved")}
-                          className="rounded border border-emerald-800 bg-emerald-950/50 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-300 hover:bg-emerald-950"
-                        >
-                          Lösen
-                        </button>
-                      )}
-                    </div>
-                    <div className="border-t border-slate-800 pt-3">
-                      <p className="mb-2 text-[10px] font-semibold uppercase text-slate-500">
-                        Interne Kommentare
-                      </p>
-                      {ticketCommentsList.length ? (
-                        ticketCommentsList.map((comment) => (
-                          <div
-                            key={comment.id}
-                            className="mb-2 rounded bg-slate-800/70 p-2 text-[11px] text-slate-300"
-                          >
-                            <p>{comment.content}</p>
-                            <p className="mt-1 text-[10px] text-slate-500">
-                              {comment.author?.name || "Support"}
-                            </p>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="mb-2 text-xs text-slate-500">
-                          Noch keine Kommentare.
-                        </p>
-                      )}
-                      <form
-                        onSubmit={handleAddTicketComment}
-                        className="mt-3 flex gap-2"
-                      >
-                        <input
-                          value={commentInput}
-                          onChange={(event) =>
-                            setCommentInput(event.target.value)
-                          }
-                          maxLength={2000}
-                          placeholder="Interne Notiz hinzufügen…"
-                          className="min-w-0 flex-1 rounded border border-slate-700 bg-slate-800 px-2 py-1.5 text-[11px] text-slate-100 outline-none focus:border-blue-500"
-                        />
-                        <button
-                          type="submit"
-                          className="rounded bg-slate-700 px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-slate-600"
-                        >
-                          Notiz
-                        </button>
-                      </form>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-xs leading-5 text-slate-500">
-                    Wähle ein Ticket, um Anfrage, Status und interne Kommentare
-                    zu sehen.
-                  </p>
-                )}
-              </aside>
-            </div>
-          </div>
+          <TicketsWorkspace
+            key={activeOrg?.id ?? "no-organization"}
+            ticketsList={ticketsList}
+            selectedTicket={selectedTicket}
+            ticketCommentsList={ticketCommentsList}
+            commentInput={commentInput}
+            setCommentInput={setCommentInput}
+            handleSelectTicket={handleSelectTicket}
+            handleOpenTicketConversation={handleOpenTicketConversation}
+            handleTicketStatusChange={handleTicketStatusChange}
+            handleAddTicketComment={handleAddTicketComment}
+          />
         )}
 
         {activeTab === "knowledge" && (
-          <div className="space-y-6 max-w-7xl mx-auto">
-            <div className="flex justify-between items-center">
-              <div>
-                <h1 className="text-xl font-bold text-white">
-                  Knowledge Base & PDF Processing
-                </h1>
-                <p className="text-xs text-slate-400">
-                  Upload documentation, FAQs, and PDFs to train your AI
-                  assistant
-                </p>
-              </div>
-
-              <form onSubmit={handleCreateKnowledgeBase} className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="New Knowledge Base Name"
-                  className="bg-slate-900 border border-slate-800 rounded px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
-                  value={newKbName}
-                  onChange={(e) => setNewKbName(e.target.value)}
-                />
-                <button
-                  type="submit"
-                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded flex items-center gap-1"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Create KB
-                </button>
-              </form>
-            </div>
-
-            {knowledgeBases.length > 0 && (
-              <div className="flex gap-2 border-b border-slate-800 pb-2">
-                {knowledgeBases.map((kb) => (
-                  <button
-                    type="button"
-                    key={kb.id}
-                    onClick={() => setSelectedKbId(kb.id)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                      selectedKbId === kb.id
-                        ? "bg-blue-600 text-white"
-                        : "bg-slate-900 text-slate-400 hover:bg-slate-800"
-                    }`}
-                  >
-                    {kb.name}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-4">
-                <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-blue-400" /> Manual Text /
-                  FAQ Ingestion
-                </h3>
-                <form onSubmit={handleAddTextDocument} className="space-y-3">
-                  <label className="block text-xs text-slate-400">
-                    Quellentyp
-                    <select
-                      className="block w-full mt-1 p-2 rounded bg-slate-800"
-                      value={docType}
-                      onChange={(event) =>
-                        setDocType(event.target.value as "document" | "faq")
-                      }
-                    >
-                      <option value="document">Dokument</option>
-                      <option value="faq">FAQ</option>
-                    </select>
-                  </label>
-                  <div>
-                    <label
-                      htmlFor="support-field-10"
-                      className="block text-xs font-medium text-slate-400 mb-1"
-                    >
-                      {docType === "faq" ? "Frage" : "Titel"}
-                    </label>
-                    <input
-                      id="support-field-10"
-                      type="text"
-                      required
-                      placeholder="e.g. Refund Policy FAQ"
-                      className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none"
-                      value={docTitle}
-                      onChange={(e) => setDocTitle(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="support-field-11"
-                      className="block text-xs font-medium text-slate-400 mb-1"
-                    >
-                      {docType === "faq" ? "Antwort" : "Inhalt"}
-                    </label>
-                    <textarea
-                      id="support-field-11"
-                      rows={5}
-                      required
-                      placeholder="Enter documentation body or FAQ answers..."
-                      className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none"
-                      value={docContent}
-                      onChange={(e) => setDocContent(e.target.value)}
-                    />
-                  </div>
-                  <div className="flex gap-3">
-                    <label className="text-xs text-slate-400">
-                      Kategorie
-                      <input
-                        className="block w-full mt-1 p-2 rounded bg-slate-800"
-                        value={docCategory}
-                        maxLength={120}
-                        onChange={(event) => setDocCategory(event.target.value)}
-                      />
-                    </label>
-                    <label className="text-xs text-slate-400">
-                      Sprache
-                      <input
-                        className="block w-full mt-1 p-2 rounded bg-slate-800"
-                        required
-                        pattern="[a-z]{2,3}(-[A-Za-z]{2,8})?"
-                        value={docLanguage}
-                        onChange={(event) => setDocLanguage(event.target.value)}
-                      />
-                    </label>
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded text-xs transition-colors"
-                  >
-                    {loading
-                      ? "Wird gespeichert …"
-                      : "Inhalt speichern und verarbeiten"}
-                  </button>
-                </form>
-              </div>
-
-              <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-4">
-                <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                  <Upload className="w-4 h-4 text-emerald-400" /> PDF Document
-                  Processing
-                </h3>
-                <form onSubmit={handleUploadPdf} className="space-y-3">
-                  <div>
-                    <label
-                      htmlFor="support-field-12"
-                      className="block text-xs font-medium text-slate-400 mb-1"
-                    >
-                      PDF File
-                    </label>
-                    <input
-                      id="support-field-12"
-                      type="file"
-                      accept=".pdf"
-                      required
-                      onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs focus:outline-none text-slate-300"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={loading || !pdfFile}
-                    className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded text-xs transition-colors"
-                  >
-                    {loading
-                      ? "PDF wird hochgeladen …"
-                      : "Upload & Process PDF"}
-                  </button>
-                </form>
-              </div>
-            </div>
-
-            <KnowledgeSources
-              key={activeOrg?.id}
-              sources={knowledgeSources}
-              canManage={["owner", "admin"].includes(activeOrg?.role)}
-              onRefresh={fetchTenantData}
-              notify={showNotify}
-            />
-          </div>
+          <KnowledgeWorkspace
+            organizationId={activeOrg?.id}
+            canManage={["owner", "admin"].includes(activeOrg?.role)}
+            knowledgeBases={knowledgeBases}
+            knowledgeSources={knowledgeSources}
+            selectedKbId={selectedKbId}
+            setSelectedKbId={setSelectedKbId}
+            fetchTenantData={fetchTenantData}
+            showNotify={showNotify}
+            loading={loading}
+            newKbName={newKbName}
+            setNewKbName={setNewKbName}
+            handleCreateKnowledgeBase={handleCreateKnowledgeBase}
+            handleAddTextDocument={handleAddTextDocument}
+            handleUploadPdf={handleUploadPdf}
+            docType={docType}
+            setDocType={setDocType}
+            docTitle={docTitle}
+            setDocTitle={setDocTitle}
+            docContent={docContent}
+            setDocContent={setDocContent}
+            docCategory={docCategory}
+            setDocCategory={setDocCategory}
+            docLanguage={docLanguage}
+            setDocLanguage={setDocLanguage}
+            pdfFile={pdfFile}
+            setPdfFile={setPdfFile}
+          />
         )}
 
         {activeTab === "websites" && (
-          <div className="space-y-6 max-w-7xl mx-auto">
-            <div>
-              <h1 className="text-xl font-bold text-white">
-                Recursive Website Crawler
-              </h1>
-              <p className="text-xs text-slate-400">
-                Crawl public web pages with SSRF protection and automatic chunk
-                indexing
-              </p>
-            </div>
+          <WebsiteCrawlerWorkspace
+            organizationId={activeOrg?.id}
+            canManage={["owner", "admin"].includes(activeOrg?.role)}
+            knowledgeBases={knowledgeBases}
+            knowledgeSources={knowledgeSources}
+            selectedKbId={selectedKbId}
+            setSelectedKbId={setSelectedKbId}
+            fetchTenantData={fetchTenantData}
+            showNotify={showNotify}
+            loading={loading}
+            crawlUrl={crawlUrl}
+            setCrawlUrl={setCrawlUrl}
+            handleCreateCrawlerKnowledgeBase={handleCreateCrawlerKnowledgeBase}
+            handleCrawlWebsite={handleCrawlWebsite}
+          />
+        )}
 
-            <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl max-w-xl space-y-4">
-              <form onSubmit={handleCrawlWebsite} className="space-y-3">
-                <div>
-                  <label
-                    htmlFor="support-field-13"
-                    className="block text-xs font-medium text-slate-400 mb-1"
-                  >
-                    Wissensdatenbank
-                  </label>
-                  <select
-                    id="support-field-13"
-                    required
-                    value={selectedKbId}
-                    onChange={(e) => setSelectedKbId(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none"
-                  >
-                    <option value="">Wissensdatenbank auswählen</option>
-                    {knowledgeBases.map((knowledgeBase) => (
-                      <option key={knowledgeBase.id} value={knowledgeBase.id}>
-                        {knowledgeBase.name}
-                      </option>
-                    ))}
-                  </select>
-                  {knowledgeBases.length === 0 && (
-                    <div className="mt-2 flex items-center justify-between gap-3 rounded border border-amber-900/70 bg-amber-950/20 p-3">
-                      <p className="text-[10px] text-amber-300">
-                        Noch keine Wissensdatenbank vorhanden.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={handleCreateCrawlerKnowledgeBase}
-                        disabled={loading}
-                        className="shrink-0 rounded bg-amber-600 px-2.5 py-1.5 text-[10px] font-semibold text-white hover:bg-amber-500 disabled:opacity-50"
-                      >
-                        Jetzt erstellen
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <label
-                    htmlFor="support-field-14"
-                    className="block text-xs font-medium text-slate-400 mb-1"
-                  >
-                    Target Website Root URL
-                  </label>
-                  <input
-                    id="support-field-14"
-                    type="url"
-                    required
-                    placeholder="https://docs.yourcompany.com"
-                    className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none"
-                    value={crawlUrl}
-                    onChange={(e) => setCrawlUrl(e.target.value)}
-                  />
-                  <p className="text-[10px] text-slate-500 mt-1">
-                    SSRF Protected: Private IP ranges are automatically blocked.
-                  </p>
-                </div>
-                <button
-                  type="submit"
-                  disabled={loading || !selectedKbId}
-                  className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded text-xs transition-colors"
-                >
-                  {loading
-                    ? "Launching Crawl Worker..."
-                    : "Start Website Crawl"}
-                </button>
-              </form>
-            </div>
-
-            <KnowledgeSources
-              key={activeOrg?.id}
-              sources={knowledgeSources.filter(
-                (source) => source.type === "website",
-              )}
-              canManage={["owner", "admin"].includes(activeOrg?.role)}
-              onRefresh={fetchTenantData}
-              notify={showNotify}
+        {activeTab === "assistant" && !activeAssistant && (
+          <div className="rv-assistant-workspace rv-config-workspace mx-auto max-w-4xl space-y-6">
+            <WorkspaceHeader
+              eyebrow="AI-KONFIGURATION"
+              title="AI-Assistent"
+              description="Verwalte deine AI-Assistenten und Modellprofile."
             />
+            <div className="rv-config-card">
+              <WorkspaceEmpty
+                icon={Bot}
+                title="Kein AI-Assistent verfügbar"
+                description="Für diese Organisation ist noch keine Assistentenkonfiguration geladen."
+              />
+            </div>
           </div>
         )}
 
         {activeTab === "assistant" && activeAssistant && (
-          <div className="space-y-6 max-w-4xl mx-auto">
-            <div>
-              <h1 className="text-xl font-bold text-white">
-                AI Assistant Configuration
-              </h1>
-              <p className="text-xs text-slate-400">
-                Richte mehrere Provider und Modelle ein und wähle die aktive
-                Konfiguration für Kundenanfragen.
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-blue-800/70 bg-blue-950/30 p-4 flex items-center justify-between gap-4">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-300">
-                  Aktiv für neue Antworten
-                </p>
-                <p className="mt-1 text-sm font-semibold text-white">
-                  {(activeAssistant.modelProfiles || []).find(
-                    (profile: any) =>
-                      profile.id === activeAssistant.activeModelProfileId,
-                  )?.label || "Standard-Konfiguration"}
-                </p>
-                <p className="text-xs text-slate-400">
-                  {(activeAssistant.modelProfiles || []).find(
-                    (profile: any) =>
-                      profile.id === activeAssistant.activeModelProfileId,
-                  )?.provider || activeAssistant.modelProvider}{" "}
-                  ·{" "}
-                  {(activeAssistant.modelProfiles || []).find(
-                    (profile: any) =>
-                      profile.id === activeAssistant.activeModelProfileId,
-                  )?.modelName || activeAssistant.modelName}
-                </p>
-              </div>
-              <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-300">
-                Live
-              </span>
-            </div>
-
-            <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-900 p-5">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <h2 className="text-sm font-semibold text-white">
-                    Modell- & Provider-Konfigurationen
-                  </h2>
-                  <p className="mt-1 text-xs text-slate-500">
-                    API-Schlüssel werden verschlüsselt gespeichert und nach dem
-                    Speichern nicht erneut angezeigt.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  disabled={(activeAssistant.modelProfiles || []).length >= 8}
-                  onClick={() => {
-                    const id = `model_${Date.now().toString(36)}`;
-                    setActiveAssistant({
-                      ...activeAssistant,
-                      modelProfiles: [
-                        ...(activeAssistant.modelProfiles || []),
-                        {
-                          id,
-                          label: "Neue Konfiguration",
-                          provider: "openai",
-                          modelName: "gpt-4o-mini",
-                          baseUrl: "",
-                          apiKey: "",
-                        },
-                      ],
-                    });
-                  }}
-                  className="shrink-0 rounded bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600 disabled:opacity-50"
-                >
-                  <Plus className="mr-1 inline h-3.5 w-3.5" /> Hinzufügen
-                </button>
-              </div>
-              {(activeAssistant.modelProfiles || []).length === 0 && (
-                <div className="rounded-lg border border-dashed border-slate-700 p-4 text-xs text-slate-400">
-                  Zurzeit wird die Standard-Konfiguration unten verwendet. Füge
-                  eine Konfiguration hinzu, um etwa OpenAI, Claude, Gemini oder
-                  ein lokales Modell hinterlegen zu können.
-                </div>
-              )}
-              {(activeAssistant.modelProfiles || []).map(
-                (profile: any, index: number) => (
-                  <div
-                    key={profile.id}
-                    className={`rounded-lg border p-4 ${
-                      activeAssistant.activeModelProfileId === profile.id
-                        ? "border-blue-600 bg-blue-950/20"
-                        : "border-slate-700 bg-slate-800/50"
-                    }`}
-                  >
-                    <div className="mb-3 flex items-center justify-between gap-2">
-                      <label className="flex items-center gap-2 text-xs font-semibold text-slate-200">
-                        <input
-                          type="radio"
-                          name="active-model-profile"
-                          checked={
-                            activeAssistant.activeModelProfileId === profile.id
-                          }
-                          onChange={() =>
-                            setActiveAssistant({
-                              ...activeAssistant,
-                              activeModelProfileId: profile.id,
-                            })
-                          }
-                        />{" "}
-                        Diese Konfiguration aktiv verwenden
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const modelProfiles = (
-                            activeAssistant.modelProfiles || []
-                          ).filter((item: any) => item.id !== profile.id);
-                          setActiveAssistant({
-                            ...activeAssistant,
-                            modelProfiles,
-                            activeModelProfileId:
-                              activeAssistant.activeModelProfileId ===
-                              profile.id
-                                ? null
-                                : activeAssistant.activeModelProfileId,
-                          });
-                        }}
-                        className="text-slate-500 hover:text-red-300"
-                        title="Konfiguration entfernen"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <label>
-                        <span className="mb-1 block text-[11px] font-medium text-slate-400">
-                          Name der Konfiguration
-                        </span>
-                        <input
-                          value={profile.label || ""}
-                          maxLength={60}
-                          onChange={(e) =>
-                            setActiveAssistant({
-                              ...activeAssistant,
-                              modelProfiles: (
-                                activeAssistant.modelProfiles || []
-                              ).map((item: any) =>
-                                item.id === profile.id
-                                  ? { ...item, label: e.target.value }
-                                  : item,
-                              ),
-                            })
-                          }
-                          className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100"
-                        />
-                      </label>
-                      <label>
-                        <span className="mb-1 block text-[11px] font-medium text-slate-400">
-                          Provider
-                        </span>
-                        <select
-                          value={profile.provider}
-                          onChange={(e) =>
-                            setActiveAssistant({
-                              ...activeAssistant,
-                              modelProfiles: (
-                                activeAssistant.modelProfiles || []
-                              ).map((item: any) =>
-                                item.id === profile.id
-                                  ? { ...item, provider: e.target.value }
-                                  : item,
-                              ),
-                            })
-                          }
-                          className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100"
-                        >
-                          <option value="openai">OpenAI</option>
-                          <option value="anthropic">Anthropic</option>
-                          <option value="google">Google Gemini</option>
-                          <option value="nvidia">NVIDIA NIM</option>
-                          <option value="local">
-                            Local / Ollama / LocalAI
-                          </option>
-                        </select>
-                      </label>
-                      <label>
-                        <span className="mb-1 block text-[11px] font-medium text-slate-400">
-                          Modell
-                        </span>
-                        <input
-                          value={profile.modelName || ""}
-                          maxLength={160}
-                          placeholder="z. B. gpt-4o-mini"
-                          onChange={(e) =>
-                            setActiveAssistant({
-                              ...activeAssistant,
-                              modelProfiles: (
-                                activeAssistant.modelProfiles || []
-                              ).map((item: any) =>
-                                item.id === profile.id
-                                  ? { ...item, modelName: e.target.value }
-                                  : item,
-                              ),
-                            })
-                          }
-                          className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 font-mono text-xs text-slate-100"
-                        />
-                      </label>
-                      <label>
-                        <span className="mb-1 block text-[11px] font-medium text-slate-400">
-                          API-Schlüssel{" "}
-                          {profile.apiKeyConfigured ? "(gespeichert)" : ""}
-                        </span>
-                        <input
-                          type="password"
-                          value={profile.apiKey || ""}
-                          placeholder={
-                            profile.apiKeyConfigured
-                              ? "Unverändert lassen"
-                              : "API-Schlüssel eingeben"
-                          }
-                          onChange={(e) =>
-                            setActiveAssistant({
-                              ...activeAssistant,
-                              modelProfiles: (
-                                activeAssistant.modelProfiles || []
-                              ).map((item: any) =>
-                                item.id === profile.id
-                                  ? { ...item, apiKey: e.target.value }
-                                  : item,
-                              ),
-                            })
-                          }
-                          className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 font-mono text-xs text-slate-100"
-                        />
-                      </label>
-                      {profile.provider === "local" && (
-                        <label className="md:col-span-2">
-                          <span className="mb-1 block text-[11px] font-medium text-slate-400">
-                            Lokale Base URL
-                          </span>
-                          <input
-                            value={profile.baseUrl || ""}
-                            placeholder="http://localhost:11434/v1"
-                            onChange={(e) =>
-                              setActiveAssistant({
-                                ...activeAssistant,
-                                modelProfiles: (
-                                  activeAssistant.modelProfiles || []
-                                ).map((item: any) =>
-                                  item.id === profile.id
-                                    ? { ...item, baseUrl: e.target.value }
-                                    : item,
-                                ),
-                              })
-                            }
-                            className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 font-mono text-xs text-slate-100"
-                          />
-                        </label>
-                      )}
-                    </div>
-                    <p className="mt-3 text-[10px] text-slate-500">
-                      Konfiguration {index + 1} · Änderungen mit „Save Universal
-                      AI Gateway Settings“ speichern.
-                    </p>
-                  </div>
-                ),
-              )}
-            </div>
-
-            <form
-              onSubmit={handleSaveAssistantSettings}
-              className="bg-slate-900 border border-slate-800 p-6 rounded-xl space-y-5"
-            >
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label
-                    htmlFor="support-field-15"
-                    className="block text-xs font-semibold text-slate-300 uppercase mb-1"
-                  >
-                    Assistant Name
-                  </label>
-                  <input
-                    id="support-field-15"
-                    type="text"
-                    className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none"
-                    value={activeAssistant.name || ""}
-                    onChange={(e) =>
-                      setActiveAssistant({
-                        ...activeAssistant,
-                        name: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="support-field-16"
-                    className="block text-xs font-semibold text-slate-300 uppercase mb-1"
-                  >
-                    AI Provider Gateway
-                  </label>
-                  <select
-                    id="support-field-16"
-                    className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none font-semibold text-blue-400"
-                    value={activeAssistant.modelProvider || "openai"}
-                    onChange={(e) =>
-                      setActiveAssistant({
-                        ...activeAssistant,
-                        modelProvider: e.target.value,
-                      })
-                    }
-                  >
-                    <option value="openai">
-                      OpenAI (GPT-4o / GPT-4o-mini)
-                    </option>
-                    <option value="anthropic">
-                      Anthropic (Claude 3.5 Sonnet / Haiku / Opus)
-                    </option>
-                    <option value="google">
-                      Google Gemini (Gemini 1.5 Flash / Pro / 2.0)
-                    </option>
-                    <option value="nvidia">
-                      NVIDIA NIM (Llama 3.1 8B / 70B)
-                    </option>
-                    <option value="local">
-                      Local / Ollama / LocalAI (OpenAI-compatible)
-                    </option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label
-                    htmlFor="support-field-17"
-                    className="block text-xs font-semibold text-slate-300 uppercase mb-1"
-                  >
-                    Model Name
-                  </label>
-                  <input
-                    id="support-field-17"
-                    type="text"
-                    placeholder={
-                      activeAssistant.modelProvider === "anthropic"
-                        ? "claude-3-5-sonnet-20241022"
-                        : activeAssistant.modelProvider === "google"
-                          ? "gemini-1.5-flash"
-                          : activeAssistant.modelProvider === "nvidia"
-                            ? "nvidia/llama-3.1-8b-instruct"
-                            : activeAssistant.modelProvider === "local"
-                              ? "llama3"
-                              : "gpt-4o-mini"
-                    }
-                    className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none font-mono text-slate-200"
-                    value={activeAssistant.modelName || ""}
-                    onChange={(e) =>
-                      setActiveAssistant({
-                        ...activeAssistant,
-                        modelName: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="support-field-18"
-                    className="block text-xs font-semibold text-slate-300 uppercase mb-1"
-                  >
-                    Custom API Key (Optional Override)
-                  </label>
-                  <input
-                    id="support-field-18"
-                    type="password"
-                    placeholder="sk-..."
-                    className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none font-mono text-slate-200"
-                    value={activeAssistant.apiKey || ""}
-                    onChange={(e) =>
-                      setActiveAssistant({
-                        ...activeAssistant,
-                        apiKey: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-              </div>
-
-              {activeAssistant.modelProvider === "local" && (
-                <div>
-                  <label
-                    htmlFor="support-field-19"
-                    className="block text-xs font-semibold text-slate-300 uppercase mb-1"
-                  >
-                    Custom Endpoint Base URL (Local/Ollama/LocalAI)
-                  </label>
-                  <input
-                    id="support-field-19"
-                    type="text"
-                    placeholder="http://localhost:11434/v1"
-                    className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none font-mono text-amber-400"
-                    value={activeAssistant.baseUrl || ""}
-                    onChange={(e) =>
-                      setActiveAssistant({
-                        ...activeAssistant,
-                        baseUrl: e.target.value,
-                      })
-                    }
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">
-                    Specify your custom Ollama or LocalAI OpenAI-compatible API
-                    base URL.
-                  </p>
-                </div>
-              )}
-
-              <div>
-                <label
-                  htmlFor="support-field-20"
-                  className="block text-xs font-semibold text-slate-300 uppercase mb-1"
-                >
-                  Temperature ({activeAssistant.temperature})
-                </label>
-                <input
-                  id="support-field-20"
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  className="w-full"
-                  value={activeAssistant.temperature || 0.2}
-                  onChange={(e) =>
-                    setActiveAssistant({
-                      ...activeAssistant,
-                      temperature: parseFloat(e.target.value),
-                    })
-                  }
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="support-field-21"
-                  className="block text-xs font-semibold text-slate-300 uppercase mb-1"
-                >
-                  System Prompt Guardrails
-                </label>
-                <textarea
-                  id="support-field-21"
-                  rows={4}
-                  className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none"
-                  value={activeAssistant.systemPrompt || ""}
-                  onChange={(e) =>
-                    setActiveAssistant({
-                      ...activeAssistant,
-                      systemPrompt: e.target.value,
-                    })
-                  }
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded text-xs"
-              >
-                Save Universal AI Gateway Settings
-              </button>
-            </form>
-          </div>
+          <AssistantSettings
+            key={activeAssistant.id}
+            assistant={activeAssistant}
+            onChange={setActiveAssistant}
+            onSave={handleSaveAssistantSettings}
+          />
         )}
 
         {activeTab === "widget" && activeOrg && activeAssistant && (
-          <div className="space-y-6 max-w-4xl mx-auto">
-            <div>
-              <h1 className="text-xl font-bold text-white">Widget Designer</h1>
-              <p className="text-xs text-slate-400">
-                Gestalte das Kunden-Chatfenster und sieh jede Änderung sofort in
-                der Vorschau.
-              </p>
-            </div>
-
-            <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
-              <form
-                onSubmit={handleSaveAssistantSettings}
-                className="rounded-xl border border-slate-800 bg-slate-900 p-5 space-y-5"
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-sm font-semibold text-white">
-                      Erscheinungsbild
-                    </h2>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Die Einstellungen gelten für alle eingebundenen Widgets
-                      dieses Assistenten.
-                    </p>
-                  </div>
-                  <button
-                    type="submit"
-                    className="rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-500"
-                  >
-                    Design speichern
-                  </button>
-                </div>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                  {[
-                    ["primaryColor", "Akzentfarbe"],
-                    ["backgroundColor", "Chat-Hintergrund"],
-                    ["surfaceColor", "Flächen"],
-                    ["agentBubbleColor", "KI-Nachrichten"],
-                    ["textColor", "Textfarbe"],
-                  ].map(([key, label]) => (
-                    <label key={key} className="space-y-1">
-                      <span className="block text-[11px] font-medium text-slate-400">
-                        {label}
-                      </span>
-                      <div className="flex rounded border border-slate-700 bg-slate-800 p-1">
-                        <input
-                          type="color"
-                          value={String(
-                            widgetSettings[key as keyof typeof widgetSettings],
-                          )}
-                          onChange={(e) =>
-                            updateWidgetSetting(key, e.target.value)
-                          }
-                          className="h-7 w-9 cursor-pointer bg-transparent"
-                        />
-                        <input
-                          value={String(
-                            widgetSettings[key as keyof typeof widgetSettings],
-                          )}
-                          onChange={(e) =>
-                            updateWidgetSetting(key, e.target.value)
-                          }
-                          className="min-w-0 flex-1 bg-transparent px-1 text-xs text-slate-200 outline-none"
-                        />
-                      </div>
-                    </label>
-                  ))}
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="space-y-1">
-                    <span className="block text-[11px] font-medium text-slate-400">
-                      Schriftart
-                    </span>
-                    <select
-                      value={widgetSettings.fontFamily}
-                      onChange={(e) =>
-                        updateWidgetSetting("fontFamily", e.target.value)
-                      }
-                      className="w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-100"
-                    >
-                      <option value="sans">Modern Sans</option>
-                      <option value="serif">Klassisch Serif</option>
-                      <option value="mono">Monospace</option>
-                    </select>
-                  </label>
-                  <label className="space-y-1">
-                    <span className="block text-[11px] font-medium text-slate-400">
-                      Position
-                    </span>
-                    <select
-                      value={widgetSettings.position}
-                      onChange={(e) =>
-                        updateWidgetSetting("position", e.target.value)
-                      }
-                      className="w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-100"
-                    >
-                      <option value="bottom-right">Unten rechts</option>
-                      <option value="bottom-left">Unten links</option>
-                    </select>
-                  </label>
-                  <label className="space-y-1">
-                    <span className="block text-[11px] font-medium text-slate-400">
-                      Überschrift
-                    </span>
-                    <input
-                      maxLength={80}
-                      value={widgetSettings.headerTitle}
-                      placeholder={activeAssistant.name}
-                      onChange={(e) =>
-                        updateWidgetSetting("headerTitle", e.target.value)
-                      }
-                      className="w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-100"
-                    />
-                  </label>
-                  <label className="space-y-1">
-                    <span className="block text-[11px] font-medium text-slate-400">
-                      Launcher-Symbol
-                    </span>
-                    <input
-                      maxLength={4}
-                      value={widgetSettings.launcherIcon}
-                      onChange={(e) =>
-                        updateWidgetSetting("launcherIcon", e.target.value)
-                      }
-                      className="w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-100"
-                    />
-                  </label>
-                  <label className="space-y-1">
-                    <span className="block text-[11px] font-medium text-slate-400">
-                      Eingabe-Hinweis
-                    </span>
-                    <input
-                      maxLength={120}
-                      value={widgetSettings.inputPlaceholder}
-                      onChange={(e) =>
-                        updateWidgetSetting("inputPlaceholder", e.target.value)
-                      }
-                      className="w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-100"
-                    />
-                  </label>
-                  <label className="space-y-1">
-                    <span className="block text-[11px] font-medium text-slate-400">
-                      Senden-Text
-                    </span>
-                    <input
-                      maxLength={30}
-                      value={widgetSettings.sendLabel}
-                      onChange={(e) =>
-                        updateWidgetSetting("sendLabel", e.target.value)
-                      }
-                      className="w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-100"
-                    />
-                  </label>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {[
-                    ["borderRadius", "Fenster-Rundung", 0, 32],
-                    ["launcherSize", "Button-Größe", 44, 80],
-                    ["windowWidth", "Fenster-Breite", 300, 520],
-                    ["offset", "Abstand zum Rand", 12, 48],
-                  ].map(([key, label, min, max]) => (
-                    <label key={String(key)} className="space-y-2">
-                      <span className="flex justify-between text-[11px] font-medium text-slate-400">
-                        <span>{label}</span>
-                        <span>
-                          {widgetSettings[key as keyof typeof widgetSettings]}{" "}
-                          px
-                        </span>
-                      </span>
-                      <input
-                        type="range"
-                        min={Number(min)}
-                        max={Number(max)}
-                        value={Number(
-                          widgetSettings[key as keyof typeof widgetSettings],
-                        )}
-                        onChange={(e) =>
-                          updateWidgetSetting(
-                            String(key),
-                            Number(e.target.value),
-                          )
-                        }
-                        className="w-full accent-blue-500"
-                      />
-                    </label>
-                  ))}
-                </div>
-              </form>
-
-              <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
-                <h2 className="text-sm font-semibold text-white">
-                  Live-Vorschau
-                </h2>
-                <p className="mt-1 text-xs text-slate-500">
-                  So erscheint der Chat auf deiner Website.
-                </p>
-                <div
-                  className="relative mt-4 h-[500px] overflow-hidden rounded-lg border border-slate-700 bg-slate-800"
-                  style={{
-                    background: "linear-gradient(135deg, #e2e8f0, #cbd5e1)",
-                  }}
-                >
-                  <div className="absolute inset-5 rounded-md border border-white/60 bg-white/30" />
-                  <div
-                    className={`absolute bottom-4 ${
-                      widgetSettings.position === "bottom-left"
-                        ? "left-4"
-                        : "right-4"
-                    }`}
-                  >
-                    <div
-                      className="mb-3 w-[280px] overflow-hidden shadow-2xl"
-                      style={{
-                        borderRadius: Number(widgetSettings.borderRadius),
-                        fontFamily:
-                          widgetSettings.fontFamily === "serif"
-                            ? "Georgia, serif"
-                            : widgetSettings.fontFamily === "mono"
-                              ? "monospace"
-                              : "Arial, sans-serif",
-                        backgroundColor: widgetSettings.surfaceColor,
-                      }}
-                    >
-                      <div
-                        className="px-4 py-3 text-sm font-semibold text-white"
-                        style={{ backgroundColor: widgetSettings.primaryColor }}
-                      >
-                        {widgetSettings.headerTitle || activeAssistant.name}
-                        <span className="float-right">×</span>
-                      </div>
-                      <div
-                        className="space-y-3 p-3"
-                        style={{
-                          backgroundColor: widgetSettings.backgroundColor,
-                        }}
-                      >
-                        <div
-                          className="max-w-[82%] rounded-xl rounded-bl-sm px-3 py-2 text-xs"
-                          style={{
-                            backgroundColor: widgetSettings.agentBubbleColor,
-                            color: widgetSettings.textColor,
-                          }}
-                        >
-                          {activeAssistant.welcomeMessage ||
-                            "Hallo! Wie kann ich helfen?"}
-                        </div>
-                        <div
-                          className="ml-auto max-w-[74%] rounded-xl rounded-br-sm px-3 py-2 text-xs text-white"
-                          style={{
-                            backgroundColor: widgetSettings.primaryColor,
-                          }}
-                        >
-                          Ich brauche Hilfe.
-                        </div>
-                      </div>
-                      <div
-                        className="flex gap-2 border-t p-2"
-                        style={{ backgroundColor: widgetSettings.surfaceColor }}
-                      >
-                        <div className="flex-1 rounded border border-slate-300 px-2 py-2 text-[10px] text-slate-400">
-                          {widgetSettings.inputPlaceholder}
-                        </div>
-                        <div
-                          className="rounded px-2 py-2 text-[10px] font-semibold text-white"
-                          style={{
-                            backgroundColor: widgetSettings.primaryColor,
-                          }}
-                        >
-                          {widgetSettings.sendLabel}
-                        </div>
-                      </div>
-                    </div>
-                    <div
-                      className="flex items-center justify-center text-xl text-white shadow-lg"
-                      style={{
-                        width: Number(widgetSettings.launcherSize),
-                        height: Number(widgetSettings.launcherSize),
-                        borderRadius: Number(widgetSettings.launcherRadius),
-                        backgroundColor: widgetSettings.primaryColor,
-                      }}
-                    >
-                      {widgetSettings.launcherIcon || "💬"}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-3">
-              <h3 className="block text-xs font-semibold text-slate-300 uppercase">
-                Integration Snippet
-              </h3>
-              <pre className="bg-slate-950 p-4 rounded-lg border border-slate-800 text-xs font-mono text-blue-300 overflow-x-auto">
-                {`<script\n  src="${API_BASE_URL.replace("/api/v1", "")}/public/widget.js"\n  data-assistant-id="${activeAssistant.id}"\n  data-widget-key="${activeAssistant.widgetApiKey}"\n  data-api-base="${API_BASE_URL.replace("/api/v1", "")}"\n></script>`}
-              </pre>
-            </div>
-
-            <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-3">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <h3 className="block text-xs font-semibold text-slate-300 uppercase">
-                    Public Widget Integration Key
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Rotate immediately if it is exposed. Rotation invalidates
-                    existing embeds.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleRotateWidgetKey}
-                  className="px-3 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded flex items-center gap-1"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" /> Rotate
-                </button>
-              </div>
-              <input
-                readOnly
-                value={activeAssistant.widgetApiKey || ""}
-                className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs font-mono text-emerald-400"
-              />
-            </div>
-
-            <form
-              onSubmit={handleSaveAssistantSettings}
-              className="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-4"
-            >
-              <div>
-                <label
-                  htmlFor="support-field-22"
-                  className="block text-xs font-semibold text-slate-300 uppercase mb-1"
-                >
-                  Allowed Website Origins
-                </label>
-                <textarea
-                  id="support-field-22"
-                  value={(activeAssistant.widgetAllowedOrigins || []).join(
-                    "\n",
-                  )}
-                  onChange={(e) =>
-                    setActiveAssistant({
-                      ...activeAssistant,
-                      widgetAllowedOrigins: e.target.value
-                        .split("\n")
-                        .map((origin) => origin.trim())
-                        .filter(Boolean),
-                    })
-                  }
-                  placeholder={
-                    "https://www.example.com\nhttps://shop.example.com"
-                  }
-                  className="w-full h-24 bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs text-slate-200"
-                />
-                <p className="text-xs text-slate-500 mt-1">
-                  One exact origin per line. Leave empty only for
-                  server-to-server or development integrations.
-                </p>
-              </div>
-              <label className="flex items-center gap-2 text-sm text-slate-200">
-                <input
-                  type="checkbox"
-                  checked={Boolean(activeAssistant.chatPageEnabled)}
-                  onChange={(e) =>
-                    setActiveAssistant({
-                      ...activeAssistant,
-                      chatPageEnabled: e.target.checked,
-                    })
-                  }
-                />{" "}
-                Enable a hosted chatbot page
-              </label>
-              {activeAssistant.chatPageEnabled && (
-                <div>
-                  <label
-                    htmlFor="support-field-23"
-                    className="block text-xs font-semibold text-slate-300 uppercase mb-1"
-                  >
-                    Hosted Chat Page URL
-                  </label>
-                  <input
-                    id="support-field-23"
-                    readOnly
-                    value={`${API_BASE_URL}/widget/page/${activeAssistant.id}?widgetKey=${activeAssistant.widgetApiKey}`}
-                    className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs font-mono text-blue-300"
-                  />
-                </div>
-              )}
-              <button
-                type="submit"
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded"
-              >
-                Save Widget Access Settings
-              </button>
-            </form>
-          </div>
+          <WidgetDesigner
+            key={activeAssistant.id}
+            assistant={activeAssistant}
+            onChange={setActiveAssistant}
+            onSave={handleSaveAssistantSettings}
+            onRotateKey={() => {
+              void handleRotateWidgetKey();
+            }}
+          />
         )}
 
         {activeTab === "settings" && activeOrg && (
-          <div className="space-y-6 max-w-4xl mx-auto">
-            <div>
-              <h1 className="text-xl font-bold text-white">
-                Organization Settings
-              </h1>
-              <p className="text-xs text-slate-400">
-                Manage tenant identity and API keys
-              </p>
-            </div>
-
-            <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-4">
-              <div>
-                <span className="text-xs font-semibold text-slate-400 uppercase">
-                  Organization API Key
-                </span>
-                <div className="flex gap-2 mt-1">
-                  <input
-                    type="text"
-                    readOnly
-                    className="flex-1 bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs font-mono text-amber-400"
-                    value={activeOrg.apiKey || "sk_live_..."}
-                  />
-                  <button
-                    type="button"
-                    onClick={handleRegenerateApiKey}
-                    className="px-3 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded flex items-center gap-1"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" /> Regenerate
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+          <OrganizationSettings
+            key={activeOrg.id}
+            organizationId={activeOrg.id}
+            apiKey={activeOrg.apiKey}
+            onKeyRotated={(orgId, apiKey) => {
+              setActiveOrg((current: any) =>
+                current?.id === orgId ? { ...current, apiKey } : current,
+              );
+              setAuth((current) =>
+                current
+                  ? {
+                      ...current,
+                      organizations: current.organizations.map((org: any) =>
+                        org.id === orgId ? { ...org, apiKey } : org,
+                      ),
+                    }
+                  : current,
+              );
+            }}
+            notify={showNotify}
+          />
         )}
       </main>
     </div>
