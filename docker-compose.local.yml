@@ -39,7 +39,7 @@ services:
       target: migrator
     entrypoint: []
     command: ["npm", "run", "db:migrate"]
-    env_file: .env.local
+    env_file: ${LOCAL_ENV_FILE:-.env.local}
     environment:
       DATABASE_ADMIN_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/ai_support_db
       # Every migration step runs with the one-shot admin connection. The
@@ -54,7 +54,7 @@ services:
     build: ./backend
     entrypoint: []
     command: ["node", "dist/index.js"]
-    env_file: .env.local
+    env_file: ${LOCAL_ENV_FILE:-.env.local}
     environment:
       DATABASE_URL: postgresql://supportai_app:${DATABASE_APP_PASSWORD}@postgres:5432/ai_support_db
       DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
@@ -87,7 +87,7 @@ services:
     build: ./backend
     entrypoint: []
     command: ["node", "dist/worker.js"]
-    env_file: .env.local
+    env_file: ${LOCAL_ENV_FILE:-.env.local}
     environment:
       DATABASE_URL: postgresql://supportai_app:${DATABASE_APP_PASSWORD}@postgres:5432/ai_support_db
       DATABASE_POOL_MAX: ${DATABASE_WORKER_POOL_MAX:-10}
