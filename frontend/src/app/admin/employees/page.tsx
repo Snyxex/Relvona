@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { cloneElement, isValidElement, useCallback, useEffect, useId, useState } from "react";
 import { Plus, Save, Search, Trash2, UserRound } from "lucide-react";
 import { api } from "@/lib/api";
 
@@ -77,7 +77,7 @@ export default function EmployeesPage() {
   return <main className="rv-employees-page mx-auto max-w-7xl p-6 text-slate-100">
     <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
       <div><h1 className="text-2xl font-bold">Mitarbeiter</h1><p className="text-sm text-slate-400">Kontaktdaten und KI-Routing pro Organisation verwalten.</p></div>
-      <button onClick={createNew} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium"><Plus size={16}/>Mitarbeiter hinzufügen</button>
+      <button type="button" onClick={createNew} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium"><Plus size={16}/>Mitarbeiter hinzufügen</button>
     </div>
     {error && <p className="mb-4 rounded-lg bg-red-950/50 p-3 text-sm text-red-300">{error}</p>}
     {notice && <p className="mb-4 rounded-lg bg-emerald-950/50 p-3 text-sm text-emerald-300">{notice}</p>}
@@ -86,7 +86,7 @@ export default function EmployeesPage() {
         <label className="rv-employee-search"><Search size={17} aria-hidden="true" /><span className="sr-only">Mitarbeiter suchen</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Mitarbeiter suchen" /></label>
         <div className="space-y-2">
           {visibleEmployees.length === 0 && <p className="p-3 text-sm text-slate-500">{search ? "Keine passenden Mitarbeiter gefunden." : "Noch keine Mitarbeiter angelegt."}</p>}
-          {visibleEmployees.map((employee) => <button key={employee.id} onClick={() => select(employee)} className={`w-full rounded-lg border p-3 text-left ${selectedId === employee.id ? "border-blue-500 bg-blue-950/30" : "border-slate-800 bg-slate-950"}`}>
+          {visibleEmployees.map((employee) => <button type="button" key={employee.id} onClick={() => select(employee)} className={`w-full rounded-lg border p-3 text-left ${selectedId === employee.id ? "border-blue-500 bg-blue-950/30" : "border-slate-800 bg-slate-950"}`}>
             <div className="flex items-center gap-2"><UserRound size={16}/><b>{employee.displayName}</b></div>
             <p className="mt-1 text-xs text-slate-400">{employee.jobTitle || employee.department || "Keine Rolle hinterlegt"}</p>
           </button>)}
@@ -112,11 +112,19 @@ export default function EmployeesPage() {
         </div>
         {form.allowDirectHandoff && !linkedMember && <p className="mt-3 text-sm text-amber-300">Für eine direkte Weiterleitung muss ein Relvona-Benutzer verknüpft sein.</p>}
         <p className="mt-4 text-xs text-slate-500">Die KI erhält nur freigegebene Mitarbeiter. E-Mail und Telefonnummer werden nur ausgegeben, wenn die jeweilige Freigabe aktiviert ist.</p>
-        <div className="mt-6 flex gap-3"><button disabled={saving} onClick={save} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium disabled:opacity-50"><Save size={16}/>{saving ? "Speichert …" : "Speichern"}</button>{form.id && <button onClick={remove} className="inline-flex items-center gap-2 rounded-lg border border-red-800 px-4 py-2 text-sm text-red-300"><Trash2 size={16}/>Löschen</button>}</div>
+        <div className="mt-6 flex gap-3"><button type="button" disabled={saving} onClick={save} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium disabled:opacity-50"><Save size={16}/>{saving ? "Speichert …" : "Speichern"}</button>{form.id && <button type="button" onClick={remove} className="inline-flex items-center gap-2 rounded-lg border border-red-800 px-4 py-2 text-sm text-red-300"><Trash2 size={16}/>Löschen</button>}</div>
       </section>
     </div>
   </main>;
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="space-y-1.5 text-sm"><span className="font-medium text-slate-300">{label}</span>{children}</label>; }
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  const id = useId();
+  return (
+    <div className="space-y-1.5 text-sm">
+      <label htmlFor={id} className="block font-medium text-slate-300">{label}</label>
+      {isValidElement<{ id?: string }>(children) ? cloneElement(children, { id }) : children}
+    </div>
+  );
+}
 function Toggle({ label, checked, onChange, disabled = false }: { label: string; checked: boolean; onChange: (value: boolean) => void; disabled?: boolean }) { return <label className={`flex items-center gap-2 text-sm ${disabled ? "opacity-50" : ""}`}><input type="checkbox" disabled={disabled} checked={checked} onChange={(e) => onChange(e.target.checked)}/><span>{label}</span></label>; }
