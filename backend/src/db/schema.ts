@@ -21,7 +21,8 @@ export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").default(false).notNull(),
-  passwordHash: text("password_hash").notNull(),
+  // Better Auth writes credentials to auth_accounts; default is a non-verifiable legacy sentinel.
+  passwordHash: text("password_hash").default("!better-auth-managed!").notNull(),
   name: text("name").notNull(),
   avatarUrl: text("avatar_url"),
   preferredLanguage: text("preferred_language").default("de").notNull(),
@@ -488,7 +489,7 @@ export const authSessions = pgTable("auth_sessions", {
 }, (table) => ({ authSessionUserIdx: index("auth_session_user_idx").on(table.userId, table.expiresAt) }));
 
 export const authAccounts = pgTable("auth_accounts", {
-  id: text("id").primaryKey(), accountId: text("account_id").notNull(), providerId: text("provider_id").notNull(), issuer: text("issuer").notNull(), userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(), accessToken: text("access_token"), refreshToken: text("refresh_token"), idToken: text("id_token"), accessTokenExpiresAt: timestamp("access_token_expires_at"), refreshTokenExpiresAt: timestamp("refresh_token_expires_at"), scope: text("scope"), password: text("password"), createdAt: timestamp("created_at").defaultNow().notNull(), updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  id: text("id").primaryKey(), accountId: text("account_id").notNull(), providerId: text("provider_id").notNull(), issuer: text("issuer").default("local").notNull(), userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(), accessToken: text("access_token"), refreshToken: text("refresh_token"), idToken: text("id_token"), accessTokenExpiresAt: timestamp("access_token_expires_at"), refreshTokenExpiresAt: timestamp("refresh_token_expires_at"), scope: text("scope"), password: text("password"), createdAt: timestamp("created_at").defaultNow().notNull(), updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({ authAccountProviderUnique: uniqueIndex("auth_account_provider_unique").on(table.providerId, table.accountId), authAccountUserIdx: index("auth_account_user_idx").on(table.userId) }));
 
 export const authVerifications = pgTable("auth_verifications", {
@@ -523,7 +524,7 @@ export const platformSupportSessions = pgTable("platform_support_sessions", {
 }, (table) => ({ supportSessionIdx: index("support_session_idx").on(table.platformAdminUserId, table.organizationId, table.expiresAt) }));
 
 export const ssoLoginStates = pgTable("sso_login_states", {
-  id: uuid("id").primaryKey().defaultRandom(), organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(), stateHash: text("state_hash").notNull().unique(), nonce: text("nonce").notNull(), expiresAt: timestamp("expires_at").notNull(), consumedAt: timestamp("consumed_at"), createdAt: timestamp("created_at").defaultNow().notNull(),
+  id: uuid("id").primaryKey().defaultRandom(), organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(), stateHash: text("state_hash").notNull().unique(), nonce: text("nonce").notNull(), pkceVerifierEncrypted: text("pkce_verifier_encrypted"), expiresAt: timestamp("expires_at").notNull(), consumedAt: timestamp("consumed_at"), createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({ ssoStateExpiryIdx: index("sso_state_expiry_idx").on(table.expiresAt) }));
 
 export const userExternalIdentities = pgTable("user_external_identities", {

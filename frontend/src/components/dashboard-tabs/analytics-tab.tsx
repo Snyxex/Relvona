@@ -1,35 +1,325 @@
 "use client";
 
 import { memo } from "react";
-import { Bot, BrainCircuit, RefreshCw, Ticket, Users } from "lucide-react";
+import {
+  Bot,
+  BrainCircuit,
+  MessageSquare,
+  RefreshCw,
+  Ticket,
+  Users,
+} from "lucide-react";
+import {
+  aiResolutionPercent,
+  distributionPercent,
+} from "@/lib/support-metrics";
+import {
+  WorkspaceEmpty,
+  WorkspaceHeader,
+  WorkspaceMetric,
+  WorkspacePanel,
+} from "./workspace-primitives";
 
-function AnalyticsTab({ overviewMetrics, onRefresh }: { overviewMetrics: any; onRefresh: () => void }) {
-  const total = Math.max(overviewMetrics?.totalConversations || 0, 1);
-  const resolutionRate = overviewMetrics?.resolutionRate ?? 0;
-  const handoffs = overviewMetrics?.handoffs || 0;
-  const cards = [
-    ["Unterhaltungen", overviewMetrics?.totalConversations || 0, "text-blue-300", Bot],
-    ["AI Resolution", `${resolutionRate}%`, "text-emerald-300", BrainCircuit],
-    ["Human Handoffs", handoffs, "text-amber-300", Users],
-    ["Offene Tickets", overviewMetrics?.openTickets || 0, "text-violet-300", Ticket],
-  ] as const;
+type AnalyticsMetrics = {
+  totalConversations?: number;
+  aiResolved?: number;
+  handoffs?: number;
+  openTickets?: number;
+  totalKnowledgeSources?: number;
+  totalDocumentChunks?: number;
+  stateBreakdown?: Record<string, number>;
+  languageBreakdown?: { language: string | null; count: number }[];
+};
 
-  return <div className="mx-auto max-w-7xl space-y-6">
-    <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-300">Insights</p><h1 className="mt-1 text-2xl font-semibold tracking-tight text-white">Analytics & Performance</h1><p className="mt-1 max-w-2xl text-sm text-slate-400">Verstehe Support-Last, Automatisierungsgrad und Wissensabdeckung auf einen Blick.</p></div><button type="button" onClick={onRefresh} className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800"><RefreshCw className="h-3.5 w-3.5" /> Aktualisieren</button></div>
+const STATE_LABELS: Record<string, string> = {
+  AI_ACTIVE: "AI bearbeitet",
+  WAITING_FOR_AGENT: "Wartet auf Mitarbeiter",
+  NEEDS_HUMAN: "Mitarbeiter benötigt",
+  AGENT_ACTIVE: "Mitarbeiter aktiv",
+  WAITING_FOR_CUSTOMER: "Wartet auf Kunden",
+  RESOLVED: "Gelöst",
+  CLOSED: "Geschlossen",
+};
+const STATE_COLORS = [
+  "#5179fb",
+  "#9167f4",
+  "#4fc0eb",
+  "#36bea9",
+  "#e3aa5c",
+  "#91a3c1",
+];
+const STATE_TONES: Record<string, string> = {
+  AI_ACTIVE: "#5179fb",
+  WAITING_FOR_AGENT: "#f1b65f",
+  NEEDS_HUMAN: "#e3aa5c",
+  AGENT_ACTIVE: "#9167f4",
+  WAITING_FOR_CUSTOMER: "#4fc0eb",
+  RESOLVED: "#36bea9",
+  CLOSED: "#91a3c1",
+};
 
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{cards.map(([label, value, color, Icon]) => <div key={label} className="rounded-2xl border border-slate-800 bg-slate-900 p-4"><div className="flex items-center justify-between"><p className="text-xs text-slate-400">{label}</p><Icon className="h-4 w-4 text-slate-500" /></div><p className={`mt-4 text-3xl font-semibold tracking-tight ${color}`}>{value}</p></div>)}</div>
+const count = (value: number | undefined) => Math.max(0, Number(value) || 0);
+const displayCount = (value: number | undefined) =>
+  new Intl.NumberFormat("de-DE").format(count(value));
 
-    <div className="grid gap-4 lg:grid-cols-3">
-      <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-xs font-medium text-slate-400">AI Resolution</p><div className="mt-5 flex items-center gap-5"><div className="grid h-24 w-24 shrink-0 place-items-center rounded-full" style={{ background: `conic-gradient(#43d3a0 ${Math.max(0, Math.min(100, resolutionRate)) * 3.6}deg, #172033 0deg)` }}><div className="grid h-16 w-16 place-items-center rounded-full bg-slate-900"><span className="text-lg font-semibold text-white">{resolutionRate}%</span></div></div><p className="text-xs leading-5 text-slate-400">Anteil der Gespräche, die ohne menschliche Übergabe gelöst wurden.</p></div></section>
-      <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-xs font-medium text-slate-400">Human Workload</p><p className="mt-4 text-3xl font-semibold text-amber-300">{handoffs}</p><p className="mt-1 text-xs text-slate-500">Konversationen mit Agentenbedarf</p><div className="mt-5 h-2 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-amber-400" style={{ width: `${Math.min(100, (handoffs / total) * 100)}%` }} /></div></section>
-      <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-xs font-medium text-slate-400">Knowledge Readiness</p><p className="mt-4 text-3xl font-semibold text-blue-300">{overviewMetrics?.totalKnowledgeSources || 0}</p><p className="mt-1 text-xs text-slate-500">Quellen · {overviewMetrics?.totalDocumentChunks || 0} durchsuchbare Chunks</p><div className="mt-5 grid grid-cols-10 gap-1">{Array.from({ length: 10 }, (_, index) => <span key={index} className={`h-2 rounded-full ${index < Math.min(10, overviewMetrics?.totalKnowledgeSources || 0) ? "bg-blue-400" : "bg-slate-800"}`} />)}</div></section>
+function AnalyticsTab({
+  overviewMetrics,
+  onRefresh,
+}: {
+  overviewMetrics: AnalyticsMetrics | null;
+  onRefresh: () => void;
+}) {
+  const data = overviewMetrics;
+  if (!data) {
+    return (
+      <div className="rv-section-page">
+        <WorkspaceHeader
+          eyebrow="INSIGHTS"
+          title="Analytics & Performance"
+          description="Supportaufkommen, AI-Automatisierung und Wissen im Überblick."
+        >
+          <button
+            type="button"
+            className="rv-section-button rv-section-button-secondary"
+            onClick={onRefresh}
+          >
+            <RefreshCw size={15} aria-hidden="true" />
+            Aktualisieren
+          </button>
+        </WorkspaceHeader>
+        <WorkspacePanel>
+          <WorkspaceEmpty
+            icon={BrainCircuit}
+            title="Keine Analytics-Daten geladen"
+            description="Die Kennzahlen sind noch nicht verfügbar. Du kannst die Auswertung erneut laden."
+          />
+        </WorkspacePanel>
+      </div>
+    );
+  }
+  const conversationCount = count(data.totalConversations);
+  // Overall resolution includes human-handled cases; AI events are tracked separately.
+  const aiResolutionRate = aiResolutionPercent(
+    data.aiResolved,
+    conversationCount,
+  );
+  const displayedRate =
+    aiResolutionRate === null ? "—" : `${aiResolutionRate}%`;
+  const handoffs = count(data?.handoffs);
+  const states = Object.entries(data?.stateBreakdown ?? {}).sort(
+    (a, b) => b[1] - a[1],
+  );
+  const languages = [...(data?.languageBreakdown ?? [])].sort(
+    (a, b) => b.count - a.count,
+  );
+  const languageCount = languages.reduce(
+    (sum, value) => sum + count(value.count),
+    0,
+  );
+
+  return (
+    <div className="rv-section-page">
+      <WorkspaceHeader
+        eyebrow="INSIGHTS"
+        title="Analytics & Performance"
+        description="Supportaufkommen, AI-Automatisierung und Wissen im Überblick."
+      >
+        <button
+          type="button"
+          className="rv-section-button rv-section-button-secondary"
+          onClick={onRefresh}
+        >
+          <RefreshCw size={15} aria-hidden="true" />
+          Aktualisieren
+        </button>
+      </WorkspaceHeader>
+
+      <div className="rv-section-kpis">
+        <WorkspaceMetric
+          label="Unterhaltungen"
+          value={displayCount(data?.totalConversations)}
+          icon={MessageSquare}
+          tone="blue"
+        />
+        <WorkspaceMetric
+          label="AI-Lösungsquote"
+          value={displayedRate}
+          icon={BrainCircuit}
+          tone="mint"
+        />
+        <WorkspaceMetric
+          label="Aktueller Agentenbedarf"
+          value={displayCount(data?.handoffs)}
+          icon={Users}
+          tone="amber"
+        />
+        <WorkspaceMetric
+          label="Offene Tickets"
+          value={displayCount(data?.openTickets)}
+          icon={Ticket}
+          tone="violet"
+        />
+      </div>
+
+      <div className="rv-section-grid rv-section-grid-three">
+        <WorkspacePanel
+          title="AI-Automatisierung"
+          description="Ohne menschliche Übergabe gelöste Gespräche"
+        >
+          <div className="rv-insight-donut-row">
+            <div
+              className="rv-insight-donut"
+              style={{
+                background: `conic-gradient(#38bfa9 ${aiResolutionRate ?? 0}%, #edf1f7 0)`,
+              }}
+              role="img"
+              aria-label={`AI-Lösungsquote: ${displayedRate}`}
+            >
+              <span>
+                <strong>{displayedRate}</strong>
+                <small>AI-gelöst</small>
+              </span>
+            </div>
+            <p>
+              Anteil der Unterhaltungen mit einem erfassten AI-Lösungsereignis.
+            </p>
+          </div>
+        </WorkspacePanel>
+        <WorkspacePanel
+          title="Mitarbeiterbedarf"
+          description="Gespräche, die aktuell beim Support-Team liegen"
+        >
+          <div className="rv-insight-number">
+            {displayCount(data?.handoffs)}
+          </div>
+          <p className="rv-insight-description">
+            Unterhaltungen im Status „Wartet auf Agent“ oder „Agent aktiv“
+          </p>
+          <div
+            className="rv-insight-track"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(
+              distributionPercent(handoffs, conversationCount),
+            )}
+            aria-label="Anteil der Gespräche mit aktuellem Agentenbedarf"
+          >
+            <div
+              style={{
+                width: `${distributionPercent(handoffs, conversationCount)}%`,
+                background: "#f1b65f",
+              }}
+            />
+          </div>
+        </WorkspacePanel>
+        <WorkspacePanel
+          title="Wissensabdeckung"
+          description="Verfügbare Wissensquellen"
+        >
+          <div className="rv-insight-number">
+            {displayCount(data?.totalKnowledgeSources)}
+          </div>
+          <p className="rv-insight-description">
+            Quellen mit {displayCount(data?.totalDocumentChunks)} durchsuchbaren
+            Chunks
+          </p>
+          <p className="rv-insight-description">
+            Anzahl vorhandener Quellen – kein automatisch ermittelter
+            Qualitätswert.
+          </p>
+        </WorkspacePanel>
+      </div>
+
+      <div className="rv-section-grid rv-section-grid-two">
+        <WorkspacePanel
+          title="Unterhaltungsstatus"
+          description="Verteilung der aktuellen Conversation-States"
+        >
+          {states.length > 0 ? (
+            <div className="rv-insight-bars">
+              {states.map(([state, value]) => {
+                const percent = distributionPercent(
+                  count(value),
+                  conversationCount,
+                );
+                return (
+                  <div className="rv-insight-bar" key={state}>
+                    <div className="rv-insight-bar-label">
+                      <span>
+                        {STATE_LABELS[state] ?? state.replaceAll("_", " ")}
+                      </span>
+                      <strong>
+                        {displayCount(value)} · {Math.round(percent)}%
+                      </strong>
+                    </div>
+                    <div className="rv-insight-track">
+                      <div
+                        style={{
+                          width: `${percent}%`,
+                          background: STATE_TONES[state] ?? "#91a3c1",
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <WorkspaceEmpty
+              icon={Bot}
+              title="Noch keine Unterhaltungen"
+              description="Hier erscheinen die Statuswerte aus echten Kundengesprächen."
+            />
+          )}
+        </WorkspacePanel>
+        <WorkspacePanel
+          title="Erkannte Sprachen"
+          description="Verteilung nach Sprache der Unterhaltungen"
+        >
+          {languages.length > 0 ? (
+            <div className="rv-insight-bars">
+              {languages.map((entry, index) => {
+                const percent = distributionPercent(
+                  count(entry.count),
+                  languageCount,
+                );
+                return (
+                  <div
+                    className="rv-insight-bar"
+                    key={entry.language ?? "unknown"}
+                  >
+                    <div className="rv-insight-bar-label">
+                      <span>
+                        {entry.language?.toUpperCase() || "Unbekannt"}
+                      </span>
+                      <strong>
+                        {displayCount(entry.count)} · {Math.round(percent)}%
+                      </strong>
+                    </div>
+                    <div className="rv-insight-track">
+                      <div
+                        style={{
+                          width: `${percent}%`,
+                          background: STATE_COLORS[index % STATE_COLORS.length],
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <WorkspaceEmpty
+              icon={MessageSquare}
+              title="Noch keine Sprachdaten"
+              description="Sprachen erscheinen, sobald Gespräche entsprechend klassifiziert wurden."
+            />
+          )}
+        </WorkspacePanel>
+      </div>
     </div>
-
-    <div className="grid gap-4 lg:grid-cols-2">
-      <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><h2 className="text-sm font-semibold text-white">Conversation States</h2><div className="mt-4 space-y-3">{Object.entries(overviewMetrics?.stateBreakdown || {}).length ? Object.entries(overviewMetrics?.stateBreakdown || {}).map(([state, count]) => { const share = Math.round((Number(count) / total) * 100); return <div key={state}><div className="mb-1.5 flex justify-between gap-3 text-xs"><span className="text-slate-400">{state.replaceAll("_", " ")}</span><span className="font-medium text-slate-300">{String(count)} · {share}%</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-blue-400" style={{ width: `${Math.max(2, share)}%` }} /></div></div>; }) : <p className="py-8 text-center text-xs text-slate-500">Noch keine Conversation-Daten vorhanden.</p>}</div></section>
-      <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><h2 className="text-sm font-semibold text-white">Erkannte Sprachen</h2><div className="mt-4 space-y-2">{overviewMetrics?.languageBreakdown?.length ? overviewMetrics.languageBreakdown.map((entry: any) => { const share = Math.round((entry.count / total) * 100); return <div key={entry.language} className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/35 px-3 py-2.5 text-xs"><span className="font-medium uppercase text-slate-300">{entry.language}</span><span className="text-slate-500">{entry.count} · {share}%</span></div>; }) : <p className="py-8 text-center text-xs text-slate-500">Noch keine Sprachdaten vorhanden.</p>}</div></section>
-    </div>
-  </div>;
+  );
 }
 
 export default memo(AnalyticsTab);

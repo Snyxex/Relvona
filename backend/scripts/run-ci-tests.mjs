@@ -6,7 +6,9 @@ const groups = {
   unit: [
     "activeDirectoryService.test.ts",
     "bookingAccess.test.ts",
+    "bootstrapGuard.test.ts",
     "conversationLifecycle.test.ts",
+    "entraPkce.test.ts",
     "errorResponses.test.ts",
     "githubIssueService.test.ts",
     "knowledgeRetrievalTriggerShape.test.ts",
@@ -41,6 +43,7 @@ const groups = {
     "conversationAutoClose.integration.test.ts",
     "customerPortalMagicLink.integration.test.ts",
     "customerToolIsolation.integration.test.ts",
+    "dashboardOverview.integration.test.ts",
     "databaseTenantContext.test.ts",
     "ingestion.integration.test.ts",
     "integrationConnections.integration.test.ts",

@@ -1,10 +1,12 @@
 import { Router } from "express";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { authenticate, tenantContext, requireRole, type AuthRequest } from "../middleware/auth.js";
 import { db } from "../db/index.js";
 import { knowledgeGaps } from "../db/supportAnalyticsSchema.js";
+import { knowledgeSources } from "../db/schema.js";
 import { KnowledgeIntelligenceService } from "../services/knowledgeIntelligenceService.js";
 import { AuditService } from "../services/auditService.js";
+import { inspectAnswerQuality } from "../services/answerQualityPreview.js";
 import { sendInternalError } from "../utils/httpErrors.js";
 
 const router = Router();
@@ -135,6 +137,36 @@ router.post("/faq-drafts/:id/publish", requireRole(["owner", "admin"]), async (r
     if (message === "FAQ draft not found") return res.status(404).json({ error: message });
     if (message === "FAQ draft must be approved before publishing") return res.status(409).json({ error: message });
     return sendInternalError(req, res, error, { code: "KNOWLEDGE_FAQ_PUBLISH_FAILED", message: "Unable to publish FAQ draft" });
+  }
+});
+
+
+// Read-only, opt-in quality preview. Never stores or sends submitted answer text.
+// Role-gated because drafts may contain internal knowledge or customer information.
+router.post("/answer-quality/preview", requireRole(["owner", "admin", "agent"]), async (req: AuthRequest, res) => {
+  const { answer, evidenceIds } = req.body ?? {};
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (typeof answer !== "string" || answer.length > 12000 ||
+      !Array.isArray(evidenceIds) || evidenceIds.length > 30 ||
+      !evidenceIds.every((id: unknown) => typeof id === "string" && uuid.test(id)) ||
+      new Set(evidenceIds).size !== evidenceIds.length) {
+    return res.status(400).json({ error: "Invalid answer quality preview input" });
+  }
+  res.setHeader("Cache-Control", "no-store");
+  try {
+    // Never trust IDs as proof of access. Resolve all source references in the
+    // authenticated tenant before assessing an answer.
+    const sources = evidenceIds.length ? await db.select({ id: knowledgeSources.id })
+      .from(knowledgeSources)
+      .where(and(eq(knowledgeSources.organizationId, req.organization!.id),
+        inArray(knowledgeSources.id, evidenceIds))) : [];
+    if (sources.length !== evidenceIds.length) {
+      // Do not reveal whether a reference exists in another organization.
+      return res.status(404).json({ error: "Knowledge source not found" });
+    }
+    return res.json(inspectAnswerQuality({ answer, evidenceIds: sources.map((source) => source.id) }));
+  } catch (error) {
+    return sendInternalError(req, res, error, { code: "ANSWER_QUALITY_PREVIEW_FAILED", message: "Unable to inspect answer quality" });
   }
 });
 
