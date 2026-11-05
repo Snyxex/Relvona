@@ -17,11 +17,26 @@ import OrganizationSettings from "@/components/dashboard-tabs/organization-setti
 import WidgetDesigner from "@/components/dashboard-tabs/widget-designer";
 import AssistantSettings from "@/components/dashboard-tabs/assistant-settings";
 import TicketsWorkspace from "@/components/dashboard-tabs/tickets-workspace";
-import ConversationsWorkspace, { type ConversationTag, type InboxAgent, type InboxConversation, type InboxMessage, type InboxTimelineEvent, type InboxHandoff, type InboxSuggestion } from "@/components/dashboard-tabs/conversations-workspace";
+import ConversationsWorkspace, {
+  type ConversationTag,
+  type InboxAgent,
+  type InboxConversation,
+  type InboxMessage,
+  type InboxTimelineEvent,
+  type InboxHandoff,
+  type InboxSuggestion,
+} from "@/components/dashboard-tabs/conversations-workspace";
 import { useConversationRealtime } from "@/hooks/use-conversation-realtime";
-import { KnowledgeWorkspace, WebsiteCrawlerWorkspace, type KnowledgeBase } from "@/components/dashboard-tabs/knowledge-workspaces";
+import {
+  KnowledgeWorkspace,
+  WebsiteCrawlerWorkspace,
+  type KnowledgeBase,
+} from "@/components/dashboard-tabs/knowledge-workspaces";
 import type { KnowledgeSource } from "@/components/knowledge-sources";
-import { WorkspaceEmpty, WorkspaceHeader } from "@/components/dashboard-tabs/workspace-primitives";
+import {
+  WorkspaceEmpty,
+  WorkspaceHeader,
+} from "@/components/dashboard-tabs/workspace-primitives";
 import {
   LazyAgentsTab,
   LazyAnalyticsTab,
@@ -29,7 +44,10 @@ import {
   LazyOverviewTab,
 } from "@/components/dashboard-tabs/lazy-tabs";
 import { api } from "@/lib/api";
-import { type DashboardTab, dashboardNavigation } from "@/lib/dashboard-navigation";
+import {
+  type DashboardTab,
+  dashboardNavigation,
+} from "@/lib/dashboard-navigation";
 import { authClient } from "@/lib/auth-client";
 import {
   type DashboardLanguage,
@@ -42,7 +60,6 @@ import {
   LIGHT_USER_THEME,
   type UserThemePreferences,
 } from "@/lib/user-theme";
-
 
 export default function Dashboard({
   administration = false,
@@ -57,7 +74,9 @@ export default function Dashboard({
   } | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
   const [activeOrg, setActiveOrg] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<DashboardTab>(initialTab ?? (administration ? "assistant" : "overview"));
+  const [activeTab, setActiveTab] = useState<DashboardTab>(
+    initialTab ?? (administration ? "assistant" : "overview"),
+  );
 
   // Auth Form State
   const [isRegistering, setIsRegistering] = useState(false);
@@ -71,8 +90,12 @@ export default function Dashboard({
 
   // Data States
   const [overviewMetrics, setOverviewMetrics] = useState<any>(null);
-  const [conversationsList, setConversationsList] = useState<InboxConversation[]>([]);
-  const [selectedConv, setSelectedConv] = useState<InboxConversation | null>(null);
+  const [conversationsList, setConversationsList] = useState<
+    InboxConversation[]
+  >([]);
+  const [selectedConv, setSelectedConv] = useState<InboxConversation | null>(
+    null,
+  );
   const [convMessages, setConvMessages] = useState<InboxMessage[]>([]);
   const [agentMsgInput, setAgentMsgInput] = useState("");
   const [internalNoteInput, setInternalNoteInput] = useState("");
@@ -105,7 +128,9 @@ export default function Dashboard({
   const [commentInput, setCommentInput] = useState("");
 
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
-  const [knowledgeSources, setKnowledgeSources] = useState<KnowledgeSource[]>([]);
+  const [knowledgeSources, setKnowledgeSources] = useState<KnowledgeSource[]>(
+    [],
+  );
   const [assistantsList, setAssistantsList] = useState<any[]>([]);
   const [activeAssistant, setActiveAssistant] = useState<any>(null);
   const [agentsList, setAgentsList] = useState<any[]>([]);
@@ -127,9 +152,8 @@ export default function Dashboard({
   const [translations, setTranslations] = useState<Record<string, string>>({});
   const [profileName, setProfileName] = useState("");
   const [profileAvatarUrl, setProfileAvatarUrl] = useState<string | null>(null);
-  const [themePreferences, setThemePreferences] = useState<UserThemePreferences>(
-    DEFAULT_USER_THEME,
-  );
+  const [themePreferences, setThemePreferences] =
+    useState<UserThemePreferences>(DEFAULT_USER_THEME);
 
   useEffect(() => {
     let active = true;
@@ -157,7 +181,9 @@ export default function Dashboard({
           setProfileName(user.name || "");
           setProfileAvatarUrl(user.avatarUrl || null);
           setThemePreferences(completeUserTheme(user.themePreferences));
-          setActiveOrg(orgs.find((org: any) => org.id === activeOrgId) || orgs[0]);
+          setActiveOrg(
+            orgs.find((org: any) => org.id === activeOrgId) || orgs[0],
+          );
           return;
         }
         const [me, memberships] = await Promise.all([
@@ -172,7 +198,8 @@ export default function Dashboard({
         setProfileName(user.name || "");
         setProfileAvatarUrl(user.avatarUrl || null);
         setThemePreferences(completeUserTheme(user.themePreferences));
-        const currentOrg = orgs.find((o: any) => o.id === activeOrgId) || orgs[0];
+        const currentOrg =
+          orgs.find((o: any) => o.id === activeOrgId) || orgs[0];
         if (currentOrg) {
           setActiveOrg(currentOrg);
           localStorage.setItem("active_org_id", currentOrg.id);
@@ -190,7 +217,10 @@ export default function Dashboard({
   }, [administration]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedInboxSearch(inboxSearch), 350);
+    const timer = window.setTimeout(
+      () => setDebouncedInboxSearch(inboxSearch),
+      350,
+    );
     return () => window.clearTimeout(timer);
   }, [inboxSearch]);
 
@@ -201,22 +231,42 @@ export default function Dashboard({
     if (administration || !userId || !activeOrg?.id) return;
     let mounted = true;
     setPresenceLoaded(false);
-    void api.get("/conversations/meta/agents").then(({ data }) => {
-      if (!mounted) return;
-      const status = data.find((agent: { id: string; presence?: string }) => agent.id === userId)?.presence;
-      setAgentPresence(["ONLINE", "AWAY", "OFFLINE"].includes(status) ? status : "OFFLINE");
-      setPresenceLoaded(true);
-    }).catch(() => {
-      if (mounted) { setAgentPresence("OFFLINE"); setPresenceLoaded(false); }
-    });
-    return () => { mounted = false; };
+    void api
+      .get("/conversations/meta/agents")
+      .then(({ data }) => {
+        if (!mounted) return;
+        const status = data.find(
+          (agent: { id: string; presence?: string }) => agent.id === userId,
+        )?.presence;
+        setAgentPresence(
+          ["ONLINE", "AWAY", "OFFLINE"].includes(status) ? status : "OFFLINE",
+        );
+        setPresenceLoaded(true);
+      })
+      .catch(() => {
+        if (mounted) {
+          setAgentPresence("OFFLINE");
+          setPresenceLoaded(false);
+        }
+      });
+    return () => {
+      mounted = false;
+    };
   }, [administration, auth?.user?.id, activeOrg?.id]);
 
   useEffect(() => {
-    if (administration || !presenceLoaded || agentPresence !== "ONLINE" || !activeOrg?.id) return;
+    if (
+      administration ||
+      !presenceLoaded ||
+      agentPresence !== "ONLINE" ||
+      !activeOrg?.id
+    )
+      return;
     const heartbeat = () => {
       if (document.visibilityState !== "visible") return;
-      void api.put("/conversations/meta/presence", { status: "ONLINE" }).catch(() => undefined);
+      void api
+        .put("/conversations/meta/presence", { status: "ONLINE" })
+        .catch(() => undefined);
     };
     heartbeat();
     const id = window.setInterval(heartbeat, 60_000);
@@ -249,7 +299,6 @@ export default function Dashboard({
     setConnected,
     setNotification,
   });
-
 
   const showNotify = (msg: string) => {
     setNotification(msg);
@@ -300,10 +349,18 @@ export default function Dashboard({
   const handleTwoFactorLogin = async () => {
     setAuthError("");
     try {
-      const result = await authClient.twoFactor.verifyTotp({ code: twoFactorLoginCode, trustDevice: true });
-      if (result.error) throw new Error(result.error.message || "Der Authenticator-Code ist ungültig.");
+      const result = await authClient.twoFactor.verifyTotp({
+        code: twoFactorLoginCode,
+        trustDevice: true,
+      });
+      if (result.error)
+        throw new Error(
+          result.error.message || "Der Authenticator-Code ist ungültig.",
+        );
       const { data } = await api.get("/auth/me");
-      window.location.assign(data.user.systemRole === "superadmin" ? "/admin" : "/");
+      window.location.assign(
+        data.user.systemRole === "superadmin" ? "/admin" : "/",
+      );
     } catch (error: any) {
       setAuthError(error.message || "2FA-Bestätigung fehlgeschlagen.");
     }
@@ -363,7 +420,8 @@ export default function Dashboard({
     if (!requestedOrgId) return;
     const epoch = ++tenantFetchEpoch.current;
     const isFresh = () =>
-      epoch === tenantFetchEpoch.current && activeOrgIdRef.current === requestedOrgId;
+      epoch === tenantFetchEpoch.current &&
+      activeOrgIdRef.current === requestedOrgId;
     try {
       if (activeTab === "overview" || activeTab === "analytics") {
         const res = await api.get("/analytics/overview");
@@ -569,7 +627,11 @@ export default function Dashboard({
 
   const handleSelectConversation = async (conv: InboxConversation) => {
     const organizationId = activeOrgIdRef.current;
-    if (!organizationId || (conv.organizationId && conv.organizationId !== organizationId)) return;
+    if (
+      !organizationId ||
+      (conv.organizationId && conv.organizationId !== organizationId)
+    )
+      return;
     const requestId = ++conversationDetailRequestId.current;
     const changedConversation = selectedConversationId.current !== conv.id;
     selectedConversationId.current = conv.id;
@@ -599,21 +661,25 @@ export default function Dashboard({
       setConvMessages((current) => {
         const latest = new Map<string, InboxMessage>();
         for (const message of messages.data) {
-          if (message.conversationId === conv.id) latest.set(message.id, message);
+          if (message.conversationId === conv.id)
+            latest.set(message.id, message);
         }
         if (!changedConversation) {
           for (const message of current) {
-            if (message.conversationId === conv.id) latest.set(message.id, message);
+            if (message.conversationId === conv.id)
+              latest.set(message.id, message);
           }
         }
         return [...latest.values()].sort(
-          (a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
+          (a, b) =>
+            a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
         );
       });
       setInboxTimeline(timeline.data);
       setInboxHandoff(handoff?.data || null);
     } catch {
-      if (valid()) showNotify("Unterhaltungsdetails konnten nicht geladen werden.");
+      if (valid())
+        showNotify("Unterhaltungsdetails konnten nicht geladen werden.");
     }
   };
 
@@ -629,12 +695,18 @@ export default function Dashboard({
       selectedConversationId.current === conversationId &&
       activeOrgIdRef.current === organizationId;
     try {
-      const { data } = await api.post(`/conversations/${conversationId}/suggested-reply`);
+      const { data } = await api.post(
+        `/conversations/${conversationId}/suggested-reply`,
+      );
       if (!valid()) return;
       setSuggestion({
         conversationId,
         content: typeof data.content === "string" ? data.content : "",
-        sources: Array.isArray(data.sources) ? data.sources.filter((v: unknown): v is string => typeof v === "string") : [],
+        sources: Array.isArray(data.sources)
+          ? data.sources.filter(
+              (v: unknown): v is string => typeof v === "string",
+            )
+          : [],
       });
     } catch {
       if (valid()) showNotify("Antwortvorschlag konnte nicht erstellt werden.");
@@ -643,7 +715,10 @@ export default function Dashboard({
     }
   };
 
-  const handleInboxAction = async (path: string, body?: Record<string, unknown>) => {
+  const handleInboxAction = async (
+    path: string,
+    body?: Record<string, unknown>,
+  ) => {
     if (!selectedConv) return;
     const selected = selectedConv;
     const organizationId = activeOrgIdRef.current;
@@ -651,22 +726,32 @@ export default function Dashboard({
       selectedConversationId.current === selected.id &&
       activeOrgIdRef.current === organizationId;
     try {
-      const result = await api.put(`/conversations/${selected.id}/${path}`, body);
+      const result = await api.put(
+        `/conversations/${selected.id}/${path}`,
+        body,
+      );
       if (!isCurrent()) return;
       const updated = { ...selected, ...(result.data || {}) };
       setSelectedConv(updated);
       await handleSelectConversation(updated);
       if (isCurrent()) void fetchTenantData();
     } catch (err: any) {
-      if (isCurrent()) showNotify(err.response?.data?.error || "Aktion konnte nicht ausgeführt werden.");
+      if (isCurrent())
+        showNotify(
+          err.response?.data?.error || "Aktion konnte nicht ausgeführt werden.",
+        );
     }
   };
 
-  const handleToggleConversationTag = async (tag: { id: string; name: string }) => {
+  const handleToggleConversationTag = async (tag: {
+    id: string;
+    name: string;
+  }) => {
     if (!selectedConv) return;
     const selected = selectedConv;
     const organizationId = activeOrgIdRef.current;
-    const current = () => activeOrgIdRef.current === organizationId &&
+    const current = () =>
+      activeOrgIdRef.current === organizationId &&
       selectedConversationId.current === selected.id;
     const existing = selected.tags || [];
     const nextTags = existing.some((item: { id: string }) => item.id === tag.id)
@@ -682,7 +767,11 @@ export default function Dashboard({
       await handleSelectConversation(updated);
       if (current()) void fetchTenantData();
     } catch (err: any) {
-      if (current()) showNotify(err.response?.data?.error || "Tags konnten nicht aktualisiert werden.");
+      if (current())
+        showNotify(
+          err.response?.data?.error ||
+            "Tags konnten nicht aktualisiert werden.",
+        );
     }
   };
 
@@ -697,7 +786,10 @@ export default function Dashboard({
       showNotify(`Präsenzstatus: ${status}`);
     } catch (err: any) {
       if (activeOrgIdRef.current === organizationId) {
-        showNotify(err.response?.data?.error || "Präsenzstatus konnte nicht gespeichert werden.");
+        showNotify(
+          err.response?.data?.error ||
+            "Präsenzstatus konnte nicht gespeichert werden.",
+        );
       }
     }
   };
@@ -707,16 +799,25 @@ export default function Dashboard({
     const conversationId = selectedConv.id;
     const organizationId = activeOrgIdRef.current;
     const content = internalNoteInput.trim();
-    const current = () => selectedConversationId.current === conversationId &&
+    const current = () =>
+      selectedConversationId.current === conversationId &&
       activeOrgIdRef.current === organizationId;
     try {
-      const { data } = await api.post(`/conversations/${conversationId}/internal-notes`, { content });
+      const { data } = await api.post(
+        `/conversations/${conversationId}/internal-notes`,
+        { content },
+      );
       if (!current()) return;
-      setConvMessages((messages) => messages.some((m) => m.id === data.id) ? messages : [...messages, data]);
-      setInternalNoteInput((value) => value === content ? "" : value);
+      setConvMessages((messages) =>
+        messages.some((m) => m.id === data.id) ? messages : [...messages, data],
+      );
+      setInternalNoteInput((value) => (value === content ? "" : value));
       showNotify("Interne Notiz gespeichert.");
     } catch (err: any) {
-      if (current()) showNotify(err.response?.data?.error || "Notiz konnte nicht gespeichert werden.");
+      if (current())
+        showNotify(
+          err.response?.data?.error || "Notiz konnte nicht gespeichert werden.",
+        );
     }
   };
 
@@ -767,12 +868,20 @@ export default function Dashboard({
         `/conversations/${conversationId}/messages/${message.id}/translation`,
         { targetLanguage },
       );
-      if (selectedConversationId.current !== conversationId ||
-          activeOrgIdRef.current !== organizationId) return;
-      setTranslations((current) => ({ ...current, [message.id]: data.translatedContent }));
+      if (
+        selectedConversationId.current !== conversationId ||
+        activeOrgIdRef.current !== organizationId
+      )
+        return;
+      setTranslations((current) => ({
+        ...current,
+        [message.id]: data.translatedContent,
+      }));
     } catch (err: any) {
-      if (selectedConversationId.current === conversationId &&
-          activeOrgIdRef.current === organizationId) {
+      if (
+        selectedConversationId.current === conversationId &&
+        activeOrgIdRef.current === organizationId
+      ) {
         showNotify(err.response?.data?.error || "Übersetzung fehlgeschlagen.");
       }
     }
@@ -788,15 +897,23 @@ export default function Dashboard({
       selectedConversationId.current === conversationId &&
       activeOrgIdRef.current === organizationId;
     try {
-      const { data } = await api.post(`/conversations/${conversationId}/messages`, { content });
+      const { data } = await api.post(
+        `/conversations/${conversationId}/messages`,
+        { content },
+      );
       if (!current()) return;
       setConvMessages((messages) =>
-        messages.some((message) => message.id === data.id) ? messages : [...messages, data],
+        messages.some((message) => message.id === data.id)
+          ? messages
+          : [...messages, data],
       );
-      setAgentMsgInput((value) => value === content ? "" : value);
+      setAgentMsgInput((value) => (value === content ? "" : value));
       showNotify("Antwort an Kunden gesendet.");
     } catch (err: any) {
-      if (current()) showNotify(err.response?.data?.error || "Antwort konnte nicht gesendet werden.");
+      if (current())
+        showNotify(
+          err.response?.data?.error || "Antwort konnte nicht gesendet werden.",
+        );
     }
   };
 
@@ -809,7 +926,10 @@ export default function Dashboard({
       void fetchTenantData();
     } catch (err: any) {
       if (activeOrgIdRef.current === organizationId) {
-        showNotify(err.response?.data?.error || "Unterhaltung konnte nicht gelöst werden.");
+        showNotify(
+          err.response?.data?.error ||
+            "Unterhaltung konnte nicht gelöst werden.",
+        );
       }
     }
   };
@@ -831,7 +951,12 @@ export default function Dashboard({
 
   const handleRotateWidgetKey = async () => {
     if (!activeAssistant) return;
-    if (!window.confirm("Widget-Schlüssel erneuern? Der bisherige Schlüssel wird ungültig und alle eingebundenen Websites müssen ihren Widget-Key aktualisieren.")) return;
+    if (
+      !window.confirm(
+        "Widget-Schlüssel erneuern? Der bisherige Schlüssel wird ungültig und alle eingebundenen Websites müssen ihren Widget-Key aktualisieren.",
+      )
+    )
+      return;
     try {
       const res = await api.post(
         `/assistants/${activeAssistant.id}/widget-key/rotate`,
@@ -858,11 +983,17 @@ export default function Dashboard({
     setTicketCommentsList([]);
     try {
       const res = await api.get(`/tickets/${ticket.id}/comments`);
-      if (ticketDetailRequestId.current === requestId && activeOrgIdRef.current === organizationId) {
+      if (
+        ticketDetailRequestId.current === requestId &&
+        activeOrgIdRef.current === organizationId
+      ) {
         setTicketCommentsList(res.data);
       }
     } catch (err) {
-      if (ticketDetailRequestId.current === requestId && activeOrgIdRef.current === organizationId) {
+      if (
+        ticketDetailRequestId.current === requestId &&
+        activeOrgIdRef.current === organizationId
+      ) {
         console.error("Failed to load ticket comments", err);
       }
     }
@@ -916,7 +1047,9 @@ export default function Dashboard({
     try {
       const { data } = await api.get("/conversations");
       if (activeOrgIdRef.current !== organizationId) return;
-      const conversation = data.find((item: { id: string }) => item.id === conversationId);
+      const conversation = data.find(
+        (item: { id: string }) => item.id === conversationId,
+      );
       if (!conversation) {
         showNotify("Die zugehörige Unterhaltung ist nicht mehr verfügbar.");
         return;
@@ -926,7 +1059,10 @@ export default function Dashboard({
       await handleSelectConversation(conversation);
     } catch (err: any) {
       if (activeOrgIdRef.current === organizationId) {
-        showNotify(err.response?.data?.error || "Unterhaltung konnte nicht geladen werden.");
+        showNotify(
+          err.response?.data?.error ||
+            "Unterhaltung konnte nicht geladen werden.",
+        );
       }
     }
   };
@@ -1043,56 +1179,100 @@ export default function Dashboard({
               </button>
             </form>
           ) : (
-            <form onSubmit={awaitingTwoFactor ? (event) => { event.preventDefault(); void handleTwoFactorLogin(); } : handleLogin} className="space-y-4">
+            <form
+              onSubmit={
+                awaitingTwoFactor
+                  ? (event) => {
+                      event.preventDefault();
+                      void handleTwoFactorLogin();
+                    }
+                  : handleLogin
+              }
+              className="space-y-4"
+            >
               {awaitingTwoFactor ? (
                 <>
-                  <label htmlFor="two-factor-login" className="block text-xs font-semibold uppercase text-slate-300">Authenticator-Code</label>
-                  <input id="two-factor-login" inputMode="numeric" autoComplete="one-time-code" value={twoFactorLoginCode} onChange={(event) => setTwoFactorLoginCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="123456" required className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm" />
-                  <button type="button" disabled={twoFactorLoginCode.length !== 6} onClick={() => void handleTwoFactorLogin()} className="w-full rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50">Anmeldung bestätigen</button>
-                  <button type="button" onClick={() => { setAwaitingTwoFactor(false); setTwoFactorLoginCode(""); }} className="w-full text-xs text-slate-400">Zurück zur Anmeldung</button>
+                  <label
+                    htmlFor="two-factor-login"
+                    className="block text-xs font-semibold uppercase text-slate-300"
+                  >
+                    Authenticator-Code
+                  </label>
+                  <input
+                    id="two-factor-login"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    value={twoFactorLoginCode}
+                    onChange={(event) =>
+                      setTwoFactorLoginCode(
+                        event.target.value.replace(/\D/g, "").slice(0, 6),
+                      )
+                    }
+                    placeholder="123456"
+                    required
+                    className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm"
+                  />
+                  <button
+                    type="button"
+                    disabled={twoFactorLoginCode.length !== 6}
+                    onClick={() => void handleTwoFactorLogin()}
+                    className="w-full rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    Anmeldung bestätigen
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAwaitingTwoFactor(false);
+                      setTwoFactorLoginCode("");
+                    }}
+                    className="w-full text-xs text-slate-400"
+                  >
+                    Zurück zur Anmeldung
+                  </button>
                 </>
               ) : (
                 <>
-              <div>
-                <label
-                  htmlFor="support-field-5"
-                  className="block text-xs font-semibold text-slate-300 uppercase mb-1"
-                >
-                  Work Email
-                </label>
-                <input
-                  id="support-field-5"
-                  type="email"
-                  required
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                  value={authEmail}
-                  onChange={(e) => setAuthEmail(e.target.value)}
-                  placeholder="admin@company.com"
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="support-field-6"
-                  className="block text-xs font-semibold text-slate-300 uppercase mb-1"
-                >
-                  Password
-                </label>
-                <input
-                  id="support-field-6"
-                  type="password"
-                  required
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                  value={authPassword}
-                  onChange={(e) => setAuthPassword(e.target.value)}
-                  placeholder="••••••••"
-                />
-              </div>
-              <button
-                type="submit"
-                className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-sm shadow-md transition-colors"
-              >
-                Sign In to Dashboard
-              </button>
+                  <div>
+                    <label
+                      htmlFor="support-field-5"
+                      className="block text-xs font-semibold text-slate-300 uppercase mb-1"
+                    >
+                      Work Email
+                    </label>
+                    <input
+                      id="support-field-5"
+                      type="email"
+                      required
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                      value={authEmail}
+                      onChange={(e) => setAuthEmail(e.target.value)}
+                      placeholder="admin@company.com"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="support-field-6"
+                      className="block text-xs font-semibold text-slate-300 uppercase mb-1"
+                    >
+                      Password
+                    </label>
+                    <input
+                      id="support-field-6"
+                      type="password"
+                      required
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                      value={authPassword}
+                      onChange={(e) => setAuthPassword(e.target.value)}
+                      placeholder="••••••••"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-sm shadow-md transition-colors"
+                  >
+                    Sign In to Dashboard
+                  </button>
                 </>
               )}
             </form>
@@ -1108,7 +1288,9 @@ export default function Dashboard({
 
   // --- Main SaaS Dashboard Layout ---
   return (
-    <div className={`relvona-workspace flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden ${activeTab === "overview" ? "relvona-workspace--overview" : ""}`}>
+    <div
+      className={`relvona-workspace flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden ${activeTab === "overview" ? "relvona-workspace--overview" : ""}`}
+    >
       {notification && (
         <div className="fixed top-4 right-4 z-50 bg-blue-600 text-white px-4 py-2.5 rounded-lg shadow-xl text-sm flex items-center gap-2 animate-bounce">
           <CheckCircle className="w-4 h-4" />
@@ -1120,7 +1302,9 @@ export default function Dashboard({
         <div>
           <div className="p-4 border-b border-slate-800 flex items-center justify-between">
             <div className="flex items-center gap-2.5 overflow-hidden">
-              <div className="rv-brand-mark w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-white shrink-0">R</div>
+              <div className="rv-brand-mark w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-white shrink-0">
+                R
+              </div>
               <div className="truncate">
                 <h2 className="text-sm font-bold truncate text-white">
                   Relvona
@@ -1199,33 +1383,40 @@ export default function Dashboard({
                 Plattformverwaltung
               </a>
             )}
-            {dashboardNavigation(administration)
-              .map((item) => {
-                const Icon = item.icon;
-                const isActive = activeTab === item.id;
-                return (
-                  <button
-                    type="button"
-                    key={item.id}
-                    onClick={() => setActiveTab(item.id)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                      isActive
-                        ? "bg-blue-600 text-white font-semibold"
-                        : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-                    }`}
-                  >
-                    <Icon className="w-4 h-4 shrink-0" />
-                    <span className="truncate">{item.label}</span>
-                  </button>
-                );
-              })}
+            {dashboardNavigation(administration).map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  type="button"
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id)}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                    isActive
+                      ? "bg-blue-600 text-white font-semibold"
+                      : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                  }`}
+                >
+                  <Icon className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{item.label}</span>
+                </button>
+              );
+            })}
             {!administration && auth.user.systemRole === "superadmin" && (
               <div className="rv-nav-secondary">
                 <p>Workspace</p>
-                <a href="/admin/scheduling"><CalendarDays size={16}/> Termine</a>
-                <a href="/admin/support-automations"><Workflow size={16}/> AI-Automationen</a>
-                <a href="/admin/employees"><Users size={16}/> Mitarbeiter</a>
-                <a href="/admin/integrations"><Globe size={16}/> Integrationen</a>
+                <a href="/admin/scheduling">
+                  <CalendarDays size={16} /> Termine
+                </a>
+                <a href="/admin/support-automations">
+                  <Workflow size={16} /> AI-Automationen
+                </a>
+                <a href="/admin/employees">
+                  <Users size={16} /> Mitarbeiter
+                </a>
+                <a href="/admin/integrations">
+                  <Globe size={16} /> Integrationen
+                </a>
               </div>
             )}
           </nav>
@@ -1264,11 +1455,32 @@ export default function Dashboard({
         </div>
       </aside>
 
-      <main className={activeTab === "overview" ? "rv-main rv-main--overview flex-1 overflow-y-auto" : ["analytics", "customers", "agents", "tickets", "conversations", "knowledge", "websites", "assistant", "widget", "settings"].includes(activeTab) ? "rv-main rv-main--modern flex-1 overflow-y-auto p-6" : "rv-main flex-1 bg-slate-950 overflow-y-auto p-6"}>
+      <main
+        className={
+          activeTab === "overview"
+            ? "rv-main rv-main--overview flex-1 overflow-y-auto"
+            : [
+                  "analytics",
+                  "customers",
+                  "agents",
+                  "tickets",
+                  "conversations",
+                  "knowledge",
+                  "websites",
+                  "assistant",
+                  "widget",
+                  "settings",
+                ].includes(activeTab)
+              ? "rv-main rv-main--modern flex-1 overflow-y-auto p-6"
+              : "rv-main flex-1 bg-slate-950 overflow-y-auto p-6"
+        }
+      >
         {activeTab === "profile" && (
           <div className="mx-auto max-w-2xl space-y-6">
             <div>
-              <h1 className="text-xl font-bold text-white">Profil-Einstellungen</h1>
+              <h1 className="text-xl font-bold text-white">
+                Profil-Einstellungen
+              </h1>
               <p className="text-xs text-slate-400">
                 Name, Profilbild, Sprache und dein persönliches Theme verwalten.
               </p>
@@ -1355,27 +1567,62 @@ export default function Dashboard({
               <fieldset className="space-y-4 border-t border-slate-700 pt-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <legend className="text-sm font-semibold text-slate-100">Persönliches Erscheinungsbild</legend>
-                    <p className="text-xs text-slate-400">Gilt nur für dein Benutzerkonto und wird sofort als Vorschau angezeigt.</p>
+                    <legend className="text-sm font-semibold text-slate-100">
+                      Persönliches Erscheinungsbild
+                    </legend>
+                    <p className="text-xs text-slate-400">
+                      Gilt nur für dein Benutzerkonto und wird sofort als
+                      Vorschau angezeigt.
+                    </p>
                   </div>
                   <div className="flex gap-2">
-                    <button type="button" onClick={() => setThemePreferences(DEFAULT_USER_THEME)} className="rounded border border-slate-700 px-3 py-2 text-xs text-slate-200">Dunkel</button>
-                    <button type="button" onClick={() => setThemePreferences(LIGHT_USER_THEME)} className="rounded border border-slate-700 px-3 py-2 text-xs text-slate-200">Hell</button>
+                    <button
+                      type="button"
+                      onClick={() => setThemePreferences(DEFAULT_USER_THEME)}
+                      className="rounded border border-slate-700 px-3 py-2 text-xs text-slate-200"
+                    >
+                      Dunkel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setThemePreferences(LIGHT_USER_THEME)}
+                      className="rounded border border-slate-700 px-3 py-2 text-xs text-slate-200"
+                    >
+                      Hell
+                    </button>
                   </div>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  {([
-                    ["backgroundColor", "Hintergrund"],
-                    ["surfaceColor", "Flächen"],
-                    ["textColor", "Schrift"],
-                    ["mutedTextColor", "Sekundärschrift"],
-                    ["primaryColor", "Akzentfarbe"],
-                  ] as const).map(([key, label]) => (
-                    <label key={key} className="flex items-center justify-between gap-3 text-xs font-semibold text-slate-300">
+                  {(
+                    [
+                      ["backgroundColor", "Hintergrund"],
+                      ["surfaceColor", "Flächen"],
+                      ["textColor", "Schrift"],
+                      ["mutedTextColor", "Sekundärschrift"],
+                      ["primaryColor", "Akzentfarbe"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <label
+                      key={key}
+                      className="flex items-center justify-between gap-3 text-xs font-semibold text-slate-300"
+                    >
                       <span>{label}</span>
                       <span className="flex items-center gap-2">
-                        <input type="color" aria-label={label} value={themePreferences[key]} onChange={(event) => setThemePreferences({ ...themePreferences, [key]: event.target.value })} className="h-10 w-12 rounded border border-slate-700 bg-slate-800 p-1" />
-                        <code className="w-16 text-[10px] font-normal text-slate-400">{themePreferences[key]}</code>
+                        <input
+                          type="color"
+                          aria-label={label}
+                          value={themePreferences[key]}
+                          onChange={(event) =>
+                            setThemePreferences({
+                              ...themePreferences,
+                              [key]: event.target.value,
+                            })
+                          }
+                          className="h-10 w-12 rounded border border-slate-700 bg-slate-800 p-1"
+                        />
+                        <code className="w-16 text-[10px] font-normal text-slate-400">
+                          {themePreferences[key]}
+                        </code>
                       </span>
                     </label>
                   ))}
@@ -1383,23 +1630,73 @@ export default function Dashboard({
                 <div className="grid gap-4 sm:grid-cols-2">
                   <label className="text-xs font-semibold text-slate-300">
                     Schriftart
-                    <select value={themePreferences.fontFamily} onChange={(event) => setThemePreferences({ ...themePreferences, fontFamily: event.target.value as UserThemePreferences["fontFamily"] })} className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100">
-                      <option value="sans">Sans Serif</option><option value="serif">Serif</option><option value="mono">Monospace</option>
+                    <select
+                      value={themePreferences.fontFamily}
+                      onChange={(event) =>
+                        setThemePreferences({
+                          ...themePreferences,
+                          fontFamily: event.target
+                            .value as UserThemePreferences["fontFamily"],
+                        })
+                      }
+                      className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
+                    >
+                      <option value="sans">Sans Serif</option>
+                      <option value="serif">Serif</option>
+                      <option value="mono">Monospace</option>
                     </select>
                   </label>
                   <label className="text-xs font-semibold text-slate-300">
                     Abstände
-                    <select value={themePreferences.density} onChange={(event) => setThemePreferences({ ...themePreferences, density: event.target.value as UserThemePreferences["density"] })} className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100">
-                      <option value="compact">Kompakt</option><option value="comfortable">Komfortabel</option><option value="spacious">Großzügig</option>
+                    <select
+                      value={themePreferences.density}
+                      onChange={(event) =>
+                        setThemePreferences({
+                          ...themePreferences,
+                          density: event.target
+                            .value as UserThemePreferences["density"],
+                        })
+                      }
+                      className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
+                    >
+                      <option value="compact">Kompakt</option>
+                      <option value="comfortable">Komfortabel</option>
+                      <option value="spacious">Großzügig</option>
                     </select>
                   </label>
                   <label className="text-xs font-semibold text-slate-300">
                     Schriftgröße: {themePreferences.fontSize}px
-                    <input type="range" min="12" max="20" step="1" value={themePreferences.fontSize} onChange={(event) => setThemePreferences({ ...themePreferences, fontSize: Number(event.target.value) })} className="mt-2 w-full" />
+                    <input
+                      type="range"
+                      min="12"
+                      max="20"
+                      step="1"
+                      value={themePreferences.fontSize}
+                      onChange={(event) =>
+                        setThemePreferences({
+                          ...themePreferences,
+                          fontSize: Number(event.target.value),
+                        })
+                      }
+                      className="mt-2 w-full"
+                    />
                   </label>
                   <label className="text-xs font-semibold text-slate-300">
                     Eckenradius: {themePreferences.radius}px
-                    <input type="range" min="0" max="24" step="1" value={themePreferences.radius} onChange={(event) => setThemePreferences({ ...themePreferences, radius: Number(event.target.value) })} className="mt-2 w-full" />
+                    <input
+                      type="range"
+                      min="0"
+                      max="24"
+                      step="1"
+                      value={themePreferences.radius}
+                      onChange={(event) =>
+                        setThemePreferences({
+                          ...themePreferences,
+                          radius: Number(event.target.value),
+                        })
+                      }
+                      className="mt-2 w-full"
+                    />
                   </label>
                 </div>
               </fieldset>
@@ -1428,16 +1725,21 @@ export default function Dashboard({
               const selectedOrganizationId = activeOrg?.id;
               if (!selectedOrganizationId) return;
               setActiveTab("tickets");
-              void api.get("/tickets").then(({data}) => {
-                if (activeOrgIdRef.current !== selectedOrganizationId) return;
-                setTicketsList(data);
-                const fullTicket = data.find((candidate: { id: string }) => candidate.id === ticket.id);
-                if (fullTicket) void handleSelectTicket(fullTicket);
-              }).catch(() => {
-                if (activeOrgIdRef.current === selectedOrganizationId) {
-                  showNotify("Ticketliste konnte nicht geladen werden.");
-                }
-              });
+              void api
+                .get("/tickets")
+                .then(({ data }) => {
+                  if (activeOrgIdRef.current !== selectedOrganizationId) return;
+                  setTicketsList(data);
+                  const fullTicket = data.find(
+                    (candidate: { id: string }) => candidate.id === ticket.id,
+                  );
+                  if (fullTicket) void handleSelectTicket(fullTicket);
+                })
+                .catch(() => {
+                  if (activeOrgIdRef.current === selectedOrganizationId) {
+                    showNotify("Ticketliste konnte nicht geladen werden.");
+                  }
+                });
             }}
           />
         )}
@@ -1505,7 +1807,7 @@ export default function Dashboard({
           />
         )}
 
-                {activeTab === "tickets" && (
+        {activeTab === "tickets" && (
           <TicketsWorkspace
             key={activeOrg?.id ?? "no-organization"}
             ticketsList={ticketsList}
@@ -1520,7 +1822,7 @@ export default function Dashboard({
           />
         )}
 
-                {activeTab === "knowledge" && (
+        {activeTab === "knowledge" && (
           <KnowledgeWorkspace
             organizationId={activeOrg?.id}
             canManage={["owner", "admin"].includes(activeOrg?.role)}
@@ -1551,7 +1853,7 @@ export default function Dashboard({
           />
         )}
 
-                {activeTab === "websites" && (
+        {activeTab === "websites" && (
           <WebsiteCrawlerWorkspace
             organizationId={activeOrg?.id}
             canManage={["owner", "admin"].includes(activeOrg?.role)}
@@ -1569,13 +1871,19 @@ export default function Dashboard({
           />
         )}
 
-                {activeTab === "assistant" && !activeAssistant && (
+        {activeTab === "assistant" && !activeAssistant && (
           <div className="rv-assistant-workspace rv-config-workspace mx-auto max-w-4xl space-y-6">
-            <WorkspaceHeader eyebrow="AI-KONFIGURATION" title="AI-Assistent"
-              description="Verwalte deine AI-Assistenten und Modellprofile." />
+            <WorkspaceHeader
+              eyebrow="AI-KONFIGURATION"
+              title="AI-Assistent"
+              description="Verwalte deine AI-Assistenten und Modellprofile."
+            />
             <div className="rv-config-card">
-              <WorkspaceEmpty icon={Bot} title="Kein AI-Assistent verfügbar"
-                description="Für diese Organisation ist noch keine Assistentenkonfiguration geladen." />
+              <WorkspaceEmpty
+                icon={Bot}
+                title="Kein AI-Assistent verfügbar"
+                description="Für diese Organisation ist noch keine Assistentenkonfiguration geladen."
+              />
             </div>
           </div>
         )}
@@ -1589,17 +1897,19 @@ export default function Dashboard({
           />
         )}
 
-                {activeTab === "widget" && activeOrg && activeAssistant && (
+        {activeTab === "widget" && activeOrg && activeAssistant && (
           <WidgetDesigner
             key={activeAssistant.id}
             assistant={activeAssistant}
             onChange={setActiveAssistant}
             onSave={handleSaveAssistantSettings}
-            onRotateKey={() => { void handleRotateWidgetKey(); }}
+            onRotateKey={() => {
+              void handleRotateWidgetKey();
+            }}
           />
         )}
 
-                {activeTab === "settings" && activeOrg && (
+        {activeTab === "settings" && activeOrg && (
           <OrganizationSettings
             key={activeOrg.id}
             organizationId={activeOrg.id}
@@ -1608,12 +1918,16 @@ export default function Dashboard({
               setActiveOrg((current: any) =>
                 current?.id === orgId ? { ...current, apiKey } : current,
               );
-              setAuth((current) => current ? {
-                ...current,
-                organizations: current.organizations.map((org: any) =>
-                  org.id === orgId ? { ...org, apiKey } : org,
-                ),
-              } : current);
+              setAuth((current) =>
+                current
+                  ? {
+                      ...current,
+                      organizations: current.organizations.map((org: any) =>
+                        org.id === orgId ? { ...org, apiKey } : org,
+                      ),
+                    }
+                  : current,
+              );
             }}
             notify={showNotify}
           />

@@ -19,7 +19,9 @@
   --success: #43d3a0;
   --warning: #f4bb5b;
   --ring: rgba(79, 140, 255, 0.42);
-  --font-geist-sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-geist-sans:
+    Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
   --font-geist-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.28), 0 16px 42px rgba(0, 0, 0, 0.12);
   --shadow-elevated: 0 18px 60px rgba(0, 0, 0, 0.34);
@@ -60,8 +62,16 @@ html {
 
 body {
   background:
-    radial-gradient(circle at 12% -10%, rgba(79, 140, 255, 0.11), transparent 28rem),
-    radial-gradient(circle at 92% 4%, rgba(94, 234, 212, 0.055), transparent 24rem),
+    radial-gradient(
+      circle at 12% -10%,
+      rgba(79, 140, 255, 0.11),
+      transparent 28rem
+    ),
+    radial-gradient(
+      circle at 92% 4%,
+      rgba(94, 234, 212, 0.055),
+      transparent 24rem
+    ),
     var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans);
@@ -121,7 +131,10 @@ input,
 select,
 textarea {
   border-color: var(--border) !important;
-  transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    background-color 140ms ease;
 }
 
 input:hover,
@@ -145,7 +158,13 @@ textarea::placeholder {
 
 button,
 a[class*="rounded"] {
-  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, opacity 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    opacity 140ms ease,
+    transform 140ms ease,
+    box-shadow 140ms ease;
 }
 
 button:active:not(:disabled),
@@ -166,7 +185,11 @@ a[class*="rounded"]:active {
 
 .bg-muted,
 [class*="bg-muted/"] {
-  background-color: color-mix(in srgb, var(--muted) 72%, transparent) !important;
+  background-color: color-mix(
+    in srgb,
+    var(--muted) 72%,
+    transparent
+  ) !important;
 }
 
 .text-muted-foreground {
@@ -178,7 +201,11 @@ a[class*="rounded"]:active {
 }
 
 .border-destructive\/40 {
-  border-color: color-mix(in srgb, var(--destructive) 40%, transparent) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--destructive) 40%,
+    transparent
+  ) !important;
 }
 
 /* Legacy dashboard visual unification. */
@@ -251,7 +278,11 @@ a[class*="rounded"]:active {
 .bg-slate-800\/60,
 .bg-slate-800\/50,
 .bg-slate-800\/40 {
-  background-color: color-mix(in srgb, var(--muted) 72%, transparent) !important;
+  background-color: color-mix(
+    in srgb,
+    var(--muted) 72%,
+    transparent
+  ) !important;
 }
 
 .border-slate-800 {
@@ -279,7 +310,11 @@ a[class*="rounded"]:active {
 }
 
 .text-slate-300 {
-  color: color-mix(in srgb, var(--foreground) 82%, var(--muted-foreground)) !important;
+  color: color-mix(
+    in srgb,
+    var(--foreground) 82%,
+    var(--muted-foreground)
+  ) !important;
 }
 
 .text-slate-400 {
@@ -308,7 +343,11 @@ html[data-density="spacious"] button {
 }
 
 .text-slate-500 {
-  color: color-mix(in srgb, var(--muted-foreground) 86%, var(--foreground)) !important;
+  color: color-mix(
+    in srgb,
+    var(--muted-foreground) 86%,
+    var(--foreground)
+  ) !important;
 }
 
 /* Cards and panels get consistent elevation without changing component markup. */

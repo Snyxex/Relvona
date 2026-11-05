@@ -14,7 +14,9 @@
   display: grid;
   gap: 18px;
   color: #172440;
-  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
 }
 
 .rv-main--modern .rv-section-header {
@@ -29,7 +31,7 @@
 .rv-main--modern .rv-section-eyebrow {
   font-size: 10px;
   font-weight: 750;
-  letter-spacing: .15em;
+  letter-spacing: 0.15em;
   color: #5578d8;
   margin-bottom: 8px;
 }
@@ -38,7 +40,7 @@
   font-size: clamp(23px, 2.2vw, 30px);
   line-height: 1.2;
   font-weight: 750;
-  letter-spacing: -.045em;
+  letter-spacing: -0.045em;
   color: #14213c;
 }
 
@@ -111,7 +113,7 @@
   border: 1px solid #e7ecf5;
   border-radius: 14px;
   background: #fff;
-  box-shadow: 0 6px 22px rgba(24, 42, 78, .045);
+  box-shadow: 0 6px 22px rgba(24, 42, 78, 0.045);
 }
 
 .rv-main--modern .rv-section-kpis {
@@ -144,17 +146,29 @@
   place-items: center;
 }
 
-.rv-main--modern .rv-tone-blue { background: #eaf0ff; color: #5274ed; }
-.rv-main--modern .rv-tone-violet { background: #f2edff; color: #8f65e9; }
-.rv-main--modern .rv-tone-mint { background: #e4f8f2; color: #25a88c; }
-.rv-main--modern .rv-tone-amber { background: #fff5e5; color: #c18a3b; }
+.rv-main--modern .rv-tone-blue {
+  background: #eaf0ff;
+  color: #5274ed;
+}
+.rv-main--modern .rv-tone-violet {
+  background: #f2edff;
+  color: #8f65e9;
+}
+.rv-main--modern .rv-tone-mint {
+  background: #e4f8f2;
+  color: #25a88c;
+}
+.rv-main--modern .rv-tone-amber {
+  background: #fff5e5;
+  color: #c18a3b;
+}
 
 .rv-main--modern .rv-section-metric > strong {
   color: #14223e;
   font-size: 28px;
   font-weight: 750;
   line-height: 1.15;
-  letter-spacing: -.045em;
+  letter-spacing: -0.045em;
 }
 
 .rv-main--modern .rv-section-metric > small {
@@ -232,7 +246,7 @@
 .rv-main--modern .rv-insight-donut strong {
   font-size: 21px;
   font-weight: 750;
-  letter-spacing: -.03em;
+  letter-spacing: -0.03em;
 }
 
 .rv-main--modern .rv-insight-donut small {
@@ -243,7 +257,7 @@
 .rv-main--modern .rv-insight-number {
   font-size: 32px;
   font-weight: 750;
-  letter-spacing: -.04em;
+  letter-spacing: -0.04em;
   color: #183153;
   margin-top: 23px;
 }
@@ -409,7 +423,9 @@
   font-size: 10px;
 }
 
-.rv-main--modern .rv-directory-meta dt { color: #8c9bb0; }
+.rv-main--modern .rv-directory-meta dt {
+  color: #8c9bb0;
+}
 .rv-main--modern .rv-directory-meta dd {
   color: #566781;
   max-width: 64%;
@@ -429,7 +445,9 @@
   flex-wrap: wrap;
 }
 
-.rv-main--modern .rv-agent-row:last-child { border-bottom: 0; }
+.rv-main--modern .rv-agent-row:last-child {
+  border-bottom: 0;
+}
 
 .rv-main--modern .rv-agent-badges {
   display: flex;
@@ -452,7 +470,9 @@
   font-weight: 600;
 }
 
-.rv-main--modern .rv-section-presence { color: #8794a6; }
+.rv-main--modern .rv-section-presence {
+  color: #8794a6;
+}
 .rv-main--modern .rv-section-presence i {
   width: 7px;
   height: 7px;
@@ -464,7 +484,9 @@
   border-color: #caede2;
   background: #eaf9f3;
 }
-.rv-main--modern .rv-section-presence.rv-online i { background: #28b28e; }
+.rv-main--modern .rv-section-presence.rv-online i {
+  background: #28b28e;
+}
 
 .rv-main--modern .rv-section-note {
   display: flex;
@@ -519,7 +541,7 @@
 .rv-main--modern .rv-ticket-workspace h1 {
   color: #14213c;
   font-size: 26px;
-  letter-spacing: -.045em;
+  letter-spacing: -0.045em;
 }
 
 .rv-main--modern .rv-ticket-workspace > div:first-child p {
@@ -534,7 +556,7 @@
   border: 1px solid #e6ebf4;
   border-radius: 14px;
   color: #22314d;
-  box-shadow: 0 6px 22px rgba(24, 42, 78, .04);
+  box-shadow: 0 6px 22px rgba(24, 42, 78, 0.04);
 }
 
 .rv-main--modern .rv-ticket-table table {
@@ -729,7 +751,7 @@
 }
 .rv-employees-page > div:first-child h1 {
   font-size: 27px;
-  letter-spacing: -.045em;
+  letter-spacing: -0.045em;
   color: #14213c;
 }
 .rv-employees-page > div:first-child p {
@@ -741,14 +763,14 @@
   background: #4270e9;
   color: #fff;
   border-radius: 9px;
-  box-shadow: 0 3px 12px rgba(44, 95, 213, .15);
+  box-shadow: 0 3px 12px rgba(44, 95, 213, 0.15);
 }
 .rv-employees-page > div.grid > aside,
 .rv-employees-page > div.grid > section {
   background: #fff;
   border: 1px solid #e5eaf3;
   border-radius: 14px;
-  box-shadow: 0 6px 22px rgba(24, 42, 78, .045);
+  box-shadow: 0 6px 22px rgba(24, 42, 78, 0.045);
 }
 .rv-employees-page .rv-employee-search {
   border: 1px solid #e0e7f1;
@@ -929,7 +951,9 @@
 .rv-main--modern .rv-config-workspace {
   min-width: 0;
   color: #263954;
-  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
 }
 .rv-main--modern .rv-config-workspace > div:not(.rv-section-header),
 .rv-main--modern .rv-config-workspace > form,
@@ -941,7 +965,7 @@
   background: #fff;
   border-color: #e6ebf3;
   color: #243552;
-  box-shadow: 0 5px 22px rgba(22, 43, 81, .04);
+  box-shadow: 0 5px 22px rgba(22, 43, 81, 0.04);
 }
 .rv-main--modern .rv-config-workspace .bg-slate-800,
 .rv-main--modern .rv-config-workspace .bg-slate-800\/50,
@@ -952,7 +976,7 @@
 }
 .rv-main--modern .rv-config-workspace :is(h1, h2, h3) {
   color: #172744;
-  letter-spacing: -.025em;
+  letter-spacing: -0.025em;
 }
 .rv-main--modern .rv-config-workspace :is(label, p).text-slate-400,
 .rv-main--modern .rv-config-workspace .text-slate-400,
@@ -964,7 +988,15 @@
 .rv-main--modern .rv-config-workspace .text-slate-100 {
   color: #293b58;
 }
-.rv-main--modern .rv-config-workspace :is(input:not([type="radio"]):not([type="checkbox"]):not([type="range"]):not([type="color"]),textarea,select) {
+.rv-main--modern
+  .rv-config-workspace
+  :is(
+    input:not([type="radio"]):not([type="checkbox"]):not([type="range"]):not(
+      [type="color"]
+    ),
+    textarea,
+    select
+  ) {
   min-width: 0;
   border: 1px solid #dfe6f0;
   border-radius: 9px;
@@ -972,11 +1004,13 @@
   color: #223552;
   font-size: 12px;
 }
-.rv-main--modern .rv-config-workspace :is(input,textarea,select):focus-visible {
+.rv-main--modern
+  .rv-config-workspace
+  :is(input, textarea, select):focus-visible {
   outline: 2px solid #7b9cf3;
   outline-offset: 2px;
 }
-.rv-main--modern .rv-config-workspace :is(input,textarea)::placeholder {
+.rv-main--modern .rv-config-workspace :is(input, textarea)::placeholder {
   color: #94a3b8;
 }
 .rv-main--modern .rv-config-workspace button.bg-blue-600,
@@ -1047,18 +1081,20 @@
   color: #3d63b4;
   white-space: nowrap;
 }
-.rv-main--modern .rv-settings-workspace input[aria-label="Organisations-API-Schlüssel"] {
+.rv-main--modern
+  .rv-settings-workspace
+  input[aria-label="Organisations-API-Schlüssel"] {
   flex: 1 1 auto;
   width: 100%;
   min-width: 0;
-  letter-spacing: .03em;
+  letter-spacing: 0.03em;
 }
 .rv-main--modern .rv-knowledge-sources {
   background: #fff;
   color: #223450;
   border: 1px solid #e7ecf4;
   border-radius: 14px;
-  box-shadow: 0 5px 22px rgba(22, 43, 81, .04);
+  box-shadow: 0 5px 22px rgba(22, 43, 81, 0.04);
 }
 .rv-main--modern .rv-knowledge-sources .rv-source-heading {
   border-color: #e7ecf4;
@@ -1125,7 +1161,7 @@
 .rv-main--modern .rv-knowledge-sources .text-blue-300 {
   color: #4269c1;
 }
-.rv-main--modern .rv-knowledge-sources :is(input,textarea) {
+.rv-main--modern .rv-knowledge-sources :is(input, textarea) {
   width: 100%;
   background: #f8faff;
   color: #253651;
@@ -1138,7 +1174,7 @@
 .rv-main--modern .rv-knowledge-sources .border-slate-800 {
   border-color: #e7ecf4;
 }
-@media(max-width:650px) {
+@media (max-width: 650px) {
   .rv-main--modern .rv-config-workspace .rv-section-header {
     align-items: flex-start;
   }
@@ -1210,12 +1246,12 @@
   outline: 2px solid #678bf0;
   outline-offset: 2px;
 }
-@media(max-width:1200px) {
+@media (max-width: 1200px) {
   .rv-main--modern .rv-config-kpis {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
-@media(max-width:490px) {
+@media (max-width: 490px) {
   .rv-main--modern .rv-config-kpis {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1241,9 +1277,11 @@
   border-radius: 14px;
   border: 1px solid #e4eaf4;
   background: #fff;
-  box-shadow: 0 6px 22px rgba(24, 42, 78, .045);
+  box-shadow: 0 6px 22px rgba(24, 42, 78, 0.045);
 }
-.rv-main--modern .rv-widget-workspace .text-white:not(button):not(.bg-blue-600):not(.bg-amber-600) {
+.rv-main--modern
+  .rv-widget-workspace
+  .text-white:not(button):not(.bg-blue-600):not(.bg-amber-600) {
   color: #213552;
 }
 .rv-main--modern .rv-widget-workspace .text-slate-500,

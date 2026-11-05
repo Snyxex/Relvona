@@ -18,18 +18,28 @@ type Props = {
 
 function orderMessages(messages: InboxMessage[]): InboxMessage[] {
   return [...messages].sort(
-    (a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
+    (a, b) =>
+      a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
   );
 }
 
 /** Owns exactly one active room and disconnects as soon as its identity changes. */
 export function useConversationRealtime({
-  enabled, organizationId, conversationId, conversationOrganizationId,
-  setMessages, setConnected, setNotification,
+  enabled,
+  organizationId,
+  conversationId,
+  conversationOrganizationId,
+  setMessages,
+  setConnected,
+  setNotification,
 }: Props): void {
   useEffect(() => {
-    if (!enabled || !organizationId || !conversationId ||
-        conversationOrganizationId !== organizationId) {
+    if (
+      !enabled ||
+      !organizationId ||
+      !conversationId ||
+      conversationOrganizationId !== organizationId
+    ) {
       setConnected(false);
       return;
     }
@@ -43,34 +53,46 @@ export function useConversationRealtime({
       if (!active) return;
       setConnected(true);
       socket.emit("join_room", { organizationId, conversationId });
-      void api.get<InboxMessage[]>(`/conversations/${conversationId}/messages`)
+      void api
+        .get<InboxMessage[]>(`/conversations/${conversationId}/messages`)
         .then(({ data }) => {
           if (!active) return;
           setMessages((current) => {
             const latest = new Map<string, InboxMessage>();
             for (const message of data) {
-              if (message.conversationId === conversationId) latest.set(message.id, message);
+              if (message.conversationId === conversationId)
+                latest.set(message.id, message);
             }
             for (const message of current) {
-              if (message.conversationId === conversationId) latest.set(message.id, message);
+              if (message.conversationId === conversationId)
+                latest.set(message.id, message);
             }
             return orderMessages([...latest.values()]);
           });
         })
         .catch(() => {
-          if (active) setNotification("Nachrichten konnten nicht aktualisiert werden.");
+          if (active)
+            setNotification("Nachrichten konnten nicht aktualisiert werden.");
         });
     });
 
     socket.on("new_message", (message: InboxMessage) => {
-      if (!active || message?.conversationId !== conversationId || !message.id) return;
+      if (!active || message?.conversationId !== conversationId || !message.id)
+        return;
       setMessages((current) =>
         current.some((item) => item.id === message.id)
           ? current
-          : orderMessages([...current.filter((item) => item.conversationId === conversationId), message]),
+          : orderMessages([
+              ...current.filter(
+                (item) => item.conversationId === conversationId,
+              ),
+              message,
+            ]),
       );
     });
-    const disconnected = () => { if (active) setConnected(false); };
+    const disconnected = () => {
+      if (active) setConnected(false);
+    };
     socket.on("disconnect", disconnected);
     socket.on("connect_error", disconnected);
     socket.on("error", disconnected);
@@ -80,6 +102,13 @@ export function useConversationRealtime({
       socket.disconnect();
       setConnected(false);
     };
-  }, [enabled, organizationId, conversationId, conversationOrganizationId,
-    setMessages, setConnected, setNotification]);
+  }, [
+    enabled,
+    organizationId,
+    conversationId,
+    conversationOrganizationId,
+    setMessages,
+    setConnected,
+    setNotification,
+  ]);
 }

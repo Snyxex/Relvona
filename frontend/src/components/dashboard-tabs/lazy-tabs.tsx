@@ -3,7 +3,12 @@
 import dynamic from "next/dynamic";
 
 const loading = () => (
-  <div className="rv-section-page rv-modern-skeleton" role="status" aria-live="polite" aria-busy="true">
+  <div
+    className="rv-section-page rv-modern-skeleton"
+    role="status"
+    aria-live="polite"
+    aria-busy="true"
+  >
     <div className="space-y-3">
       <div className="h-3 w-24 animate-pulse rounded bg-blue-100" />
       <div className="h-8 w-64 max-w-full animate-pulse rounded-lg bg-slate-200" />
@@ -51,6 +56,10 @@ const overviewLoading = () => (
 export const LazyOverviewTab = dynamic(() => import("./overview-tab"), {
   loading: overviewLoading,
 });
-export const LazyAnalyticsTab = dynamic(() => import("./analytics-tab"), { loading });
+export const LazyAnalyticsTab = dynamic(() => import("./analytics-tab"), {
+  loading,
+});
 export const LazyAgentsTab = dynamic(() => import("./agents-tab"), { loading });
-export const LazyCustomersTab = dynamic(() => import("./customers-tab"), { loading });
+export const LazyCustomersTab = dynamic(() => import("./customers-tab"), {
+  loading,
+});

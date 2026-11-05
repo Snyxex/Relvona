@@ -1,8 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { aiResolutionPercent, distributionPercent } from "../src/lib/support-metrics.ts";
-import { TICKET_STATUS_OPTIONS, ticketStatusLabel, ticketStatusTone } from "../src/lib/support-status.ts";
+import {
+  aiResolutionPercent,
+  distributionPercent,
+} from "../src/lib/support-metrics.ts";
+import {
+  TICKET_STATUS_OPTIONS,
+  ticketStatusLabel,
+  ticketStatusTone,
+} from "../src/lib/support-status.ts";
 
 test("ticket status options have unique stable values and labels", () => {
   const values = TICKET_STATUS_OPTIONS.map((status) => status.value);

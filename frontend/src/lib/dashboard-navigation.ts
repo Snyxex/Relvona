@@ -1,7 +1,16 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  BarChart3, BookOpen, Bot, Globe, MessageSquare, Settings,
-  Sliders, Sparkles, Ticket, UserCheck, Users,
+  BarChart3,
+  BookOpen,
+  Bot,
+  Globe,
+  MessageSquare,
+  Settings,
+  Sliders,
+  Sparkles,
+  Ticket,
+  UserCheck,
+  Users,
 } from "lucide-react";
 
 export type DashboardTab =
@@ -40,6 +49,10 @@ const NAVIGATION: readonly NavigationItem[] = [
   { id: "profile", label: "Profil-Einstellungen", icon: UserCheck },
 ];
 
-export function dashboardNavigation(administration: boolean): readonly NavigationItem[] {
-  return NAVIGATION.filter((item) => administration ? item.adminOnly || item.id === "profile" : !item.adminOnly);
+export function dashboardNavigation(
+  administration: boolean,
+): readonly NavigationItem[] {
+  return NAVIGATION.filter((item) =>
+    administration ? item.adminOnly || item.id === "profile" : !item.adminOnly,
+  );
 }

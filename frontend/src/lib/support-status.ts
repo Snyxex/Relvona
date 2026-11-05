@@ -8,7 +8,10 @@ export const TICKET_STATUS_OPTIONS = [
 ] as const;
 
 export function ticketStatusLabel(status: string): string {
-  return TICKET_STATUS_OPTIONS.find((entry) => entry.value === status)?.label ?? status;
+  return (
+    TICKET_STATUS_OPTIONS.find((entry) => entry.value === status)?.label ??
+    status
+  );
 }
 
 export function ticketStatusTone(status: string): string {
