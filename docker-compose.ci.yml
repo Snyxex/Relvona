@@ -32,16 +32,16 @@ services:
       RUSTFS_ADDRESS: ":9000"
       RUSTFS_CONSOLE_ENABLE: "false"
       RUSTFS_OBS_LOGGER_LEVEL: error
-    tmpfs:
-      - /data:uid=10001,gid=10001,mode=0700
+    # Named volume supports rootless Podman without unsupported tmpfs uid/gid mount options.
+    # Compose cleanup removes this isolated test data with --volumes.
+    volumes:
+      - rustfs_ci_data:/data
 
   ci:
     image: node:22-bookworm@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7
     working_dir: /workspace
-    # Rootless Podman's container UID 0 maps to the unprivileged Jenkins UID
-    # on the host. Use the default namespace mapping (no keep-id/newuidmap)
-    # so npm can write to the bind-mounted Jenkins-owned workspace.
-    # This is not host root; the Jenkins agent itself must remain rootless.
+    # Rootless Podman maps container UID 0 to the unprivileged Jenkins host UID.
+    # This permits npm writes to the Jenkins-owned bind mount without host root.
     user: "0:0"
     volumes:
       - .:/workspace
@@ -91,8 +91,10 @@ services:
   backend:
     build:
       context: ./backend
-    entrypoint: []
-    command: ["node", "dist/index.js"]
+    # Explicitly bypass the image Infisical entrypoint for isolated CI smoke tests.
+    # An empty entrypoint is not reliably preserved by all Podman Compose providers.
+    entrypoint: ["node"]
+    command: ["dist/index.js"]
     environment:
       NODE_ENV: production
       PORT: "8080"
@@ -150,3 +152,6 @@ services:
       timeout: 5s
       retries: 20
       start_period: 10s
+
+volumes:
+  rustfs_ci_data:
