@@ -482,7 +482,7 @@ export default function ConversationsWorkspace({
                           type="button"
                           disabled={suggesting}
                           className="ml-3 text-blue-300 disabled:opacity-50"
-                          onClick={handleSuggestReply}}
+                          onClick={handleSuggestReply}
                         >
                           {suggesting
                             ? "Vorschlag wird erstellt …"
