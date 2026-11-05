@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from "next";
-import type { ReactNode } from "react";
 import "./globals.css";
 import "./ux.css";
 
@@ -8,7 +7,8 @@ export const metadata: Metadata = {
     default: "Relvona",
     template: "%s · Relvona",
   },
-  description: "Self-hosted AI customer support, knowledge management and agent operations.",
+  description:
+    "Self-hosted AI customer support, knowledge management and agent operations.",
 };
 
 export const viewport: Viewport = {
@@ -19,7 +19,9 @@ export const viewport: Viewport = {
   colorScheme: "dark",
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default function RootLayout({
+  children,
+}: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="de" className="h-full antialiased">
       <body className="min-h-full flex flex-col">{children}</body>
