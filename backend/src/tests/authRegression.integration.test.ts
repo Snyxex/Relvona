@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import crypto, { randomUUID } from "node:crypto";
 import pg from "pg";
 import { AuthService } from "../services/authService.js";
+import { grantPlatformAdministrator } from "../services/platformAdminGrantService.js";
+import { isPlatformAdmin } from "../auth/session.js";
 import { InvitationService } from "../services/invitationService.js";
 import { EntraAuthService } from "../services/entraAuthService.js";
 import { LEGACY_PASSWORD_SENTINEL } from "../auth/password.js";
@@ -165,6 +167,50 @@ async function testSsoStateAndAccountLinking() {
   }), "SSO_INVITATION_REQUIRED");
 }
 
+
+async function testAdditionalPlatformAdminGrant() {
+  // Synthetic data in the disposable auth regression database.
+  const email = "additional-admin-" + randomUUID() + "@example.test";
+  createdEmails.push(email);
+  const created = await admin.query(
+    "INSERT INTO users (email, name, password_hash, system_role, status) VALUES ($1, 'Additional Admin', $2, 'superadmin', 'active') RETURNING id, token_version",
+    [email, LEGACY_PASSWORD_SENTINEL],
+  );
+  const userId = created.rows[0].id;
+  assert.equal(await isPlatformAdmin(userId), false, "legacy system_role must never grant platform authorization");
+
+  await admin.query(
+    "INSERT INTO auth_sessions (id, user_id, token, expires_at) VALUES ($1, $2, $3, now() + interval '1 day')",
+    [randomUUID(), userId, "pre-grant-" + randomUUID()],
+  );
+  const promoted = await grantPlatformAdministrator(email.toUpperCase());
+  assert.deepEqual(promoted, { userId, granted: true });
+  assert.equal(await isPlatformAdmin(userId), true, "platform_roles must authorize the new admin");
+
+  const admins = await admin.query("SELECT user_id FROM platform_roles WHERE role = $1", [PLATFORM_ADMIN_ROLE]);
+  assert.equal(admins.rowCount, 2, "multiple distinct users must hold the global administrator role");
+  const profile = await admin.query("SELECT system_role, token_version FROM users WHERE id = $1", [userId]);
+  assert.equal(profile.rows[0].system_role, "user", "legacy role marker must be cleared");
+  assert.equal(profile.rows[0].token_version, created.rows[0].token_version + 1);
+  const sessions = await admin.query("SELECT id FROM auth_sessions WHERE user_id = $1", [userId]);
+  assert.equal(sessions.rowCount, 0, "pre-grant sessions must be revoked");
+
+  assert.deepEqual(await grantPlatformAdministrator(email), { userId, granted: false }, "repeat grants must be idempotent");
+  const profileAfterRepeat = await admin.query("SELECT token_version FROM users WHERE id = $1", [userId]);
+  assert.equal(profileAfterRepeat.rows[0].token_version, profile.rows[0].token_version, "repeat grants must not invalidate sessions");
+
+  await assert.rejects(
+    admin.query("INSERT INTO platform_roles (user_id, role) VALUES ($1, $2)", [userId, PLATFORM_ADMIN_ROLE]),
+    (error: unknown) => (error as { code?: string }).code === "23505",
+    "one user must not receive duplicate platform roles",
+  );
+  await rejectsCode(() => grantPlatformAdministrator("missing-" + randomUUID() + "@example.test"), "User not found. Create or invite the account first.");
+  await rejectsCode(
+    () => AuthService.bootstrapPlatformAdmin({ name: "Late Bootstrap", organizationName: "Not Allowed", email: "late-" + randomUUID() + "@example.test", password: "VeryStrongPassword-Late-123" }),
+    "PLATFORM_ADMIN_ALREADY_EXISTS",
+  );
+}
+
 async function main() {
   await admin.connect();
   try {
@@ -172,6 +218,7 @@ async function main() {
     assert.equal(existing.rowCount, 0, "auth regression suite requires a fresh database without an existing Platform Admin");
     await testPlatformBootstrapRace();
     await testInvitationSingleUse();
+    await testAdditionalPlatformAdminGrant();
     await testSsoStateAndAccountLinking();
     console.log("Better Auth regression integration suite passed.");
   } finally {
