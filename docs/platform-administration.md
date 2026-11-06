@@ -1,6 +1,6 @@
 # Plattformverwaltung
 
-`/` ist der Mitarbeiterbereich für Gespräche, Tickets, Wissen, Kunden, Analysen und das eigene Profil. `/admin` ist die getrennte Plattformverwaltung. Nur die in der Datenbank hinterlegte Systemrolle `superadmin` erlaubt den Zugriff; Organisationsrollen `owner` und `admin` reichen nicht aus.
+`/` ist der Mitarbeiterbereich für Gespräche, Tickets, Wissen, Kunden, Analysen und das eigene Profil. `/admin` ist die getrennte Plattformverwaltung. Nur ein serverseitiger Eintrag in `platform_roles` mit `PLATFORM_ADMIN` erlaubt den Zugriff; Organisationsrollen `owner` und `admin` sowie das veraltete Feld `users.system_role` reichen nicht aus.
 
 Die Organisationsauswahl umfasst alle Organisationen. Einstellungen bleiben organisationsbezogen und werden von den bestehenden Laufzeitdiensten verwendet. Es werden keine globalen Standardwerte auf andere Organisationen kopiert.
 
@@ -28,7 +28,11 @@ npm run build
 node dist/scripts/grantPlatformAdmin.js admin@example.com
 ```
 
-Danach erneut anmelden. Bestehende Tokens werden bei der Freischaltung ungültig. Registrierung vergibt niemals automatisch die Plattformrolle. Der Befehl wurde bei der Implementierung nicht auf ein Benutzerkonto angewendet.
+Der Befehl ist ausschließlich für vertrauenswürdige Betreiber mit Datenbankzugriff vorgesehen, nicht als öffentliche API. Er vergibt transaktional die Rolle in `platform_roles`, setzt den veralteten `system_role`-Marker zurück und widerruft bei einer neuen Vergabe die bestehenden Better-Auth-Sessions. Danach erneut anmelden. Wiederholte Vergaben sind idempotent; deaktivierte Konten können nicht freigeschaltet werden.
+
+Vor dem ersten Grant nach dem Update die Schema-Migration (`db:migrate`) auf einer isolierten Datenbankkopie erproben. Sie ersetzt ausschließlich den alten Unique-Index `platform_role_name_unique` durch den nicht eindeutigen `platform_role_name_idx`; `platform_role_user_unique` bleibt erhalten. Es werden dabei keine Benutzer oder Rollen gelöscht. Der einmalige Bootstrap bleibt unabhängig davon durch Advisory-Lock und Prüfung einer bereits bestehenden Plattformrolle geschützt.
+
+**Rollback:** Falls bereits mehrere Plattformadministratoren existieren, darf der alte Unique-Index nicht wiederhergestellt werden: Ein alter App-Stand muss dann mit dem neuen Indexzustand betrieben oder durch ein kompatibles Fix-Deployment ersetzt werden. Ein altes `users.system_role='superadmin'` für ein anderes als die bestehenden Admin-Konten führt zu einem absichtlichen Fail-Closed der Legacy-Migration und muss durch einen Betreiber geprüft werden.
 
 ## Prüfung
 
