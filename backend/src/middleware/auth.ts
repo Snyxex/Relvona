@@ -10,6 +10,16 @@ import { dashboardDomainFromRequest, organizationForVerifiedDashboardDomain } fr
 import { permissionsForRole, type OrganizationPermission } from "../services/organizationRbacService.js";
 import type { TwoFactorPolicy } from "../services/platformSecurityService.js";
 
+// Support sessions are troubleshooting grants, not tenant-admin membership.
+// Deliberately independent of tenant-configurable viewer role policies.
+export const PLATFORM_SUPPORT_READ_PERMISSIONS: readonly OrganizationPermission[] = [
+  "organization.view", "members.view", "settings.view",
+  "conversations.view", "tickets.view", "customers.view",
+  "knowledge.view", "assistants.view", "analytics.view",
+  "scheduling.view", "tools.view", "integrations.view",
+  "notifications.view", "visitor_memory.view",
+] as const;
+
 export interface AuthRequest extends Request {
   dashboardOrganizationId?: string;
   user?: {
@@ -141,10 +151,13 @@ export async function tenantContext(req: AuthRequest, res: Response, next: NextF
         eq(platformSupportSessions.organizationId, targetOrgId),
       )).limit(1);
       if (!supportSession || supportSession.endedAt || supportSession.expiresAt <= new Date()) return res.status(403).json({ error: "SUPPORT_ACCESS_EXPIRED" });
+      // No support-session write access, even if the target tenant grants its
+      // configured viewer role elevated permissions.
+      if (req.method !== "GET" && req.method !== "HEAD") return res.status(403).json({ error: "SUPPORT_SESSION_READ_ONLY" });
       const [org] = await db.select().from(organizations).where(eq(organizations.id, targetOrgId)).limit(1);
       if (!org) return res.status(404).json({ error: "Organization not found" });
       setDatabaseTenant(org.id);
-      req.organization = { id: org.id, name: org.name, slug: org.slug, role: "admin", permissions: await permissionsForRole(org.id, "admin") };
+      req.organization = { id: org.id, name: org.name, slug: org.slug, role: "viewer", permissions: [...PLATFORM_SUPPORT_READ_PERMISSIONS] };
       setLogContext({ organizationId: org.id });
       return next();
     }
