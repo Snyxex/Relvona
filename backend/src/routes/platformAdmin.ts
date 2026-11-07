@@ -1,14 +1,18 @@
 import { Router } from "express";
-import { and, count, eq, isNull, sql } from "drizzle-orm";
+import { count, eq } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { auditLogs, organizations, platformSupportSessions, users } from "../db/schema.js";
+import { organizations, users } from "../db/schema.js";
 import { authenticate, AuthRequest, requirePlatformAdmin } from "../middleware/auth.js";
-import { AuditService } from "../services/auditService.js";
+import { PlatformOperationsService, PLATFORM_ORGANIZATION_STATUSES, type PlatformOrganizationStatus } from "../services/platformOperationsService.js";
 import { getTwoFactorPolicy, setTwoFactorPolicy, TWO_FACTOR_POLICIES } from "../services/platformSecurityService.js";
 
 const router = Router();
 router.use(authenticate, requirePlatformAdmin);
-const ipOf = (req: AuthRequest) => req.ip || req.socket.remoteAddress || null;
+const auditActor = (req: AuthRequest) => ({
+  userId: req.user!.id,
+  ipAddress: req.ip || req.socket.remoteAddress || null,
+  userAgent: req.get("user-agent")?.slice(0, 1024) || null,
+});
 
 router.get("/security-settings", async (_req, res, next) => {
   try { return res.json({ twoFactorPolicy: await getTwoFactorPolicy() }); }
@@ -47,14 +51,15 @@ router.get("/users", async (_req, res, next) => {
 });
 
 router.patch("/organizations/:id/status", async (req: AuthRequest, res, next) => {
-  const status = req.body?.status;
-  if (!['active', 'suspended', 'disabled'].includes(status)) return res.status(400).json({ error: "Invalid organization status" });
+  const status: unknown = req.body?.status;
+  if (typeof status !== "string" || !PLATFORM_ORGANIZATION_STATUSES.includes(status as PlatformOrganizationStatus) || !/^[0-9a-f-]{36}$/i.test(req.params.id)) {
+    return res.status(400).json({ error: "Invalid organization status or ID" });
+  }
   try {
-    const [organization] = await db.update(organizations).set({ status, updatedAt: new Date() }).where(eq(organizations.id, req.params.id)).returning();
+    const organization = await PlatformOperationsService.updateOrganizationStatus(req.params.id, status as PlatformOrganizationStatus, auditActor(req));
     if (!organization) return res.status(404).json({ error: "Organization not found" });
-    await AuditService.logAction({ organizationId: organization.id, actorUserId: req.user!.id, action: `platform.organization.${status}`, resourceType: "organization", resourceId: organization.id, ipAddress: ipOf(req) });
-    res.json({ id: organization.id, status: organization.status });
-  } catch (error) { next(error); }
+    return res.json(organization);
+  } catch (error) { return next(error); }
 });
 
 router.post("/support-sessions", async (req: AuthRequest, res, next) => {
@@ -63,22 +68,19 @@ router.post("/support-sessions", async (req: AuthRequest, res, next) => {
   const durationMinutes = Number(req.body?.durationMinutes ?? 30);
   if (!/^[0-9a-f-]{36}$/i.test(organizationId) || reason.length < 5 || reason.length > 500 || !Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 30) return res.status(400).json({ error: "Invalid support access request" });
   try {
-    const [organization] = await db.select({ id: organizations.id }).from(organizations).where(eq(organizations.id, organizationId)).limit(1);
-    if (!organization) return res.status(404).json({ error: "Organization not found" });
-    const expiresAt = new Date(Date.now() + durationMinutes * 60_000);
-    const [session] = await db.insert(platformSupportSessions).values({ platformAdminUserId: req.user!.id, organizationId, reason, expiresAt }).returning();
-    await AuditService.logAction({ organizationId, actorUserId: req.user!.id, action: "platform.support_access.started", resourceType: "platform_support_session", resourceId: session.id, metadata: { reason, expiresAt: expiresAt.toISOString() }, ipAddress: ipOf(req) });
-    res.status(201).json({ id: session.id, organizationId, expiresAt });
-  } catch (error) { next(error); }
+    const session = await PlatformOperationsService.startSupportSession(organizationId, reason, durationMinutes, auditActor(req));
+    if (!session) return res.status(404).json({ error: "Organization not found" });
+    return res.status(201).json(session);
+  } catch (error) { return next(error); }
 });
 
 router.post("/support-sessions/:id/end", async (req: AuthRequest, res, next) => {
+  if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) return res.status(400).json({ error: "Invalid support session ID" });
   try {
-    const [session] = await db.update(platformSupportSessions).set({ endedAt: new Date() }).where(and(eq(platformSupportSessions.id, req.params.id), eq(platformSupportSessions.platformAdminUserId, req.user!.id), isNull(platformSupportSessions.endedAt))).returning();
-    if (!session) return res.status(404).json({ error: "Support session not found" });
-    await AuditService.logAction({ organizationId: session.organizationId, actorUserId: req.user!.id, action: "platform.support_access.ended", resourceType: "platform_support_session", resourceId: session.id, ipAddress: ipOf(req) });
-    res.status(204).end();
-  } catch (error) { next(error); }
+    const ended = await PlatformOperationsService.endSupportSession(req.params.id, auditActor(req));
+    if (!ended) return res.status(404).json({ error: "Support session not found" });
+    return res.status(204).end();
+  } catch (error) { return next(error); }
 });
 
 export default router;
