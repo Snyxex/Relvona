@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "./ux.css";
+import "./relvona-application.css";
 
 export const metadata: Metadata = {
   title: {

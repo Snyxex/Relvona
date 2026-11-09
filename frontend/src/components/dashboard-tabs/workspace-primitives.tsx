@@ -2,6 +2,42 @@
 
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
+import { ChevronRight, UserRound } from "lucide-react";
+
+export function WorkspaceToolbar({
+  section,
+  user,
+  onOpenProfile,
+}: {
+  section: string;
+  user: { name: string; avatarUrl?: string | null };
+  onOpenProfile: () => void;
+}) {
+  return (
+    <div className="rv-workspace-toolbar">
+      <div className="rv-workspace-breadcrumb">
+        <span>Relvona Workspace</span>
+        <ChevronRight size={15} aria-hidden="true" />
+        <strong>{section}</strong>
+      </div>
+      <button
+        type="button"
+        className="rv-workspace-profile"
+        onClick={onOpenProfile}
+        aria-label="Profil-Einstellungen öffnen"
+      >
+        {user.avatarUrl ? (
+          <img src={user.avatarUrl} alt="" />
+        ) : (
+          <span>
+            <UserRound size={17} aria-hidden="true" />
+          </span>
+        )}
+        <strong>{user.name}</strong>
+      </button>
+    </div>
+  );
+}
 
 export function WorkspaceHeader({
   eyebrow,

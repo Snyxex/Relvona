@@ -12,7 +12,8 @@ import {
   CalendarDays,
   Workflow,
 } from "lucide-react";
-import ProfileSecuritySettings from "@/components/profile-security-settings";
+import AccessShell from "@/components/access-shell";
+import ProfileWorkspace from "@/components/dashboard-tabs/profile-workspace";
 import OrganizationSettings from "@/components/dashboard-tabs/organization-settings";
 import WidgetDesigner from "@/components/dashboard-tabs/widget-designer";
 import AssistantSettings from "@/components/dashboard-tabs/assistant-settings";
@@ -36,6 +37,7 @@ import type { KnowledgeSource } from "@/components/knowledge-sources";
 import {
   WorkspaceEmpty,
   WorkspaceHeader,
+  WorkspaceToolbar,
 } from "@/components/dashboard-tabs/workspace-primitives";
 import {
   LazyAgentsTab,
@@ -57,7 +59,6 @@ import {
   applyUserTheme,
   completeUserTheme,
   DEFAULT_USER_THEME,
-  LIGHT_USER_THEME,
   type UserThemePreferences,
 } from "@/lib/user-theme";
 
@@ -1070,219 +1071,224 @@ export default function Dashboard({
   // --- Render Authentication Screen ---
   if (authChecking) {
     return (
-      <div className="grid min-h-screen place-items-center bg-slate-950 text-slate-100">
-        Relvona wird vorbereitet …
-      </div>
+      <AccessShell
+        title="Arbeitsbereich wird vorbereitet"
+        description="Dein Zugang und deine Organisation werden geladen."
+      >
+        <p role="status" className="rv-access-status">
+          Relvona wird vorbereitet …
+        </p>
+      </AccessShell>
     );
   }
 
   if (!auth) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-4 text-slate-100 font-sans">
-        <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl">
-          <div className="flex items-center justify-center gap-3 mb-6">
-            <div className="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center text-white font-bold text-2xl shadow-lg shadow-blue-500/30">
-              <Bot className="w-7 h-7" />
+      <AccessShell
+        title={
+          awaitingTwoFactor
+            ? "Anmeldung bestätigen"
+            : isRegistering
+              ? "Konto erstellen"
+              : "Willkommen zurück"
+        }
+        description={
+          awaitingTwoFactor
+            ? "Gib den sechsstelligen Code deiner Authenticator-App ein."
+            : "Melde dich an und öffne deinen Relvona-Arbeitsbereich."
+        }
+      >
+        {authError && (
+          <div
+            role="alert"
+            className="mb-4 p-3 bg-red-950/80 border border-red-800 text-red-200 text-sm rounded-lg flex items-center gap-2"
+          >
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{authError}</span>
+          </div>
+        )}
+
+        {isRegistering ? (
+          <form onSubmit={handleRegister} className="space-y-4">
+            <div>
+              <label
+                htmlFor="support-field-1"
+                className="block text-xs font-semibold text-slate-300 uppercase mb-1"
+              >
+                Dein Name
+              </label>
+              <input
+                id="support-field-1"
+                type="text"
+                required
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                value={authName}
+                onChange={(e) => setAuthName(e.target.value)}
+                placeholder="Jane Doe"
+              />
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight">
-                SupportAI Platform
-              </h1>
-              <p className="text-xs text-slate-400">
-                Multi-Tenant AI Support Engine
-              </p>
-            </div>
-          </div>
-
-          {authError && (
-            <div className="mb-4 p-3 bg-red-950/80 border border-red-800 text-red-200 text-sm rounded-lg flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{authError}</span>
-            </div>
-          )}
-
-          {isRegistering ? (
-            <form onSubmit={handleRegister} className="space-y-4">
-              <div>
-                <label
-                  htmlFor="support-field-1"
-                  className="block text-xs font-semibold text-slate-300 uppercase mb-1"
-                >
-                  Your Full Name
-                </label>
-                <input
-                  id="support-field-1"
-                  type="text"
-                  required
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                  value={authName}
-                  onChange={(e) => setAuthName(e.target.value)}
-                  placeholder="Jane Doe"
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="support-field-2"
-                  className="block text-xs font-semibold text-slate-300 uppercase mb-1"
-                >
-                  Company / Org Name
-                </label>
-                <input
-                  id="support-field-2"
-                  type="text"
-                  required
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                  value={authOrgName}
-                  onChange={(e) => setAuthOrgName(e.target.value)}
-                  placeholder="Acme Corp"
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="support-field-3"
-                  className="block text-xs font-semibold text-slate-300 uppercase mb-1"
-                >
-                  Work Email
-                </label>
-                <input
-                  id="support-field-3"
-                  type="email"
-                  required
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                  value={authEmail}
-                  onChange={(e) => setAuthEmail(e.target.value)}
-                  placeholder="jane@acme.com"
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="support-field-4"
-                  className="block text-xs font-semibold text-slate-300 uppercase mb-1"
-                >
-                  Password
-                </label>
-                <input
-                  id="support-field-4"
-                  type="password"
-                  required
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                  value={authPassword}
-                  onChange={(e) => setAuthPassword(e.target.value)}
-                  placeholder="••••••••"
-                />
-              </div>
-              <button
-                type="submit"
-                className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-sm shadow-md transition-colors"
+              <label
+                htmlFor="support-field-2"
+                className="block text-xs font-semibold text-slate-300 uppercase mb-1"
               >
-                Create Account & Organization
-              </button>
-            </form>
-          ) : (
-            <form
-              onSubmit={
-                awaitingTwoFactor
-                  ? (event) => {
-                      event.preventDefault();
-                      void handleTwoFactorLogin();
-                    }
-                  : handleLogin
-              }
-              className="space-y-4"
+                Organisation
+              </label>
+              <input
+                id="support-field-2"
+                type="text"
+                required
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                value={authOrgName}
+                onChange={(e) => setAuthOrgName(e.target.value)}
+                placeholder="Acme Corp"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="support-field-3"
+                className="block text-xs font-semibold text-slate-300 uppercase mb-1"
+              >
+                E-Mail-Adresse
+              </label>
+              <input
+                id="support-field-3"
+                type="email"
+                required
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                value={authEmail}
+                onChange={(e) => setAuthEmail(e.target.value)}
+                placeholder="jane@acme.com"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="support-field-4"
+                className="block text-xs font-semibold text-slate-300 uppercase mb-1"
+              >
+                Password
+              </label>
+              <input
+                id="support-field-4"
+                type="password"
+                required
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                placeholder="••••••••"
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-sm shadow-md transition-colors"
             >
-              {awaitingTwoFactor ? (
-                <>
+              Konto und Organisation erstellen
+            </button>
+          </form>
+        ) : (
+          <form
+            onSubmit={
+              awaitingTwoFactor
+                ? (event) => {
+                    event.preventDefault();
+                    void handleTwoFactorLogin();
+                  }
+                : handleLogin
+            }
+            className="space-y-4"
+          >
+            {awaitingTwoFactor ? (
+              <>
+                <label
+                  htmlFor="two-factor-login"
+                  className="block text-xs font-semibold uppercase text-slate-300"
+                >
+                  Authenticator-Code
+                </label>
+                <input
+                  id="two-factor-login"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  value={twoFactorLoginCode}
+                  onChange={(event) =>
+                    setTwoFactorLoginCode(
+                      event.target.value.replace(/\D/g, "").slice(0, 6),
+                    )
+                  }
+                  placeholder="123456"
+                  required
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm"
+                />
+                <button
+                  type="button"
+                  disabled={twoFactorLoginCode.length !== 6}
+                  onClick={() => void handleTwoFactorLogin()}
+                  className="w-full rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  Anmeldung bestätigen
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAwaitingTwoFactor(false);
+                    setTwoFactorLoginCode("");
+                  }}
+                  className="w-full text-xs text-slate-400"
+                >
+                  Zurück zur Anmeldung
+                </button>
+              </>
+            ) : (
+              <>
+                <div>
                   <label
-                    htmlFor="two-factor-login"
-                    className="block text-xs font-semibold uppercase text-slate-300"
+                    htmlFor="support-field-5"
+                    className="block text-xs font-semibold text-slate-300 uppercase mb-1"
                   >
-                    Authenticator-Code
+                    E-Mail-Adresse
                   </label>
                   <input
-                    id="two-factor-login"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    value={twoFactorLoginCode}
-                    onChange={(event) =>
-                      setTwoFactorLoginCode(
-                        event.target.value.replace(/\D/g, "").slice(0, 6),
-                      )
-                    }
-                    placeholder="123456"
+                    id="support-field-5"
+                    type="email"
                     required
-                    className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm"
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                    value={authEmail}
+                    onChange={(e) => setAuthEmail(e.target.value)}
+                    placeholder="admin@company.com"
                   />
-                  <button
-                    type="button"
-                    disabled={twoFactorLoginCode.length !== 6}
-                    onClick={() => void handleTwoFactorLogin()}
-                    className="w-full rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                </div>
+                <div>
+                  <label
+                    htmlFor="support-field-6"
+                    className="block text-xs font-semibold text-slate-300 uppercase mb-1"
                   >
-                    Anmeldung bestätigen
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAwaitingTwoFactor(false);
-                      setTwoFactorLoginCode("");
-                    }}
-                    className="w-full text-xs text-slate-400"
-                  >
-                    Zurück zur Anmeldung
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div>
-                    <label
-                      htmlFor="support-field-5"
-                      className="block text-xs font-semibold text-slate-300 uppercase mb-1"
-                    >
-                      Work Email
-                    </label>
-                    <input
-                      id="support-field-5"
-                      type="email"
-                      required
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                      value={authEmail}
-                      onChange={(e) => setAuthEmail(e.target.value)}
-                      placeholder="admin@company.com"
-                    />
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="support-field-6"
-                      className="block text-xs font-semibold text-slate-300 uppercase mb-1"
-                    >
-                      Password
-                    </label>
-                    <input
-                      id="support-field-6"
-                      type="password"
-                      required
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
-                      value={authPassword}
-                      onChange={(e) => setAuthPassword(e.target.value)}
-                      placeholder="••••••••"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-sm shadow-md transition-colors"
-                  >
-                    Sign In to Dashboard
-                  </button>
-                </>
-              )}
-            </form>
-          )}
+                    Passwort
+                  </label>
+                  <input
+                    id="support-field-6"
+                    type="password"
+                    required
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+                    value={authPassword}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    placeholder="••••••••"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-sm shadow-md transition-colors"
+                >
+                  Anmelden
+                </button>
+              </>
+            )}
+          </form>
+        )}
 
-          <div className="mt-6 border-t border-slate-800 pt-4 text-center text-xs text-slate-400">
-            Konten werden durch eine Organisationseinladung bereitgestellt.
-          </div>
-        </div>
-      </div>
+        <p className="rv-access-note">
+          Konten werden durch eine Organisationseinladung bereitgestellt.
+        </p>
+      </AccessShell>
     );
   }
 
@@ -1470,248 +1476,40 @@ export default function Dashboard({
                   "assistant",
                   "widget",
                   "settings",
+                  "profile",
                 ].includes(activeTab)
               ? "rv-main rv-main--modern flex-1 overflow-y-auto p-6"
               : "rv-main flex-1 bg-slate-950 overflow-y-auto p-6"
         }
       >
+        {activeTab !== "overview" && (
+          <WorkspaceToolbar
+            section={
+              dashboardNavigation(administration).find(
+                (item) => item.id === activeTab,
+              )?.label ?? "Workspace"
+            }
+            user={auth.user}
+            onOpenProfile={() => setActiveTab("profile")}
+          />
+        )}
         {activeTab === "profile" && (
-          <div className="mx-auto max-w-2xl space-y-6">
-            <div>
-              <h1 className="text-xl font-bold text-white">
-                Profil-Einstellungen
-              </h1>
-              <p className="text-xs text-slate-400">
-                Name, Profilbild, Sprache und dein persönliches Theme verwalten.
-              </p>
-            </div>
-            <form
-              onSubmit={handleSaveProfile}
-              className="space-y-5 rounded-xl border border-slate-800 bg-slate-900 p-6"
-            >
-              <div className="flex items-center gap-4">
-                <div className="h-16 w-16 overflow-hidden rounded-full bg-slate-700 text-xl font-bold flex items-center justify-center">
-                  {profileAvatarUrl ? (
-                    <img
-                      src={profileAvatarUrl}
-                      alt="Profile preview"
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    (profileName || auth.user.name).charAt(0)
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <label
-                    htmlFor="support-field-7"
-                    className="block text-xs font-semibold text-slate-300"
-                  >
-                    Profile image
-                  </label>
-                  <input
-                    id="support-field-7"
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp"
-                    onChange={(event) =>
-                      handleProfileImage(event.target.files?.[0])
-                    }
-                    className="block text-xs text-slate-400 file:mr-3 file:rounded file:border-0 file:bg-slate-700 file:px-3 file:py-1.5 file:text-xs file:text-slate-100"
-                  />
-                  {profileAvatarUrl && (
-                    <button
-                      type="button"
-                      onClick={() => setProfileAvatarUrl(null)}
-                      className="text-xs text-red-300 hover:text-red-200"
-                    >
-                      Remove image
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div>
-                <label
-                  htmlFor="support-field-8"
-                  className="mb-1 block text-xs font-semibold text-slate-300"
-                >
-                  Name
-                </label>
-                <input
-                  id="support-field-8"
-                  required
-                  minLength={2}
-                  maxLength={100}
-                  value={profileName}
-                  onChange={(event) => setProfileName(event.target.value)}
-                  className="w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="support-field-9"
-                  className="mb-1 block text-xs font-semibold text-slate-300"
-                >
-                  Preferred language
-                </label>
-                <select
-                  id="support-field-9"
-                  value={preferredLanguage}
-                  onChange={(event) => setPreferredLanguage(event.target.value)}
-                  className="w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
-                >
-                  <option value="de">Deutsch</option>
-                  <option value="en">English</option>
-                  <option value="es">Español</option>
-                  <option value="fr">Français</option>
-                </select>
-              </div>
-              <fieldset className="space-y-4 border-t border-slate-700 pt-5">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <legend className="text-sm font-semibold text-slate-100">
-                      Persönliches Erscheinungsbild
-                    </legend>
-                    <p className="text-xs text-slate-400">
-                      Gilt nur für dein Benutzerkonto und wird sofort als
-                      Vorschau angezeigt.
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setThemePreferences(DEFAULT_USER_THEME)}
-                      className="rounded border border-slate-700 px-3 py-2 text-xs text-slate-200"
-                    >
-                      Dunkel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setThemePreferences(LIGHT_USER_THEME)}
-                      className="rounded border border-slate-700 px-3 py-2 text-xs text-slate-200"
-                    >
-                      Hell
-                    </button>
-                  </div>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {(
-                    [
-                      ["backgroundColor", "Hintergrund"],
-                      ["surfaceColor", "Flächen"],
-                      ["textColor", "Schrift"],
-                      ["mutedTextColor", "Sekundärschrift"],
-                      ["primaryColor", "Akzentfarbe"],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <label
-                      key={key}
-                      className="flex items-center justify-between gap-3 text-xs font-semibold text-slate-300"
-                    >
-                      <span>{label}</span>
-                      <span className="flex items-center gap-2">
-                        <input
-                          type="color"
-                          aria-label={label}
-                          value={themePreferences[key]}
-                          onChange={(event) =>
-                            setThemePreferences({
-                              ...themePreferences,
-                              [key]: event.target.value,
-                            })
-                          }
-                          className="h-10 w-12 rounded border border-slate-700 bg-slate-800 p-1"
-                        />
-                        <code className="w-16 text-[10px] font-normal text-slate-400">
-                          {themePreferences[key]}
-                        </code>
-                      </span>
-                    </label>
-                  ))}
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="text-xs font-semibold text-slate-300">
-                    Schriftart
-                    <select
-                      value={themePreferences.fontFamily}
-                      onChange={(event) =>
-                        setThemePreferences({
-                          ...themePreferences,
-                          fontFamily: event.target
-                            .value as UserThemePreferences["fontFamily"],
-                        })
-                      }
-                      className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
-                    >
-                      <option value="sans">Sans Serif</option>
-                      <option value="serif">Serif</option>
-                      <option value="mono">Monospace</option>
-                    </select>
-                  </label>
-                  <label className="text-xs font-semibold text-slate-300">
-                    Abstände
-                    <select
-                      value={themePreferences.density}
-                      onChange={(event) =>
-                        setThemePreferences({
-                          ...themePreferences,
-                          density: event.target
-                            .value as UserThemePreferences["density"],
-                        })
-                      }
-                      className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
-                    >
-                      <option value="compact">Kompakt</option>
-                      <option value="comfortable">Komfortabel</option>
-                      <option value="spacious">Großzügig</option>
-                    </select>
-                  </label>
-                  <label className="text-xs font-semibold text-slate-300">
-                    Schriftgröße: {themePreferences.fontSize}px
-                    <input
-                      type="range"
-                      min="12"
-                      max="20"
-                      step="1"
-                      value={themePreferences.fontSize}
-                      onChange={(event) =>
-                        setThemePreferences({
-                          ...themePreferences,
-                          fontSize: Number(event.target.value),
-                        })
-                      }
-                      className="mt-2 w-full"
-                    />
-                  </label>
-                  <label className="text-xs font-semibold text-slate-300">
-                    Eckenradius: {themePreferences.radius}px
-                    <input
-                      type="range"
-                      min="0"
-                      max="24"
-                      step="1"
-                      value={themePreferences.radius}
-                      onChange={(event) =>
-                        setThemePreferences({
-                          ...themePreferences,
-                          radius: Number(event.target.value),
-                        })
-                      }
-                      className="mt-2 w-full"
-                    />
-                  </label>
-                </div>
-              </fieldset>
-              <button
-                type="submit"
-                className="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"
-              >
-                Profil und Theme speichern
-              </button>
-            </form>
-            <ProfileSecuritySettings
-              user={auth.user}
-              onUserChange={(user) => setAuth({ ...auth, user })}
-            />
-          </div>
+          <ProfileWorkspace
+            user={auth.user}
+            name={profileName}
+            avatarUrl={profileAvatarUrl}
+            language={preferredLanguage}
+            theme={themePreferences}
+            onNameChange={setProfileName}
+            onAvatarChange={setProfileAvatarUrl}
+            onImageUpload={handleProfileImage}
+            onLanguageChange={setPreferredLanguage}
+            onThemeChange={setThemePreferences}
+            onSave={handleSaveProfile}
+            onUserChange={(user) =>
+              setAuth({ ...auth, user: { ...auth.user, ...user } })
+            }
+          />
         )}
 
         {activeTab === "overview" && (

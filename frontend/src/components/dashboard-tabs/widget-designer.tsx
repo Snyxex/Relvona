@@ -244,7 +244,7 @@ export default function WidgetDesigner({
             So erscheint der Chat auf deiner Website.
           </p>
           <div
-            className="relative mt-4 h-[500px] overflow-hidden rounded-lg border border-slate-700 bg-slate-800"
+            className="rv-widget-preview relative mt-4 h-[500px] overflow-hidden rounded-lg border border-slate-700 bg-slate-800"
             style={{
               background: "linear-gradient(135deg, #e2e8f0, #cbd5e1)",
             }}

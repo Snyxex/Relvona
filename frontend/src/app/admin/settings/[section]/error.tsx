@@ -1,4 +1,25 @@
 "use client";
-export default function SettingsError({ retry }: { error: Error; retry: () => void }) {
-  return <main className="grid min-h-screen place-items-center p-8"><div className="text-center"><p className="text-lg font-semibold">Einstellungen konnten nicht geladen werden.</p><button type="button" className="mt-4 rounded bg-slate-900 px-4 py-2 text-white" onClick={retry}>Erneut versuchen</button></div></main>;
+import { AlertCircle } from "lucide-react";
+export default function SettingsError({
+  retry,
+}: {
+  error: Error;
+  retry: () => void;
+}) {
+  return (
+    <main>
+      <section className="rv-app-state-card">
+        <span className="rv-app-state-icon">
+          <AlertCircle size={26} aria-hidden="true" />
+        </span>
+        <h1>Einstellungen nicht verfügbar</h1>
+        <p role="alert">
+          Einstellungen konnten nicht geladen werden. Bitte versuche es erneut.
+        </p>
+        <button type="button" className="rv-app-button" onClick={retry}>
+          Erneut versuchen
+        </button>
+      </section>
+    </main>
+  );
 }

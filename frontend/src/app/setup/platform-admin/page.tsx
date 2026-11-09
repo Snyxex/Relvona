@@ -1,4 +1,5 @@
 "use client";
+import AccessShell from "@/components/access-shell";
 import { useEffect, useState } from "react";
 import { isAxiosError } from "axios";
 import { api } from "@/lib/api";
@@ -74,31 +75,35 @@ export default function PlatformAdminSetupPage() {
   };
   if (!ready)
     return (
-      <main className="grid min-h-screen place-items-center bg-slate-950 text-white">
-        Einrichtung wird geprüft …
-      </main>
+      <AccessShell
+        title="Einrichtung wird vorbereitet"
+        description="Der aktuelle Einrichtungsstatus wird geprüft."
+      >
+        <p role="status" className="rv-access-status">
+          Einrichtung wird geprüft …
+        </p>
+      </AccessShell>
     );
   if (blocked)
     return (
-      <main className="grid min-h-screen place-items-center bg-slate-950 p-6 text-white">
+      <AccessShell
+        title="Setup abgeschlossen"
+        description="Relvona ist bereits eingerichtet. Melde dich mit deinem Konto an."
+      >
         <div>
-          <h1 className="text-2xl font-bold">Setup abgeschlossen</h1>
           <a className="mt-4 block text-blue-300" href="/">
             Zur Anmeldung
           </a>
         </div>
-      </main>
+      </AccessShell>
     );
   return (
-    <main className="grid min-h-screen place-items-center bg-slate-950 p-6 text-white">
-      <form
-        onSubmit={submit}
-        className="w-full max-w-md space-y-4 rounded-xl border border-slate-700 bg-slate-900 p-8"
-      >
-        <h1 className="text-2xl font-bold">Relvona einrichten</h1>
-        <p className="text-sm text-slate-400">
-          Erstellen Sie Ihre Organisation und das erste Owner-Konto.
-        </p>
+    <AccessShell
+      title="Relvona einrichten"
+      description="Erstelle deine Organisation und das erste Owner-Konto."
+      eyebrow="ERSTE SCHRITTE"
+    >
+      <form onSubmit={submit} className="space-y-4">
         {error && (
           <p
             role="alert"
@@ -118,51 +123,76 @@ export default function PlatformAdminSetupPage() {
             className="mt-2 w-full rounded bg-slate-800 p-3"
           />
         </label>
-        <input
-          required
-          minLength={2}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Name"
-          className="w-full rounded bg-slate-800 p-3"
-        />
-        <input
-          required
-          minLength={2}
-          maxLength={120}
-          value={organizationName}
-          onChange={(e) => setOrganizationName(e.target.value)}
-          placeholder="Organisation"
-          className="w-full rounded bg-slate-800 p-3"
-        />
-        <input
-          required
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="E-Mail"
-          className="w-full rounded bg-slate-800 p-3"
-        />
-        <input
-          required
-          minLength={15}
-          maxLength={128}
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Passwort"
-          className="w-full rounded bg-slate-800 p-3"
-        />
-        <input
-          required
-          minLength={15}
-          maxLength={128}
-          type="password"
-          value={confirmation}
-          onChange={(e) => setConfirmation(e.target.value)}
-          placeholder="Passwort bestätigen"
-          className="w-full rounded bg-slate-800 p-3"
-        />
+        <label htmlFor="setup-name" className="rv-access-field">
+          Name
+          <input
+            id="setup-name"
+            autoComplete="name"
+            required
+            minLength={2}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Name"
+            className="w-full rounded bg-slate-800 p-3"
+          />
+        </label>
+        <label htmlFor="setup-organization" className="rv-access-field">
+          Organisation
+          <input
+            id="setup-organization"
+            autoComplete="organization"
+            required
+            minLength={2}
+            maxLength={120}
+            value={organizationName}
+            onChange={(e) => setOrganizationName(e.target.value)}
+            placeholder="Organisation"
+            className="w-full rounded bg-slate-800 p-3"
+          />
+        </label>
+        <label htmlFor="setup-email" className="rv-access-field">
+          E-Mail
+          <input
+            id="setup-email"
+            autoComplete="email"
+            required
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="E-Mail"
+            className="w-full rounded bg-slate-800 p-3"
+          />
+        </label>
+        <label htmlFor="setup-password" className="rv-access-field">
+          Passwort
+          <input
+            id="setup-password"
+            autoComplete="new-password"
+            required
+            minLength={15}
+            maxLength={128}
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Passwort"
+            className="w-full rounded bg-slate-800 p-3"
+          />
+        </label>
+        <label htmlFor="setup-confirmation" className="rv-access-field">
+          Passwort bestätigen
+          <input
+            id="setup-confirmation"
+            autoComplete="new-password"
+            required
+            minLength={15}
+            maxLength={128}
+            type="password"
+            value={confirmation}
+            onChange={(e) => setConfirmation(e.target.value)}
+            placeholder="Passwort bestätigen"
+            className="w-full rounded bg-slate-800 p-3"
+          />
+        </label>
         <button
           type="submit"
           disabled={saving}
@@ -171,6 +201,6 @@ export default function PlatformAdminSetupPage() {
           {saving ? "Wird eingerichtet …" : "Organisation und Owner erstellen"}
         </button>
       </form>
-    </main>
+    </AccessShell>
   );
 }

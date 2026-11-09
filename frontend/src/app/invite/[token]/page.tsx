@@ -1,4 +1,5 @@
 "use client";
+import AccessShell from "@/components/access-shell";
 import { useEffect, useState } from "react";
 import { isAxiosError } from "axios";
 import { api } from "@/lib/api";
@@ -74,14 +75,21 @@ export default function InvitePage({
     }
   };
   return (
-    <main className="grid min-h-screen place-items-center bg-slate-950 p-6 text-white">
+    <AccessShell
+      title="Einladung annehmen"
+      description="Tritt deinem Team bei und starte in deinem Relvona-Arbeitsbereich."
+      eyebrow="DEIN TEAM"
+    >
       {error ? (
-        <p>{error}</p>
+        <p role="alert" className="rv-access-status">
+          {error}
+        </p>
       ) : !invite ? (
-        <p>Einladung wird geprüft …</p>
+        <p role="status" className="rv-access-status">
+          Einladung wird geprüft …
+        </p>
       ) : hasSession ? (
-        <section className="w-full max-w-md space-y-4 rounded-xl bg-slate-900 p-8">
-          <h1 className="text-xl font-bold">Einladung annehmen</h1>
+        <section className="space-y-4">
           <p className="text-sm text-slate-400">
             Angemeldet als vorhandenes Konto. Die E-Mail-Adresse muss mit{" "}
             {invite.email} übereinstimmen.
@@ -95,36 +103,42 @@ export default function InvitePage({
           </button>
         </section>
       ) : (
-        <form
-          onSubmit={accept}
-          className="w-full max-w-md space-y-4 rounded-xl bg-slate-900 p-8"
-        >
-          <h1 className="text-xl font-bold">Einladung annehmen</h1>
+        <form onSubmit={accept} className="space-y-4">
           <p className="text-sm text-slate-400">
             {invite.email} · {invite.role}
           </p>
-          <input
-            required
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Name"
-            className="w-full rounded bg-slate-800 p-3"
-          />
-          <input
-            required
-            minLength={15}
-            maxLength={128}
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Passwort"
-            className="w-full rounded bg-slate-800 p-3"
-          />
+          <label htmlFor="invite-name" className="rv-access-field">
+            Name
+            <input
+              id="invite-name"
+              autoComplete="name"
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Name"
+              className="w-full rounded bg-slate-800 p-3"
+            />
+          </label>
+          <label htmlFor="invite-password" className="rv-access-field">
+            Passwort
+            <input
+              id="invite-password"
+              autoComplete="new-password"
+              required
+              minLength={15}
+              maxLength={128}
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Passwort"
+              className="w-full rounded bg-slate-800 p-3"
+            />
+          </label>
           <button type="submit" className="w-full rounded bg-blue-600 p-3">
             Konto erstellen und beitreten
           </button>
         </form>
       )}
-    </main>
+    </AccessShell>
   );
 }

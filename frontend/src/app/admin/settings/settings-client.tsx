@@ -1,7 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  cloneElement,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+  type ReactElement,
+} from "react";
 import {
   BarChart3,
   Bot,
@@ -50,8 +58,10 @@ const Input = ({
   placeholder,
   min,
   max,
+  id,
 }: any) => (
   <input
+    id={id}
     type={type}
     value={value ?? ""}
     min={min}
@@ -63,12 +73,23 @@ const Input = ({
     className="w-full rounded border p-2"
   />
 );
-const Field = ({ label, children }: any) => (
-  <div className="block text-sm font-medium text-slate-700">
-    <span className="mb-1 block">{label}</span>
-    {children}
-  </div>
-);
+const Field = ({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactElement<{ id?: string }>;
+}) => {
+  const id = useId();
+  return (
+    <div className="block text-sm font-medium text-slate-700">
+      <label htmlFor={id} className="mb-1 block">
+        {label}
+      </label>
+      {cloneElement(children, { id })}
+    </div>
+  );
+};
 
 export default function SettingsClient({
   initialSection,
@@ -86,8 +107,12 @@ export default function SettingsClient({
   const [usage, setUsage] = useState<any>();
   const dirty = useMemo(
     () =>
-      JSON.stringify(form) !== JSON.stringify(initialSection === "roles" ? data?.policies || {} : data?.settings || {}) ||
-      JSON.stringify(rules) !== JSON.stringify(data?.rules || []),
+      JSON.stringify(form) !==
+        JSON.stringify(
+          initialSection === "roles"
+            ? data?.policies || {}
+            : data?.settings || {},
+        ) || JSON.stringify(rules) !== JSON.stringify(data?.rules || []),
     [form, rules, data, initialSection],
   );
   const change = (key: string, value: unknown) =>
@@ -139,8 +164,13 @@ export default function SettingsClient({
               : "/admin/settings/organization";
     try {
       if (initialSection === "roles") {
-        const response = await api.put("/organizations/current/role-policies", { policies: form });
-        setData((current: any) => ({ ...current, policies: response.data.policies }));
+        const response = await api.put("/organizations/current/role-policies", {
+          policies: form,
+        });
+        setData((current: any) => ({
+          ...current,
+          policies: response.data.policies,
+        }));
         setForm(response.data.policies);
         setNotice("Rollen und Berechtigungen gespeichert");
         return;
@@ -175,22 +205,20 @@ export default function SettingsClient({
     );
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
-      <div className="mx-auto flex max-w-6xl flex-col gap-8 p-6 md:flex-row md:p-10">
-        <aside className="w-52 shrink-0">
-          <p className="mb-5 text-sm font-semibold text-slate-500">
-            PLATTFORMVERWALTUNG
-          </p>
+      <div className="rv-admin-settings-page mx-auto max-w-6xl space-y-6">
+        <nav className="rv-settings-navigation" aria-label="Einstellungen">
           {nav.map(({ id, label, icon: Icon }) => (
             <Link
               key={id}
               href={`/admin/settings/${id}`}
+              aria-current={id === initialSection ? "page" : undefined}
               className={`mb-1 flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${id === initialSection ? "bg-slate-900 text-white" : "hover:bg-slate-200"}`}
             >
               <Icon size={16} />
               {label}
             </Link>
           ))}
-        </aside>
+        </nav>
         <section className="min-w-0 flex-1">
           <div className="mb-6 flex items-center justify-between">
             <div>
@@ -258,7 +286,11 @@ export default function SettingsClient({
               <Organization form={form} change={change} />
             )}
             {initialSection === "roles" && (
-              <Roles form={form} setForm={setForm} catalog={data?.catalog || []} />
+              <Roles
+                form={form}
+                setForm={setForm}
+                catalog={data?.catalog || []}
+              />
             )}
             {initialSection === "security" && (
               <Security form={form} change={change} />
@@ -289,29 +321,48 @@ function Roles({ form, setForm, catalog }: any) {
   return (
     <div className="space-y-6">
       <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-        Owner besitzen immer Vollzugriff. Diese Sicherheitsgarantie kann nicht entfernt werden.
+        Owner besitzen immer Vollzugriff. Diese Sicherheitsgarantie kann nicht
+        entfernt werden.
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[680px] text-left text-sm">
           <thead>
             <tr className="border-b text-slate-500">
               <th className="p-2">Berechtigung</th>
-              {roles.map((role) => <th key={role.id} className="p-2 text-center">{role.label}</th>)}
+              {roles.map((role) => (
+                <th key={role.id} className="p-2 text-center">
+                  {role.label}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {catalog.map((group: any) => [
-              <tr key={`${group.group}-heading`} className="bg-slate-50"><th colSpan={4} className="p-2 font-semibold text-slate-700">{group.group}</th></tr>,
+              <tr key={`${group.group}-heading`} className="bg-slate-50">
+                <th colSpan={4} className="p-2 font-semibold text-slate-700">
+                  {group.group}
+                </th>
+              </tr>,
               ...group.permissions.map((permission: any) => (
                 <tr key={permission.id} className="border-b border-slate-100">
-                  <td className="p-2"><span className="font-medium">{permission.label}</span><span className="ml-2 text-xs text-slate-400">{permission.id}</span></td>
+                  <td className="p-2">
+                    <span className="font-medium">{permission.label}</span>
+                    <span className="ml-2 text-xs text-slate-400">
+                      {permission.id}
+                    </span>
+                  </td>
                   {roles.map((role) => (
                     <td key={role.id} className="p-2 text-center">
                       <input
                         type="checkbox"
                         aria-label={`${permission.label} für ${role.label}`}
-                        checked={Array.isArray(form[role.id]) && form[role.id].includes(permission.id)}
-                        onChange={(event) => toggle(role.id, permission.id, event.target.checked)}
+                        checked={
+                          Array.isArray(form[role.id]) &&
+                          form[role.id].includes(permission.id)
+                        }
+                        onChange={(event) =>
+                          toggle(role.id, permission.id, event.target.checked)
+                        }
                       />
                     </td>
                   ))}

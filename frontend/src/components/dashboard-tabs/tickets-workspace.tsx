@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { Dispatch, FormEventHandler, SetStateAction } from "react";
 import { Search } from "lucide-react";
+import { WorkspaceHeader } from "./workspace-primitives";
 import {
   TICKET_STATUS_OPTIONS,
   ticketStatusLabel,
@@ -79,13 +80,11 @@ export default function TicketsWorkspace({
 
   return (
     <div className="rv-ticket-workspace space-y-4 max-w-7xl mx-auto">
-      <div>
-        <h1 className="text-xl font-bold text-white">Support-Tickets</h1>
-        <p className="mt-1 text-xs text-slate-400">
-          KI-Eskalationen werden automatisch als offene Tickets in diese
-          Warteschlange übernommen.
-        </p>
-      </div>
+      <WorkspaceHeader
+        eyebrow="SUPPORT"
+        title="Support-Tickets"
+        description="Behalte Kundenanfragen und KI-Eskalationen im Blick und bearbeite offene Tickets."
+      />
 
       <div className="rv-ticket-filters">
         <label className="rv-section-search">

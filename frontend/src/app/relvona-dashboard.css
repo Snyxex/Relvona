@@ -15,7 +15,7 @@
     sans-serif;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
-.relvona-workspace .rv-sidebar {
+.relvona-workspace > aside.rv-sidebar.w-64 {
   background: linear-gradient(
     175deg,
     #111d30 0%,
@@ -76,7 +76,7 @@
   color: #adbbd2 !important;
   background: none !important;
   border: 1px solid transparent !important;
-  font-size: 12.5px !important;
+  font-size: 14px !important;
   font-weight: 550;
   box-shadow: none !important;
 }
@@ -100,7 +100,7 @@
 }
 .relvona-workspace .rv-nav-secondary p {
   color: #8f9eb7;
-  font-size: 10px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.13em;
   font-weight: 700;
@@ -193,11 +193,11 @@
   background: #f3f5fa;
   padding: 3px 7px;
   border-radius: 5px;
-  font-size: 10px;
+  font-size: 12px;
 }
 .relvona-workspace--overview .rv-toolbar-workspace {
   color: #98a5bc;
-  font-size: 11px;
+  font-size: 12px;
   margin-left: auto;
 }
 .relvona-workspace--overview .rv-toolbar-user {
@@ -221,7 +221,7 @@
   font-weight: bold;
 }
 .relvona-workspace--overview .rv-toolbar-user strong {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 650;
 }
 .relvona-workspace--overview .rv-overview-body {
@@ -276,7 +276,7 @@
   outline: 0 !important;
   font-weight: 600;
   color: #283957;
-  font-size: 11px;
+  font-size: 12px;
   padding: 5px 0;
 }
 .relvona-workspace--overview .rv-date-controls button {
@@ -320,13 +320,14 @@
   place-items: center;
 }
 .relvona-workspace--overview .rv-metric-label {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 550;
   color: #566680;
   line-height: 1.35;
 }
 .relvona-workspace--overview .rv-metric-bottom {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: end;
   min-width: 0;
@@ -344,22 +345,18 @@
   white-space: nowrap;
 }
 .relvona-workspace--overview .rv-metric-detail {
-  font-size: 9.5px;
-  color: #8998ae;
+  font-size: 12px;
+  color: #667694;
   display: block;
   line-height: 1.5;
   margin-top: 5px;
 }
-.relvona-workspace--overview .rv-change-up,
-.relvona-workspace--overview .rv-change-down {
+.relvona-workspace--overview .rv-volume-change {
   display: inline-flex;
   align-items: center;
   gap: 1px;
   font-weight: 700;
-  color: #0eac84;
-}
-.relvona-workspace--overview .rv-change-down {
-  color: #e16a80;
+  color: #536584;
 }
 .relvona-workspace--overview .rv-sparkline {
   flex-shrink: 0;
@@ -387,16 +384,16 @@
   color: #14203b;
 }
 .relvona-workspace--overview .rv-section-heading p {
-  font-size: 10.5px;
+  font-size: 12px;
   margin-top: 4px;
   line-height: 1.4;
-  color: #8795ad;
+  color: #667694;
 }
 .relvona-workspace--overview .rv-chart-legend {
   display: flex;
   justify-content: flex-end;
   gap: 17px;
-  font-size: 10px;
+  font-size: 12px;
   color: #697990;
   margin: 8px 5px -3px;
 }
@@ -440,7 +437,7 @@
   min-width: 0;
 }
 .relvona-workspace--overview .rv-category-row > span {
-  font-size: 10px;
+  font-size: 12px;
   color: #51617b;
   overflow: hidden;
   white-space: nowrap;
@@ -457,7 +454,7 @@
   border-radius: 3px;
 }
 .relvona-workspace--overview .rv-category-row > strong {
-  font-size: 10px;
+  font-size: 12px;
   color: #5d6d85;
   text-align: right;
   font-weight: 650;
@@ -498,7 +495,7 @@
   color: #162344;
 }
 .relvona-workspace--overview .rv-donut-center span {
-  font-size: 9px;
+  font-size: 12px;
   color: #8b98ad;
 }
 .relvona-workspace--overview .rv-donut-legend {
@@ -511,7 +508,7 @@
   display: flex;
   justify-content: space-between;
   gap: 7px;
-  font-size: 10px;
+  font-size: 12px;
   white-space: nowrap;
 }
 .relvona-workspace--overview .rv-legend-name {
@@ -527,8 +524,86 @@
 }
 .relvona-workspace--overview .rv-bottom-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.03fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1.1fr) minmax(0, 1fr);
   gap: 13px;
+}
+.relvona-workspace--overview .rv-priority-panel {
+  border-top: 3px solid var(--rv-blue) !important;
+}
+.relvona-workspace--overview .rv-workload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 24px;
+  padding: 22px;
+  border: 1px solid #d7e2fa;
+  border-radius: 14px;
+  background: #edf3ff;
+}
+.relvona-workspace--overview .rv-workload-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1 1 280px;
+}
+.relvona-workspace--overview .rv-workload-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  background: #fff;
+  color: #355dcc;
+}
+.relvona-workspace--overview .rv-workload h2 {
+  font-size: 17px;
+  font-weight: 700;
+}
+.relvona-workspace--overview .rv-workload p {
+  margin-top: 4px;
+  font-size: 14px;
+}
+.relvona-workspace--overview .rv-workload small {
+  display: block;
+  margin-top: 6px;
+  color: #536584;
+  font-size: 12px;
+}
+.relvona-workspace--overview .rv-workload-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+}
+.relvona-workspace--overview .rv-workload-counts dt {
+  color: #536584;
+  font-size: 12px;
+}
+.relvona-workspace--overview .rv-workload-counts dd {
+  margin: 5px 0 0;
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.relvona-workspace--overview .rv-workload-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: 9px;
+  background: #355dcc;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+.relvona-workspace--overview .rv-workload-action:hover {
+  background: #284bb0;
+}
+.relvona-workspace--overview :is(button, a, input, select):focus-visible {
+  outline: 3px solid #416fed !important;
+  outline-offset: 3px;
 }
 .relvona-workspace--overview .rv-list-panel {
   padding: 16px 16px 8px;
@@ -545,7 +620,7 @@
   background: white;
   color: #5d6c88;
   font-weight: 600;
-  font-size: 10px;
+  font-size: 12px;
   white-space: nowrap;
 }
 .relvona-workspace--overview .rv-outline-button:hover {
@@ -607,7 +682,7 @@
   flex: 1;
 }
 .relvona-workspace--overview .rv-row-copy strong {
-  font-size: 10.5px;
+  font-size: 14px;
   font-weight: 650;
   color: #233151;
   overflow: hidden;
@@ -615,8 +690,8 @@
   text-overflow: ellipsis;
 }
 .relvona-workspace--overview .rv-row-copy small {
-  font-size: 9.5px;
-  color: #8998ad;
+  font-size: 12px;
+  color: #667694;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -625,7 +700,7 @@
   flex-shrink: 0;
   padding: 6px 9px;
   border-radius: 999px;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 650;
   color: #3765e7;
   background: #edf2ff;
@@ -657,15 +732,15 @@
   background: #3564db;
   color: #fff;
   font-weight: 650;
-  font-size: 9px;
+  font-size: 12px;
   text-decoration: none;
 }
 .relvona-workspace--overview .rv-join:hover {
   background: #254ebd;
 }
 .relvona-workspace--overview .rv-activity-row time {
-  color: #94a0b2;
-  font-size: 9px;
+  color: #667694;
+  font-size: 12px;
   white-space: nowrap;
   align-self: flex-start;
   padding-top: 4px;
@@ -674,7 +749,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 10px;
+  font-size: 12px;
   color: #8b98ad;
   margin-top: 1px;
 }
@@ -695,19 +770,19 @@
   margin-left: 10px;
 }
 .relvona-workspace--overview .rv-empty-small {
-  font-size: 11px;
-  color: #9ba8b9;
+  font-size: 12px;
+  color: #667694;
   padding: 20px 4px;
   text-align: center;
 }
 /* The notification bell remains the functional shared notification component, aligned with the new top bar. */
-body:has(.relvona-workspace--overview) .relvona-notification-center {
+body:has(.relvona-workspace) .relvona-notification-center {
   position: fixed;
   top: 13px;
   right: 20px;
   z-index: 60;
 }
-body:has(.relvona-workspace--overview) .relvona-notification-center > button {
+body:has(.relvona-workspace) .relvona-notification-center > button {
   width: 38px;
   height: 38px;
   background: #fff !important;
@@ -718,7 +793,16 @@ body:has(.relvona-workspace--overview) .relvona-notification-center > button {
 /* Never hide the actual user-controlled theme in other workspaces. */
 @media (max-width: 1390px) {
   .relvona-workspace--overview .rv-kpi-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .relvona-workspace--overview .rv-kpi-grid > :last-child {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    align-items: center;
+    min-height: 88px;
+  }
+  .relvona-workspace--overview .rv-kpi-grid > :last-child .rv-metric-bottom {
+    text-align: right;
   }
   .relvona-workspace--overview .rv-chart-grid {
     grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
@@ -729,7 +813,7 @@ body:has(.relvona-workspace--overview) .relvona-notification-center > button {
   .relvona-workspace--overview .rv-bottom-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .relvona-workspace--overview .rv-bottom-grid > :last-child {
+  .relvona-workspace--overview .rv-bottom-grid > :first-child {
     grid-column: 1 / -1;
   }
   .relvona-workspace--overview .rv-donut {
@@ -751,7 +835,7 @@ body:has(.relvona-workspace--overview) .relvona-notification-center > button {
   .relvona-workspace .rv-sidebar > div:first-child {
     min-width: 0;
   }
-  .relvona-workspace .rv-sidebar {
+  .relvona-workspace > aside.rv-sidebar.w-64 {
     width: 100% !important;
     box-shadow: none;
     flex: 0 0 auto;
@@ -815,7 +899,7 @@ body:has(.relvona-workspace--overview) .relvona-notification-center > button {
   }
   .relvona-workspace--overview .rv-metric-card {
     padding: 12px;
-    min-height: 116px;
+    min-height: 140px;
   }
   .relvona-workspace--overview .rv-metric-icon {
     width: 32px;
@@ -827,12 +911,41 @@ body:has(.relvona-workspace--overview) .relvona-notification-center > button {
   .relvona-workspace--overview .rv-sparkline {
     display: none;
   }
+  .relvona-workspace--overview .rv-workload {
+    gap: 18px;
+    padding: 16px;
+  }
+  .relvona-workspace--overview .rv-workload-heading {
+    flex-basis: 100%;
+  }
+  .relvona-workspace--overview .rv-workload-counts {
+    justify-content: space-between;
+    flex: 1 1 100%;
+    gap: 12px;
+  }
+  .relvona-workspace--overview .rv-workload-action {
+    width: 100%;
+  }
+  .relvona-workspace--overview .rv-metric-top {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .relvona-workspace--overview .rv-metric-copy strong {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .relvona-workspace--overview .rv-ticket-row {
+    flex-wrap: wrap;
+  }
+  .relvona-workspace--overview .rv-ticket-status {
+    margin-left: 44px;
+  }
   .relvona-workspace--overview .rv-chart-grid,
   .relvona-workspace--overview .rv-bottom-grid {
     grid-template-columns: minmax(0, 1fr);
   }
   .relvona-workspace--overview .rv-chart-grid > :last-child,
-  .relvona-workspace--overview .rv-bottom-grid > :last-child {
+  .relvona-workspace--overview .rv-bottom-grid > :first-child {
     grid-column: auto;
   }
   .relvona-workspace--overview .rv-donut-wrap {
@@ -841,7 +954,7 @@ body:has(.relvona-workspace--overview) .relvona-notification-center > button {
   .relvona-workspace--overview .rv-donut {
     width: 136px;
   }
-  body:has(.relvona-workspace--overview) .relvona-notification-center {
+  body:has(.relvona-workspace) .relvona-notification-center {
     top: 10px;
     right: 8px;
   }

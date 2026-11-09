@@ -1,4 +1,5 @@
 "use client";
+import AccessShell from "@/components/access-shell";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -10,17 +11,35 @@ export default function CustomerPortalVerifyPage() {
 
   useEffect(() => {
     const token = new URLSearchParams(window.location.search).get("token");
-    if (!token) { setMessage("Der Anmeldelink ist ungültig."); return; }
+    if (!token) {
+      setMessage("Der Anmeldelink ist ungültig.");
+      return;
+    }
     void fetch(`${API_BASE_URL}/customer-portal/verify`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token }),
-    }).then(async (response) => {
-      if (!response.ok) throw new Error();
-      router.replace("/customer-portal");
-    }).catch(() => setMessage("Der Anmeldelink ist ungültig oder abgelaufen."));
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error();
+        router.replace("/customer-portal");
+      })
+      .catch(() => setMessage("Der Anmeldelink ist ungültig oder abgelaufen."));
   }, [router]);
 
-  return <main className="flex min-h-screen items-center justify-center bg-background p-6"><div className="max-w-md rounded-xl border bg-card p-6 text-center"><h1 className="text-xl font-semibold">Kundenportal</h1><p className="mt-3 text-sm text-muted-foreground">{message}</p></div></main>;
+  return (
+    <AccessShell
+      title="Anmeldelink prüfen"
+      description="Dein Zugang zum Kundenportal wird bestätigt."
+      eyebrow="KUNDENPORTAL"
+    >
+      <p role="status" className="rv-access-status">
+        {message}
+      </p>
+      <a className="rv-access-link" href="/customer-portal">
+        Neuen Anmeldelink anfordern
+      </a>
+    </AccessShell>
+  );
 }

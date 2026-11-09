@@ -16,12 +16,12 @@ This document records the approved employee dashboard redesign. The source of tr
 | Canvas | `#f7f9fc` | Dashboard background |
 | Card border | `#e8edf5` | Soft component separation |
 
-Typography: Inter when available, then platform system sans fonts. H1 21–30px; section titles 14px; body 12–13px; chart and list metadata 9–11px. Keep data readable at common display widths. White cards, 14px radius, subtle shadows and consistent gaps define the visual hierarchy.
+Typography: Inter when available, then platform system sans fonts. H1 21–30px; section titles 14–17px; body 12–14px; chart legends and list metadata at least 12px. Keep data readable at common display widths. White cards, 14px radius, subtle shadows and consistent gaps define the visual hierarchy.
 
 ## Dashboard layout
 
-- Desktop: 264px dark sidebar; 69px workspace toolbar; five KPI tiles; three insight charts; three lists.
-- Tablet: KPI grid reduces to three columns; charts and lists stack to two columns.
+- Desktop: 264px dark sidebar; 69px workspace toolbar; outstanding-work summary; five KPI tiles; three lists; three insight charts.
+- Below 1390px: KPI grid reduces to two columns with a compact full-width feedback tile; the ticket list spans both columns, with appointments and activity below it.
 - Tablet/phone (<=950px): the entire workspace switches from side-by-side flex rows to a **column layout**, placing navigation above a scrollable dashboard. Without this shell change, a 100%-width sidebar would otherwise push the dashboard off screen.
 - Phone: horizontal compact navigation; KPI grid two columns; charts and lists become single column; date filter remains operable. Native form widgets use a light color scheme only on the light dashboard.
 - The header notification bell is the **existing functional** notification center; do not replace it with a decorative icon.
@@ -119,3 +119,38 @@ The conversation workflow, ticket/business-action handlers, authentication/login
 The reference mockup is a **visual specification**, not a source of example customer names, event counts, dates or ratings. The first rollout updates the employee homepage and its shared sidebar; pre-existing admin settings, editors, profile and portal flows retain their own established UI until they undergo deliberate component-by-component migration.
 
 Before merge: run Jenkins builds, mobile/desktop browser screenshots and keyboard/accessibility checks. Monitor real dashboard performance with representative customer and ticket volumes.
+
+## Dashboard readability and work prioritization (9 November 2026)
+
+- The first overview panel shows outstanding tickets, split into open, in-progress and pending states. These are existing all-time aggregate status counts; the panel explicitly distinguishes them from the selected KPI time window. Ticket navigation requires `access.tickets`. No ticket urgency or priority is inferred from status.
+- Recent tickets now precede analytical charts and receive more width and a blue top border. The list remains the five newest tickets; its heading states that scope.
+- Metadata and chart legends use at least 12px CSS text; ticket subjects use 14px. The volume chart uses a smaller viewBox and four date labels to improve axis readability on narrow displays.
+- Below 1390px, KPIs use two columns with a compact full-width feedback tile. Mobile cards allow labels and long numeric values to wrap.
+- Volume changes use a neutral color and signed percentages, rather than treating increasing ticket/conversation/appointment counts as an improvement. Zero changes have no directional arrow.
+- Focus outlines cover overview controls. The workload summary wraps for mobile and its ticket action has a 44px minimum height.
+
+Validation: frontend TypeScript and six UI utility tests passed. Browser layout checks use rendered overview markup and compiled project CSS with isolated fixtures (populated, empty and restricted access) at 320, 390, 768, 1024, 1366, 1440 and 1920px. This fixture preview does not exercise authenticated routing, live API calls or the full application shell. The production build passed with `npm run build -- --webpack`; the default Turbopack build is blocked by a local process/port permission error. Existing Biome warnings concern the avatar image and meeting-URL non-null assertion; no lint errors were reported.
+
+## Profile and employee-tab alignment (9 November 2026)
+
+- `dashboard-tabs/profile-workspace.tsx` now owns the profile presentation. The existing controller still owns profile state, upload validation, preference persistence and notifications. `/profile` retains its server session guard and opens the same modern workspace as the profile tab.
+- The profile shows an identity/upload card, personal details, appearance controls with a live isolated preview, a save action and separate password/2FA panels. Name, image, language, theme and security API contracts are retained. Inputs have persistent labels; setup, recovery-code and policy messages use light semantic notices. Security forms remain outside the profile preferences form.
+- Every dashboard tab now uses the modern light canvas. `WorkspaceToolbar` adds the current section and a functional profile shortcut. Tickets use the shared `WorkspaceHeader`; analytics, customers, team, knowledge, crawler, assistant, widget and organization share larger captions, light inputs and visible keyboard focus.
+- Light palette variables are scoped to the modern main element so older global `!important` utility rules cannot turn its cards dark. Sidebar specificity keeps the navy design under both saved theme presets; the matching mobile rule restores full-width navigation. Explicit preview colors continue to come from user-selected state.
+- One padding variable drives modern main padding and toolbar edge alignment, avoiding conflicts with legacy mobile padding overrides. At 650px and below, profile forms and security panels stack, and the profile save button spans the available width.
+
+Validation: TypeScript, six UI utility tests and 17 server page-authentication cases passed; changed-file Biome lint reports no errors (existing `any`/image warnings remain). The production build succeeds with Webpack. An isolated browser fixture renders the actual 11 tab components with compiled project styles at 320, 390, 768, 1024, 1366, 1440 and 1920px, checking overflow, palette, navigation width and profile labels. Browser interactions cover profile editing, appearance preview, save callbacks, avatar selection/removal, password mismatch validation, TOTP setup/confirmation and the required-2FA disable guard. Authentication and API boundaries use fixtures; this does not establish live backend or authenticated-routing behavior. A separate static review found no Important/Critical regressions.
+
+This phase covered the employee workspace and its tabs. The remaining routes are covered by the subsequent application rollout below.
+
+## Remaining application pages (9 November 2026)
+
+- `relvona-application.css` scopes the shared light palette, controls, cards, table surfaces and readable semantic colors to the application chrome. The root layout imports it after the legacy interaction styles. It does not replace global user preferences or backend authorization.
+- `admin/admin-layout-client.tsx` uses a navy sidebar grouped into work, AI/knowledge, reporting and administration, with active-page links and horizontal mobile navigation. The organization selector still writes `active_org_id` before updating state and remounts children by organization ID. Its initial loading, unavailable and no-organization states have matching light surfaces.
+- `/admin` now provides light navigation cards. All standalone admin content inherits the same surfaces, including employees, versions, actions, working hours, teams/SLA, automations, analytics, knowledge, answer quality, scheduling, integrations/Zendesk, mail and security. Settings use compact section links instead of a second sidebar. Shared settings fields have actual labels associated with their input IDs.
+- Embedded `/admin/configuration` retains the employee workbench instead of gaining a second sidebar. Its wrapper is excluded from generic application utility restyling; only the outer toolbar carries the application theme. Widget preview text remains white on the user-selected primary color, independently of surrounding surfaces.
+- `components/access-shell.tsx` supplies common brand navigation, a navy introduction and a light form card for login/loading, initial setup, invitations, customer portal entry and verification. Introduction content is hidden on small screens. Authenticator login, password constraints, invitation acceptance, bootstrap-token headers and redirect behavior are preserved.
+- The signed-in customer portal has a navy identity header and light support, ticket, appointment and memory panels. Appointment selection, rescheduling/cancellation and customer attachment handlers remain connected to the same APIs. Portal fetch callbacks are stable and form buttons have explicit types.
+- Dashboard loading and the attachment drawer use matching surfaces. The attachment backdrop is a separate close button, so clicks inside the drawer do not close it. The notification bell is hidden on access/loading screens.
+
+Validation: six existing UI utility tests, 17 page-authentication cases and TypeScript passed. Changed-file Biome lint reports no errors; legacy warnings remain. The production build passes with Webpack. Browser QA renders actual components with compiled project styles and isolated API/router fixtures: 26 admin states and five public/portal pages at 320, 390, 768, 1024, 1440 and 1920px. It checks page overflow, navigation widths, organization selection and page-state remounting, settings labels, login submission, setup password mismatch, invitation submission, portal email-link requests, booking-slot/attachment display, error retry and embedded widget-preview colors. Completed setup, invalid invitation and unavailable-admin states are checked separately. These fixtures do not establish live backend behavior, email delivery, server routing or production authentication. A separate static review identified a preview-color overlap; theme isolation and a computed-color browser assertion verify its correction. No deployment or merge was performed.

@@ -16,6 +16,7 @@ import {
   Ticket,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { ticketWorkload } from "@/lib/support-metrics";
 import { ticketStatusLabel, ticketStatusTone } from "@/lib/support-status";
 
 type Metric = {
@@ -166,12 +167,13 @@ function MetricCard({
           <strong>{value}</strong>
           <span className="rv-metric-detail">
             {change != null && (
-              <span className={change >= 0 ? "rv-change-up" : "rv-change-down"}>
-                {change >= 0 ? (
+              <span className="rv-volume-change">
+                {change === 0 ? null : change > 0 ? (
                   <ArrowUpRight size={13} />
                 ) : (
                   <ArrowDownRight size={13} />
                 )}{" "}
+                {change > 0 ? "+" : change < 0 ? "−" : ""}
                 {Math.abs(change)}% ·{" "}
               </span>
             )}
@@ -184,10 +186,10 @@ function MetricCard({
   );
 }
 function VolumeChart({ points }: { points: DashboardReport["volume"] }) {
-  const w = 720,
+  const w = 420,
     h = 224,
-    left = 36,
-    right = 13,
+    left = 44,
+    right = 24,
     top = 19,
     bottom = 34;
   const peak = Math.max(
@@ -244,8 +246,8 @@ function VolumeChart({ points }: { points: DashboardReport["volume"] }) {
               x={left - 10}
               y={y + 3}
               textAnchor="end"
-              fontSize="10"
-              fill="#8b97ac"
+              fontSize="20"
+              fill="#667694"
             >
               {Math.round(scale * (1 - f))}
             </text>
@@ -275,7 +277,8 @@ function VolumeChart({ points }: { points: DashboardReport["volume"] }) {
           (_, i) =>
             i === 0 ||
             i === points.length - 1 ||
-            i % Math.max(1, Math.round(points.length / 5)) === 0,
+            i === Math.round((points.length - 1) / 3) ||
+            i === Math.round(((points.length - 1) * 2) / 3),
         )
         .map((p) => (
           <text
@@ -286,9 +289,9 @@ function VolumeChart({ points }: { points: DashboardReport["volume"] }) {
                 Math.max(points.length - 1, 1)
             }
             y={h - 10}
-            fill="#8b97ac"
+            fill="#667694"
             textAnchor="middle"
-            fontSize="10"
+            fontSize="20"
           >
             {new Date(p.day + "T00:00:00Z").toLocaleDateString("de-DE", {
               day: "2-digit",
@@ -500,6 +503,7 @@ function OverviewTab({
     [data, search],
   );
   const metrics = data?.kpis;
+  const workload = ticketWorkload(data?.status ?? []);
   return (
     <div className="rv-overview">
       <div className="rv-toolbar">
@@ -529,9 +533,7 @@ function OverviewTab({
           <div>
             <p className="rv-eyebrow">Schön, dass du da bist.</p>
             <h1>Das passiert gerade bei Relvona</h1>
-            <p>
-              AI-gestützter Support. Zufriedene Kunden. Ein produktives Team.
-            </p>
+            <p>Behalte offene Aufgaben, dein Team und den Support im Blick.</p>
           </div>
           <div className="rv-date-controls">
             <label htmlFor="rv-range">
@@ -580,6 +582,50 @@ function OverviewTab({
         )}
         {!loading && !error && data && metrics && (
           <>
+            <section
+              className="rv-workload"
+              aria-labelledby="rv-workload-title"
+            >
+              <div className="rv-workload-heading">
+                <span className="rv-workload-icon">
+                  <Ticket size={22} />
+                </span>
+                <div>
+                  <h2 id="rv-workload-title">Offene Arbeit</h2>
+                  <p>
+                    {workload.total === 0
+                      ? "Aktuell sind alle Tickets abgeschlossen."
+                      : `${formatNumber(workload.total)} Tickets sind noch nicht abgeschlossen.`}
+                  </p>
+                  <small>
+                    Aktueller Stand · unabhängig vom gewählten Zeitraum
+                  </small>
+                </div>
+              </div>
+              <dl className="rv-workload-counts">
+                <div>
+                  <dt>Offen</dt>
+                  <dd>{formatNumber(workload.open)}</dd>
+                </div>
+                <div>
+                  <dt>In Bearbeitung</dt>
+                  <dd>{formatNumber(workload.inProgress)}</dd>
+                </div>
+                <div>
+                  <dt>Wartend</dt>
+                  <dd>{formatNumber(workload.pending)}</dd>
+                </div>
+              </dl>
+              {data.access.tickets && (
+                <button
+                  type="button"
+                  className="rv-workload-action"
+                  onClick={() => onNavigate?.("tickets")}
+                >
+                  Zu den Tickets <ArrowRight size={16} />
+                </button>
+              )}
+            </section>
             <div className="rv-kpi-grid">
               <MetricCard
                 label="Support-Tickets"
@@ -632,83 +678,11 @@ function OverviewTab({
                 tone="#f2a94d"
               />
             </div>
-            <div className="rv-chart-grid">
-              <section className="rv-panel rv-chart-panel rv-volume-panel">
-                <SectionHeading
-                  title="Support-Volumen"
-                  description="Tickets und AI-Unterhaltungen im Zeitverlauf"
-                />
-                <div className="rv-chart-legend">
-                  <span>
-                    <i className="rv-dot-blue" />
-                    Tickets
-                  </span>
-                  <span>
-                    <i className="rv-dot-purple" />
-                    AI-Unterhaltungen
-                  </span>
-                </div>
-                <VolumeChart points={data.volume} />
-                <table className="sr-only">
-                  <caption>Support-Volumen pro UTC-Kalendertag</caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">Datum</th>
-                      <th scope="col">Tickets</th>
-                      <th scope="col">AI-Unterhaltungen</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.volume.map((point) => (
-                      <tr key={point.day}>
-                        <th scope="row">{point.day}</th>
-                        <td>{point.tickets}</td>
-                        <td>{point.conversations}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </section>
-              <section className="rv-panel rv-chart-panel">
-                <SectionHeading
-                  title="Ticket-Kategorien"
-                  description="Verteilung nach erstem Ticket-Tag"
-                />
-                <div className="rv-categories">
-                  {data.categories.map((category, index) => (
-                    <div className="rv-category-row" key={category.name}>
-                      <span title={category.name}>{category.name}</span>
-                      <div className="rv-category-track">
-                        <div
-                          style={{
-                            width: `${category.share * 100}%`,
-                            background:
-                              categoryColors[index % categoryColors.length],
-                          }}
-                        />
-                      </div>
-                      <strong>{Math.round(category.share * 100)}%</strong>
-                    </div>
-                  ))}
-                  {!data.categories.length && (
-                    <p className="rv-empty-small">
-                      Noch keine Tickets in diesem Zeitraum.
-                    </p>
-                  )}
-                </div>
-              </section>
-              <section className="rv-panel rv-chart-panel">
-                <SectionHeading
-                  title="Ticket-Status"
-                  description="Aktuelle Verteilung aller Tickets"
-                />
-                <StatusDonut statuses={data.status} total={data.statusTotal} />
-              </section>
-            </div>
             <div className="rv-bottom-grid">
-              <section className="rv-panel rv-list-panel">
+              <section className="rv-panel rv-list-panel rv-priority-panel">
                 <SectionHeading
                   title="Letzte Tickets"
+                  description="Die fünf neuesten Tickets deiner Organisation"
                   action="Alle ansehen"
                   handleAction={() => onNavigate?.("tickets")}
                 />
@@ -830,6 +804,79 @@ function OverviewTab({
                     </p>
                   )}
                 </div>
+              </section>
+            </div>
+            <div className="rv-chart-grid">
+              <section className="rv-panel rv-chart-panel rv-volume-panel">
+                <SectionHeading
+                  title="Support-Volumen"
+                  description="Tickets und AI-Unterhaltungen im Zeitverlauf"
+                />
+                <div className="rv-chart-legend">
+                  <span>
+                    <i className="rv-dot-blue" />
+                    Tickets
+                  </span>
+                  <span>
+                    <i className="rv-dot-purple" />
+                    AI-Unterhaltungen
+                  </span>
+                </div>
+                <VolumeChart points={data.volume} />
+                <table className="sr-only">
+                  <caption>Support-Volumen pro UTC-Kalendertag</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Datum</th>
+                      <th scope="col">Tickets</th>
+                      <th scope="col">AI-Unterhaltungen</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.volume.map((point) => (
+                      <tr key={point.day}>
+                        <th scope="row">{point.day}</th>
+                        <td>{point.tickets}</td>
+                        <td>{point.conversations}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+              <section className="rv-panel rv-chart-panel">
+                <SectionHeading
+                  title="Ticket-Kategorien"
+                  description="Verteilung nach erstem Ticket-Tag"
+                />
+                <div className="rv-categories">
+                  {data.categories.map((category, index) => (
+                    <div className="rv-category-row" key={category.name}>
+                      <span title={category.name}>{category.name}</span>
+                      <div className="rv-category-track">
+                        <div
+                          style={{
+                            width: `${category.share * 100}%`,
+                            background:
+                              categoryColors[index % categoryColors.length],
+                          }}
+                        />
+                      </div>
+                      <strong>{Math.round(category.share * 100)}%</strong>
+                    </div>
+                  ))}
+                  {!data.categories.length && (
+                    <p className="rv-empty-small">
+                      Noch keine Tickets in diesem Zeitraum.
+                    </p>
+                  )}
+                </div>
+              </section>
+              <section className="rv-panel rv-chart-panel">
+                <SectionHeading
+                  title="Ticket-Status"
+                  description="Aktuelle Verteilung aller Tickets"
+                />
+                <StatusDonut statuses={data.status} total={data.statusTotal} />
               </section>
             </div>
             <p className="rv-data-note" role="status" aria-live="polite">

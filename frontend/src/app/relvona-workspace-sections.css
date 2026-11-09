@@ -1,8 +1,24 @@
-/* Shared Relvona workspace surfaces beyond the dashboard overview.
-   Scoped to explicit modern pages: profile, authentication, widget designer,
-   and platform settings retain their existing independent theme. */
-.relvona-workspace .rv-main--modern {
-  background: #f7f9fc;
+/* Shared Relvona employee workspace surfaces, including profile and security.
+   Authentication, customer portal and standalone platform pages remain scoped separately. */
+.relvona-workspace > main.rv-main.rv-main--modern {
+  --background: #f7f9fc;
+  --foreground: #182742;
+  --card: #fff;
+  --muted: #f1f5fb;
+  --muted-foreground: #667694;
+  --border: #e5eaf3;
+  --border-strong: #cdd8e9;
+  --primary: #416fed;
+  --ring: rgba(65, 111, 237, 0.2);
+  --user-radius: 12px;
+  --shadow-card: 0 6px 22px rgba(24, 42, 78, 0.045);
+  --rv-workspace-padding: 24px;
+  padding: var(--rv-workspace-padding) !important;
+  padding-bottom: max(
+    var(--rv-workspace-padding),
+    env(safe-area-inset-bottom)
+  ) !important;
+  background: #f7f9fc !important;
   color: #182742;
   color-scheme: light;
   min-width: 0;
@@ -29,7 +45,7 @@
 }
 
 .rv-main--modern .rv-section-eyebrow {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 750;
   letter-spacing: 0.15em;
   color: #5578d8;
@@ -101,7 +117,7 @@
   border: 1px solid #e5eaf3;
   border-radius: 999px;
   padding: 9px 13px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 650;
   color: #667996;
   background: #fff;
@@ -134,7 +150,7 @@
   align-items: center;
   gap: 10px;
   color: #657591;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -172,8 +188,8 @@
 }
 
 .rv-main--modern .rv-section-metric > small {
-  color: #8795ab;
-  font-size: 11px;
+  color: #667694;
+  font-size: 12px;
 }
 
 .rv-main--modern .rv-section-panel {
@@ -191,8 +207,8 @@
 }
 
 .rv-main--modern .rv-section-panel-heading p {
-  color: #8997ad;
-  font-size: 11px;
+  color: #667694;
+  font-size: 12px;
   margin-top: 5px;
 }
 
@@ -218,7 +234,7 @@
 .rv-main--modern .rv-insight-donut-row p,
 .rv-main--modern .rv-insight-description {
   color: #7585a0;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.6;
 }
 
@@ -251,7 +267,7 @@
 
 .rv-main--modern .rv-insight-donut small {
   color: #8a98ae;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .rv-main--modern .rv-insight-number {
@@ -286,7 +302,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  font-size: 11px;
+  font-size: 12px;
   color: #65738c;
 }
 
@@ -338,7 +354,7 @@
 
 .rv-main--modern .rv-directory-result {
   color: #8191ab;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .rv-main--modern .rv-directory-grid {
@@ -397,8 +413,8 @@
 
 .rv-main--modern .rv-directory-identity p,
 .rv-main--modern .rv-agent-identity p {
-  color: #8795ac;
-  font-size: 11px;
+  color: #667694;
+  font-size: 12px;
   margin-top: 4px;
   display: flex;
   align-items: center;
@@ -420,7 +436,7 @@
   justify-content: space-between;
   gap: 14px;
   margin-top: 7px;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .rv-main--modern .rv-directory-meta dt {
@@ -466,12 +482,12 @@
   background: #f6f8fc;
   color: #53657f;
   padding: 7px 10px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
 }
 
 .rv-main--modern .rv-section-presence {
-  color: #8794a6;
+  color: #667694;
 }
 .rv-main--modern .rv-section-presence i {
   width: 7px;
@@ -497,7 +513,7 @@
   padding: 15px 18px;
   background: #edf3ff;
   color: #5b74a6;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.6;
 }
 
@@ -526,7 +542,7 @@
 }
 
 .rv-main--modern .rv-section-empty p {
-  font-size: 11px;
+  font-size: 12px;
   max-width: 420px;
   line-height: 1.6;
 }
@@ -940,8 +956,8 @@
   font-size: 12px;
 }
 .rv-main--modern .rv-inbox-empty p {
-  color: #8b9bb2;
-  font-size: 11px;
+  color: #667694;
+  font-size: 12px;
   line-height: 1.6;
   max-width: 260px;
 }
@@ -1104,7 +1120,7 @@
 }
 .rv-main--modern .rv-knowledge-sources .rv-source-heading p {
   color: #8493aa;
-  font-size: 11px;
+  font-size: 12px;
   margin-top: 4px;
 }
 .rv-main--modern .rv-source-refresh {
@@ -1209,7 +1225,7 @@
   border-radius: 999px;
   background: #f1f5ff;
   color: #466cca;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -1281,7 +1297,9 @@
 }
 .rv-main--modern
   .rv-widget-workspace
-  .text-white:not(button):not(.bg-blue-600):not(.bg-amber-600) {
+  .text-white:not(button):not(.bg-blue-600):not(.bg-amber-600):not(
+    .rv-widget-preview *
+  ) {
   color: #213552;
 }
 .rv-main--modern .rv-widget-workspace .text-slate-500,
@@ -1318,4 +1336,527 @@
   .rv-main--modern .rv-widget-workspace > .grid > div {
     min-width: 0;
   }
+}
+
+/* Shared controls and profile surfaces follow the overview palette. */
+.rv-main--modern {
+  font-size: 13px;
+}
+.rv-main--modern :is(.text-xs, .text-\[9px\], .text-\[10px\], .text-\[11px\]) {
+  font-size: 12px;
+}
+.rv-main--modern
+  :is(button, a, input, textarea, select, summary):focus-visible {
+  outline: 3px solid #416fed !important;
+  outline-offset: 3px;
+}
+.rv-main--modern .rv-section-intro {
+  font-size: 14px;
+  color: #667694;
+}
+.rv-main--modern .rv-section-button {
+  min-height: 44px;
+  font-size: 13px;
+  text-decoration: none;
+}
+.rv-main--modern .rv-section-button-danger {
+  border-color: #edcbd3;
+  background: #fff3f5;
+  color: #ae3551;
+}
+.rv-main--modern .rv-section-button-danger:hover {
+  background: #ffe7ec;
+}
+.rv-main--modern .rv-workspace-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 69px;
+  margin: calc(-1 * var(--rv-workspace-padding))
+    calc(-1 * var(--rv-workspace-padding)) 26px;
+  padding: 12px 25px;
+  padding-right: 76px;
+  background: #fff;
+  border-bottom: 1px solid #e8edf5;
+}
+.rv-main--modern .rv-workspace-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: 12px;
+  color: #667694;
+}
+.rv-main--modern .rv-workspace-breadcrumb strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #263954;
+  font-weight: 600;
+}
+.rv-main--modern .rv-workspace-breadcrumb > span {
+  white-space: nowrap;
+}
+.rv-main--modern .rv-workspace-profile {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 5px 8px;
+  border-radius: 9px;
+  color: #263954;
+  font-size: 12px;
+}
+.rv-main--modern .rv-workspace-profile:hover {
+  background: #f1f5ff;
+}
+.rv-main--modern .rv-workspace-profile > :is(img, span) {
+  display: grid;
+  place-items: center;
+  width: 31px;
+  height: 31px;
+  flex: 0 0 31px;
+  border-radius: 50%;
+  object-fit: cover;
+  color: #416fed;
+  background: #edf2ff;
+}
+.rv-main--modern .rv-workspace-profile strong {
+  max-width: 180px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.rv-main--modern .rv-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.rv-main--modern .rv-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  color: #41526e;
+  font-size: 13px;
+  font-weight: 600;
+}
+.rv-main--modern .rv-form-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #dfe6f1;
+  border-radius: 9px;
+  background: #f8faff;
+  color: #21324e;
+  font-size: 14px;
+  font-weight: 400;
+}
+.rv-main--modern .rv-form-field input[type="range"] {
+  width: 100%;
+  min-height: 32px;
+  accent-color: #416fed;
+}
+.rv-main--modern .rv-form-hint {
+  color: #667694;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+.rv-main--modern .rv-form-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.rv-main--modern .rv-form-text-danger {
+  min-height: 40px;
+  padding: 8px 0;
+  color: #ae3551;
+  font-size: 13px;
+}
+.rv-main--modern .rv-form-text-danger:hover {
+  text-decoration: underline;
+}
+.rv-main--modern .rv-profile-workspace {
+  max-width: 1280px;
+  gap: 24px;
+}
+.rv-main--modern .rv-profile-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  align-items: start;
+  gap: 24px;
+}
+.rv-main--modern .rv-profile-identity {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: 14px;
+  padding: 26px 20px;
+}
+.rv-main--modern .rv-profile-avatar {
+  display: grid;
+  place-items: center;
+  width: 88px;
+  height: 88px;
+  overflow: hidden;
+  border-radius: 24px;
+  background: #edf2ff;
+  color: #416fed;
+  font-size: 32px;
+  font-weight: 700;
+}
+.rv-main--modern .rv-profile-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.rv-main--modern .rv-profile-identity h2 {
+  max-width: 100%;
+  font-size: 20px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.rv-main--modern .rv-profile-email {
+  max-width: 100%;
+  font-size: 13px;
+  color: #667694;
+  overflow-wrap: anywhere;
+  margin-top: -8px;
+}
+.rv-main--modern .rv-profile-security-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #e1e7f0;
+  border-radius: 99px;
+  background: #f3f6fb;
+  color: #536584;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 10px;
+  width: fit-content;
+}
+.rv-main--modern .rv-profile-security-badge--active {
+  background: #eaf9f3;
+  border-color: #ccece1;
+  color: #18755e;
+}
+.rv-main--modern .rv-profile-upload {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  min-width: 0;
+  width: 100%;
+  margin-top: 8px;
+  padding-top: 20px;
+  border-top: 1px solid #e8edf5;
+}
+.rv-main--modern .rv-profile-upload label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.rv-main--modern .rv-profile-upload input {
+  width: 100%;
+  min-width: 0;
+  color: #667694;
+  font-size: 12px;
+}
+.rv-main--modern .rv-profile-upload input::file-selector-button {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid #dbe4f4;
+  border-radius: 9px;
+  color: #3b61b1;
+  background: #edf3ff;
+  cursor: pointer;
+}
+.rv-main--modern .rv-profile-content,
+.rv-main--modern .rv-profile-appearance {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+}
+.rv-main--modern .rv-profile-colors {
+  min-width: 0;
+}
+.rv-main--modern .rv-profile-colors legend {
+  margin-bottom: 14px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.rv-main--modern .rv-profile-color {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #e7ecf5;
+  border-radius: 9px;
+  color: #41526e;
+  font-size: 12px;
+}
+.rv-main--modern .rv-profile-color > span:last-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rv-main--modern .rv-profile-color code {
+  font-size: 12px;
+  color: #667694;
+}
+.rv-main--modern .rv-profile-color input {
+  width: 38px;
+  height: 34px;
+  padding: 3px;
+  background: #fff;
+  border: 1px solid #dfe6f1;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.rv-main--modern .rv-profile-preview-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #536584;
+  font-size: 12px;
+  font-weight: 600;
+}
+.rv-main--modern .rv-profile-preview {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.rv-main--modern .rv-profile-preview-icon {
+  display: block;
+  margin-bottom: 12px;
+}
+.rv-main--modern .rv-profile-preview strong {
+  display: block;
+  font-size: 1.15em;
+}
+.rv-main--modern .rv-profile-preview p {
+  margin-top: 6px;
+  line-height: 1.6;
+}
+.rv-main--modern .rv-profile-preview-accent {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 16px;
+  font-size: 0.85em;
+}
+.rv-main--modern .rv-profile-savebar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.rv-main--modern .rv-profile-security {
+  display: grid;
+  gap: 20px;
+  scroll-margin-top: 24px;
+}
+.rv-main--modern .rv-profile-security-heading h2 {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+}
+.rv-main--modern .rv-security-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+.rv-main--modern .rv-security-card {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+}
+.rv-main--modern .rv-security-card .rv-section-panel-heading {
+  margin-bottom: 0;
+}
+.rv-main--modern .rv-security-notice {
+  grid-column: 1 / -1;
+}
+.rv-main--modern .rv-notice {
+  padding: 14px 16px;
+  border: 1px solid #dce5f7;
+  border-radius: 11px;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.rv-main--modern .rv-notice--info {
+  background: #edf3ff;
+  color: #31518c;
+  border-color: #d5e2fb;
+}
+.rv-main--modern .rv-notice--warning {
+  background: #fff8e9;
+  color: #805719;
+  border-color: #f1dfb8;
+}
+.rv-main--modern .rv-notice--danger {
+  background: #fff1f3;
+  color: #a4344c;
+  border-color: #f3d2da;
+}
+.rv-main--modern .rv-profile-two-factor-setup {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+.rv-main--modern .rv-profile-qr {
+  width: fit-content;
+  max-width: 100%;
+  padding: 12px;
+  border: 1px solid #e5eaf3;
+  border-radius: 12px;
+  background: #fff;
+}
+.rv-main--modern .rv-profile-qr img {
+  width: 220px;
+  max-width: 100%;
+  height: auto;
+}
+.rv-main--modern .rv-profile-secret {
+  display: block;
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+}
+.rv-main--modern .rv-profile-backup-codes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.rv-main--modern
+  .rv-config-workspace
+  :is(
+    input:not([type="color"]):not([type="range"]):not([type="radio"]):not(
+      [type="checkbox"]
+    ),
+    select
+  ) {
+  min-height: 44px;
+  font-size: 13px;
+}
+.rv-main--modern .rv-inbox-list :is(input, select),
+.rv-main--modern .rv-inbox-detail :is(input, select) {
+  min-height: 40px;
+  font-size: 13px;
+}
+.rv-main--modern .rv-ticket-workspace .rv-ticket-open {
+  font-size: 13px;
+}
+@media (max-width: 1200px) {
+  .rv-main--modern .rv-profile-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .rv-main--modern .rv-profile-identity {
+    grid-template-columns: 88px minmax(0, 1fr);
+    justify-items: start;
+    text-align: left;
+  }
+  .rv-main--modern .rv-profile-avatar {
+    grid-column: 1;
+    grid-row: 1 / 4;
+  }
+  .rv-main--modern
+    .rv-profile-identity
+    > :is(h2, .rv-profile-email, .rv-profile-security-badge) {
+    grid-column: 2;
+  }
+  .rv-main--modern
+    .rv-profile-identity
+    > :is(.rv-profile-upload, .rv-form-hint) {
+    grid-column: 1 / -1;
+  }
+  .rv-main--modern .rv-profile-upload input::file-selector-button {
+    display: inline-block;
+    width: auto;
+    margin: 0 10px 0 0;
+  }
+}
+@media (max-width: 650px) {
+  .relvona-workspace > main.rv-main.rv-main--modern {
+    --rv-workspace-padding: 16px;
+  }
+  .rv-main--modern .rv-workspace-toolbar {
+    margin-bottom: 22px;
+    min-height: 56px;
+    gap: 8px;
+    padding: 6px 14px;
+  }
+  .rv-main--modern .rv-workspace-breadcrumb > :is(span, svg),
+  .rv-main--modern .rv-workspace-profile strong {
+    display: none;
+  }
+  .rv-main--modern .rv-form-grid,
+  .rv-main--modern .rv-security-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .rv-main--modern .rv-profile-layout {
+    gap: 18px;
+  }
+  .rv-main--modern .rv-profile-identity {
+    padding: 20px 16px;
+  }
+  .rv-main--modern .rv-profile-savebar .rv-section-button {
+    width: 100%;
+  }
+  .rv-main--modern .rv-form-input {
+    font-size: 16px;
+  }
+}
+
+/* Semantic accents remain readable on the light configuration and ticket cards. */
+.rv-main--modern
+  :is(.rv-config-workspace, .rv-ticket-workspace)
+  :is(.text-blue-300, .text-blue-400) {
+  color: #315fc4;
+}
+.rv-main--modern .rv-assistant-workspace .text-emerald-300 {
+  color: #18755e;
+}
+.rv-main--modern .rv-ticket-details .bg-emerald-950\/50 {
+  background: #eaf9f3;
+  color: #18755e;
+  border-color: #ccece1;
+}
+.rv-main--modern .rv-ticket-details .bg-emerald-950\/50:hover {
+  background: #d7f3e7;
+}
+.rv-main--modern .rv-ticket-table .bg-amber-950 {
+  background: #fff5df;
+  color: #805719;
+  border-color: #eedaa7;
+}
+.rv-main--modern .rv-ticket-table .bg-red-950 {
+  background: #fff1f3;
+  color: #a4344c;
+  border-color: #f3d2da;
+}
+.rv-main--modern .rv-ticket-workspace .bg-violet-950\/50 {
+  background: #f2edff;
+  color: #6c4ab5;
+  border-color: #dfd5f8;
+}
+.rv-main--modern .rv-ticket-details button {
+  min-height: 40px;
 }

@@ -1,4 +1,15 @@
 /** Safe display percentages for organization support analytics. */
+export function ticketWorkload(statuses: { status: string; total: number }[]) {
+  const workload = { open: 0, inProgress: 0, pending: 0, total: 0 };
+  for (const { status, total } of statuses) {
+    if (status === "open") workload.open += total;
+    else if (status === "in_progress") workload.inProgress += total;
+    else if (status === "pending") workload.pending += total;
+  }
+  workload.total = workload.open + workload.inProgress + workload.pending;
+  return workload;
+}
+
 export function aiResolutionPercent(
   resolvedByAi: number | null | undefined,
   conversations: number | null | undefined,
