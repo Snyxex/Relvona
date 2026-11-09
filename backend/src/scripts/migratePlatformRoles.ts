@@ -17,6 +17,13 @@ async function migratePlatformRoles() {
 
     const legacyAdmin = legacyAdmins.rows[0];
     if (legacyAdmin) {
+      // Never silently elevate a different user from a stale legacy marker.
+      const existing = await client.query<{ user_id: string }>(
+        "SELECT user_id FROM platform_roles WHERE role = $1", [PLATFORM_ADMIN_ROLE],
+      );
+      if (existing.rows.length && !existing.rows.some((row) => row.user_id === legacyAdmin.id)) {
+        throw new Error("LEGACY_PLATFORM_ADMIN_CONFLICT_REQUIRES_MANUAL_REVIEW");
+      }
       await client.query(
         `INSERT INTO platform_roles (user_id, role)
          VALUES ($1, $2)
