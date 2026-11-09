@@ -75,7 +75,21 @@ async function main() {
     // Invalid audit actor: FK failure must also roll back the status update.
     await assert.rejects(
       PlatformOperationsService.updateOrganizationStatus(organizationId, "disabled", { userId: randomUUID() }),
-      (error: unknown) => (error as { code?: string }).code === "23503",
+      (error: unknown) => {
+        let current: unknown = error;
+        while (current && typeof current === "object") {
+          const candidate = current as { code?: string; constraint?: string; message?: string };
+          if (
+            candidate.code === "23503" ||
+            candidate.constraint === "audit_logs_actor_user_id_users_id_fk" ||
+            /foreign key|23503/i.test(candidate.message ?? "")
+          ) {
+            return true;
+          }
+          current = (current as { cause?: unknown }).cause;
+        }
+        return /foreign key|23503/i.test(String(error));
+      },
     );
     const unchanged = await admin.query("SELECT status FROM organizations WHERE id = $1", [organizationId]);
     assert.equal(unchanged.rows[0].status, "suspended", "status change must roll back if audit insertion fails");
