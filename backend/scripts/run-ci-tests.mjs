@@ -59,6 +59,7 @@ const groups = {
     "knowledgeRevisionHistory.integration.test.ts",
     "platformAdmin.test.ts",
     "platformOperationsAudit.integration.test.ts",
+    "platformSupportSessionPermissions.integration.test.ts",
     "rustfs.integration.test.ts",
     "supportAutomation.integration.test.ts",
     "supportCoverage.integration.test.ts",

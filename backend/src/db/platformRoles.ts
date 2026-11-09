@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { index, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { users } from "./schema.js";
 
 export const PLATFORM_ADMIN_ROLE = "PLATFORM_ADMIN" as const;
@@ -11,5 +11,6 @@ export const platformRoles = pgTable("platform_roles", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   userUnique: uniqueIndex("platform_role_user_unique").on(table.userId),
-  roleUnique: uniqueIndex("platform_role_name_unique").on(table.role),
+  // Multiple operators may hold PLATFORM_ADMIN; the user ID remains unique.
+  roleIdx: index("platform_role_name_idx").on(table.role),
 }));
