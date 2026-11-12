@@ -5,6 +5,7 @@ import type { Response } from "express";
 import { closeDatabasePool } from "../db/index.js";
 import { withDatabaseTenantContext } from "../db/tenantContext.js";
 import { tenantContext, requireRole, PLATFORM_SUPPORT_READ_PERMISSIONS, type AuthRequest } from "../middleware/auth.js";
+import { platformPermissionsForRole, type PlatformRole } from "../services/platformRbac.js";
 
 if (process.env.AUTH_REGRESSION_DESTRUCTIVE_TESTS !== "true") {
   throw new Error("Support session integration tests require a disposable database");
@@ -27,6 +28,7 @@ type Evaluation = {
 
 async function evaluate(
   userId: string, organizationId: string, method: string, sessionId?: string,
+  platformRole: PlatformRole | null = "PLATFORM_ADMIN",
 ): Promise<Evaluation> {
   let status = 200;
   let body: unknown;
@@ -41,8 +43,10 @@ async function evaluate(
     user: {
       id: userId,
       email: operatorEmail,
-      isPlatformAdmin: true,
-      systemRole: "superadmin",
+      isPlatformAdmin: platformRole === "PLATFORM_ADMIN",
+      platformRole,
+      platformPermissions: platformPermissionsForRole(platformRole),
+      systemRole: platformRole === "PLATFORM_ADMIN" ? "superadmin" : "user",
       twoFactorEnabled: true,
       twoFactorPolicy: "recommended",
     },
@@ -107,6 +111,13 @@ async function main() {
     assert.equal(read.req.organization?.permissions.includes("tickets.manage"), false);
     assert.equal(read.req.organization?.permissions.includes("settings.manage"), false);
     assert.deepEqual(evaluateSettingsRead(read.req), { status: 200, passed: true }, "authorized settings reads must continue to work");
+
+    const delegated = await evaluate(operatorId, foreignOrganizationId, "GET", sessionId, "PLATFORM_SUPPORT");
+    assert.equal(delegated.status, 200, "support role can use a valid support session");
+    assert.equal(delegated.req.organization?.role, "viewer");
+
+    const auditor = await evaluate(operatorId, foreignOrganizationId, "GET", sessionId, "PLATFORM_AUDITOR");
+    assert.equal(auditor.status, 403, "auditor may not use a support session");
 
     const write = await evaluate(operatorId, foreignOrganizationId, "POST", sessionId);
     assert.equal(write.status, 403);

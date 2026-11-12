@@ -9,6 +9,7 @@ import { getCurrentUser, getOrganizationMembership, hasOrganizationRole, type Or
 import { dashboardDomainFromRequest, organizationForVerifiedDashboardDomain } from "../services/dashboardDomainService.js";
 import { permissionsForRole, type OrganizationPermission } from "../services/organizationRbacService.js";
 import type { TwoFactorPolicy } from "../services/platformSecurityService.js";
+import type { PlatformRole, PlatformPermission } from "../services/platformRbac.js";
 
 // Support sessions are troubleshooting grants, not tenant-admin membership.
 // Deliberately independent of tenant-configurable viewer role policies.
@@ -31,8 +32,10 @@ export interface AuthRequest extends Request {
     themePreferences: Record<string, unknown>;
     twoFactorEnabled: boolean;
     twoFactorPolicy: TwoFactorPolicy;
+    platformRole: PlatformRole | null;
+    platformPermissions: PlatformPermission[];
     isPlatformAdmin: boolean;
-    /** Temporary API compatibility only. Authorization must use isPlatformAdmin. */
+    /** Temporary API compatibility only. Authorization must use platformPermissions. */
     systemRole: "superadmin" | "user";
   };
   organization?: {
@@ -72,6 +75,16 @@ export function requirePlatformAdmin(req: AuthRequest, res: Response, next: Next
   if (!req.user) return res.status(401).json({ error: "Authentication required" });
   if (!req.user.isPlatformAdmin) return res.status(403).json({ error: "Nur Plattformadministratoren dürfen diese Einstellungen verwalten." });
   next();
+}
+
+export function requirePlatformPermission(permission: PlatformPermission) {
+  return function enforcePlatformPermission(req: AuthRequest, res: Response, next: NextFunction) {
+    if (!req.user) return res.status(401).json({ error: "Authentication required" });
+    if (!req.user.platformPermissions?.includes(permission)) {
+      return res.status(403).json({ error: "PLATFORM_PERMISSION_REQUIRED", permission });
+    }
+    return next();
+  };
 }
 
 export async function requireOrganizationMember(req: AuthRequest, res: Response, next: NextFunction) {
@@ -142,7 +155,7 @@ export async function tenantContext(req: AuthRequest, res: Response, next: NextF
       return next();
     }
 
-    if (req.user.isPlatformAdmin) {
+    if (req.user.platformPermissions?.includes("platform.support_sessions.manage")) {
       const supportSessionId = req.headers["x-support-session-id"] as string;
       if (!supportSessionId || !/^[0-9a-f-]{36}$/i.test(supportSessionId)) return res.status(403).json({ error: "SUPPORT_ACCESS_REQUIRED" });
       const [supportSession] = await db.select().from(platformSupportSessions).where(and(

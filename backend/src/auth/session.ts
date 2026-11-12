@@ -7,8 +7,9 @@ import { platformRoles, PLATFORM_ADMIN_ROLE } from "../db/platformRoles.js";
 import { and, eq } from "drizzle-orm";
 import { ProfileAvatarService } from "../services/profileAvatarService.js";
 import { getTwoFactorPolicy, type TwoFactorPolicy } from "../services/platformSecurityService.js";
+import { normalizePlatformRole, platformPermissionsForRole, type PlatformRole, type PlatformPermission } from "../services/platformRbac.js";
 
-export type AuthenticatedUser = { id: string; email: string; name: string; avatarUrl: string | null; preferredLanguage: string; themePreferences: Record<string, unknown>; twoFactorEnabled: boolean; twoFactorPolicy: TwoFactorPolicy; isPlatformAdmin: boolean; systemRole: "superadmin" | "user"; status: string };
+export type AuthenticatedUser = { id: string; email: string; name: string; avatarUrl: string | null; preferredLanguage: string; themePreferences: Record<string, unknown>; twoFactorEnabled: boolean; twoFactorPolicy: TwoFactorPolicy; platformRole: PlatformRole | null; platformPermissions: PlatformPermission[]; isPlatformAdmin: boolean; systemRole: "superadmin" | "user"; status: string };
 export const ORGANIZATION_ROLES = ["owner", "admin", "agent", "viewer"] as const;
 export type OrganizationRole = typeof ORGANIZATION_ROLES[number];
 export type OrganizationMembership = { id: string; name: string; slug: string; role: OrganizationRole };
@@ -20,11 +21,14 @@ export async function getSession(request: Pick<Request, "headers">) {
   });
 }
 
+export async function getPlatformRole(userId: string): Promise<PlatformRole | null> {
+  const [assigned] = await db.select({ role: platformRoles.role }).from(platformRoles)
+    .where(eq(platformRoles.userId, userId)).limit(1);
+  return normalizePlatformRole(assigned?.role);
+}
+
 export async function isPlatformAdmin(userId: string) {
-  const [role] = await db.select({ id: platformRoles.id }).from(platformRoles)
-    .where(and(eq(platformRoles.userId, userId), eq(platformRoles.role, PLATFORM_ADMIN_ROLE)))
-    .limit(1);
-  return Boolean(role);
+  return (await getPlatformRole(userId)) === PLATFORM_ADMIN_ROLE;
 }
 
 export async function getCurrentUser(request: Pick<Request, "headers">): Promise<AuthenticatedUser | null> {
@@ -32,8 +36,8 @@ export async function getCurrentUser(request: Pick<Request, "headers">): Promise
   if (!session?.user?.id) return null;
   const [user] = await db.select().from(users).where(eq(users.id, session.user.id)).limit(1);
   if (!user || user.status !== "active") return null;
-  const [platformAdmin, avatarUrl, twoFactorPolicy] = await Promise.all([
-    isPlatformAdmin(user.id),
+  const [platformRole, avatarUrl, twoFactorPolicy] = await Promise.all([
+    getPlatformRole(user.id),
     ProfileAvatarService.resolvePublicUrl(user.avatarUrl),
     getTwoFactorPolicy(),
   ]);
@@ -46,9 +50,11 @@ export async function getCurrentUser(request: Pick<Request, "headers">): Promise
     themePreferences: user.themePreferences,
     twoFactorEnabled: user.twoFactorEnabled,
     twoFactorPolicy,
-    isPlatformAdmin: platformAdmin,
+    platformRole,
+    platformPermissions: platformPermissionsForRole(platformRole),
+    isPlatformAdmin: platformRole === PLATFORM_ADMIN_ROLE,
     // Temporary response compatibility only. Authorization never reads users.system_role.
-    systemRole: platformAdmin ? "superadmin" : "user",
+    systemRole: platformRole === PLATFORM_ADMIN_ROLE ? "superadmin" : "user",
     status: user.status,
   };
 }
