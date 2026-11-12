@@ -4,7 +4,7 @@ import { auth } from "./betterAuth.js";
 import { db } from "../db/index.js";
 import { users, organizationMembers, organizations } from "../db/schema.js";
 import { platformRoles, PLATFORM_ADMIN_ROLE } from "../db/platformRoles.js";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { ProfileAvatarService } from "../services/profileAvatarService.js";
 import { getTwoFactorPolicy, type TwoFactorPolicy } from "../services/platformSecurityService.js";
 import { normalizePlatformRole, platformPermissionsForRole, type PlatformRole, type PlatformPermission } from "../services/platformRbac.js";
