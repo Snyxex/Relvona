@@ -12,6 +12,7 @@ import { PLATFORM_ADMIN_ROLE } from "../db/platformRoles.js";
 import { closeDatabasePool } from "../db/index.js";
 import { withDatabaseTenantContext } from "../db/tenantContext.js";
 import { tenantContext, type AuthRequest } from "../middleware/auth.js";
+import { platformPermissionsForRole } from "../services/platformRbac.js";
 import type { Response } from "express";
 
 if (process.env.AUTH_REGRESSION_DESTRUCTIVE_TESTS !== "true") {
@@ -41,6 +42,8 @@ async function evaluateTenantContext(userId: string, organizationId: string) {
       name: "Bootstrap Owner",
       avatarUrl: null,
       preferredLanguage: "de",
+      platformRole: "PLATFORM_ADMIN",
+      platformPermissions: platformPermissionsForRole("PLATFORM_ADMIN"),
       isPlatformAdmin: true,
       systemRole: "superadmin",
     },
