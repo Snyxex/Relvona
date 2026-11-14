@@ -38,7 +38,7 @@ services:
       - rustfs_ci_data:/data
 
   ci:
-    image: node:22-bookworm@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7
+    image: node:26.13.1-bookworm@sha256:b7087bc4d973034b30854b378ba107f9fab622b47514cb7e2592e41b8bab8d49
     working_dir: /workspace
     # Rootless Podman maps container UID 0 to the unprivileged Jenkins host UID.
     # This permits npm writes to the Jenkins-owned bind mount without host root.
