@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BarChart3,
@@ -86,8 +85,12 @@ export default function SettingsClient({
   const [usage, setUsage] = useState<any>();
   const dirty = useMemo(
     () =>
-      JSON.stringify(form) !== JSON.stringify(initialSection === "roles" ? data?.policies || {} : data?.settings || {}) ||
-      JSON.stringify(rules) !== JSON.stringify(data?.rules || []),
+      JSON.stringify(form) !==
+        JSON.stringify(
+          initialSection === "roles"
+            ? data?.policies || {}
+            : data?.settings || {},
+        ) || JSON.stringify(rules) !== JSON.stringify(data?.rules || []),
     [form, rules, data, initialSection],
   );
   const change = (key: string, value: unknown) =>
@@ -139,8 +142,13 @@ export default function SettingsClient({
               : "/admin/settings/organization";
     try {
       if (initialSection === "roles") {
-        const response = await api.put("/organizations/current/role-policies", { policies: form });
-        setData((current: any) => ({ ...current, policies: response.data.policies }));
+        const response = await api.put("/organizations/current/role-policies", {
+          policies: form,
+        });
+        setData((current: any) => ({
+          ...current,
+          policies: response.data.policies,
+        }));
         setForm(response.data.policies);
         setNotice("Rollen und Berechtigungen gespeichert");
         return;
@@ -169,104 +177,92 @@ export default function SettingsClient({
   };
   if (loading)
     return (
-      <main className="min-h-screen bg-slate-50 p-8">
-        <div className="h-96 animate-pulse rounded-xl bg-slate-200" />
+      <main className="rv-admin-settings" aria-busy="true">
+        <p role="status" className="mb-4 text-sm text-muted-foreground">
+          Einstellungen werden geladen …
+        </p>
+        <div className="h-96 animate-pulse rounded-xl bg-muted" />
       </main>
     );
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900">
-      <div className="mx-auto flex max-w-6xl flex-col gap-8 p-6 md:flex-row md:p-10">
-        <aside className="w-52 shrink-0">
-          <p className="mb-5 text-sm font-semibold text-slate-500">
-            PLATTFORMVERWALTUNG
+    <main className="rv-admin-settings">
+      <section className="min-w-0 flex-1">
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">
+              {nav.find((item) => item.id === initialSection)?.label}
+            </h1>
+            <p className="text-sm text-slate-500">{data?.organization?.name}</p>
+          </div>
+          {initialSection !== "audit-log" && (
+            <button
+              type="button"
+              disabled={saving || !dirty}
+              onClick={save}
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {saving ? (
+                <RefreshCw className="animate-spin" size={16} />
+              ) : (
+                <Save size={16} />
+              )}
+              Speichern
+            </button>
+          )}
+        </div>
+        {notice && (
+          <p
+            role="status"
+            className="mb-4 rounded bg-emerald-50 p-3 text-sm text-emerald-700"
+          >
+            {notice}
           </p>
-          {nav.map(({ id, label, icon: Icon }) => (
-            <Link
-              key={id}
-              href={`/admin/settings/${id}`}
-              className={`mb-1 flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${id === initialSection ? "bg-slate-900 text-white" : "hover:bg-slate-200"}`}
-            >
-              <Icon size={16} />
-              {label}
-            </Link>
-          ))}
-        </aside>
-        <section className="min-w-0 flex-1">
-          <div className="mb-6 flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold">
-                {nav.find((item) => item.id === initialSection)?.label}
-              </h1>
-              <p className="text-sm text-slate-500">
-                {data?.organization?.name}
-              </p>
-            </div>
-            {initialSection !== "audit-log" && (
-              <button
-                type="button"
-                disabled={saving || !dirty}
-                onClick={save}
-                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-              >
-                {saving ? (
-                  <RefreshCw className="animate-spin" size={16} />
-                ) : (
-                  <Save size={16} />
-                )}
-                Speichern
-              </button>
-            )}
-          </div>
-          {notice && (
-            <p
-              role="status"
-              className="mb-4 rounded bg-emerald-50 p-3 text-sm text-emerald-700"
-            >
-              {notice}
-            </p>
+        )}
+        {error && (
+          <p
+            role="alert"
+            className="mb-4 rounded bg-red-50 p-3 text-sm text-red-700"
+          >
+            {error}{" "}
+            <button type="button" onClick={load} className="underline">
+              Erneut versuchen
+            </button>
+          </p>
+        )}
+        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          {initialSection === "quotas" && (
+            <Quotas form={form} change={change} />
           )}
-          {error && (
-            <p
-              role="alert"
-              className="mb-4 rounded bg-red-50 p-3 text-sm text-red-700"
-            >
-              {error}{" "}
-              <button type="button" onClick={load} className="underline">
-                Erneut versuchen
-              </button>
-            </p>
+          {initialSection === "ai-models" && (
+            <Models
+              form={form}
+              change={change}
+              rules={rules}
+              setRules={setRules}
+            />
           )}
-          <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-            {initialSection === "quotas" && (
-              <Quotas form={form} change={change} />
-            )}
-            {initialSection === "ai-models" && (
-              <Models
-                form={form}
-                change={change}
-                rules={rules}
-                setRules={setRules}
-              />
-            )}
-            {initialSection === "api-keys" && (
-              <Keys form={form} change={change} usage={usage} test={test} />
-            )}
-            {initialSection === "github" && (
-              <GitHub form={form} change={change} test={test} />
-            )}
-            {initialSection === "organization" && (
-              <Organization form={form} change={change} />
-            )}
-            {initialSection === "roles" && (
-              <Roles form={form} setForm={setForm} catalog={data?.catalog || []} />
-            )}
-            {initialSection === "security" && (
-              <Security form={form} change={change} />
-            )}
-            {initialSection === "audit-log" && <Audit logs={logs} />}
-          </div>
-        </section>
-      </div>
+          {initialSection === "api-keys" && (
+            <Keys form={form} change={change} usage={usage} test={test} />
+          )}
+          {initialSection === "github" && (
+            <GitHub form={form} change={change} test={test} />
+          )}
+          {initialSection === "organization" && (
+            <Organization form={form} change={change} />
+          )}
+          {initialSection === "roles" && (
+            <Roles
+              form={form}
+              setForm={setForm}
+              catalog={data?.catalog || []}
+            />
+          )}
+          {initialSection === "security" && (
+            <Security form={form} change={change} />
+          )}
+          {initialSection === "audit-log" && <Audit logs={logs} />}
+        </div>
+      </section>
     </main>
   );
 }
@@ -289,29 +285,48 @@ function Roles({ form, setForm, catalog }: any) {
   return (
     <div className="space-y-6">
       <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-        Owner besitzen immer Vollzugriff. Diese Sicherheitsgarantie kann nicht entfernt werden.
+        Owner besitzen immer Vollzugriff. Diese Sicherheitsgarantie kann nicht
+        entfernt werden.
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[680px] text-left text-sm">
           <thead>
             <tr className="border-b text-slate-500">
               <th className="p-2">Berechtigung</th>
-              {roles.map((role) => <th key={role.id} className="p-2 text-center">{role.label}</th>)}
+              {roles.map((role) => (
+                <th key={role.id} className="p-2 text-center">
+                  {role.label}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {catalog.map((group: any) => [
-              <tr key={`${group.group}-heading`} className="bg-slate-50"><th colSpan={4} className="p-2 font-semibold text-slate-700">{group.group}</th></tr>,
+              <tr key={`${group.group}-heading`} className="bg-slate-50">
+                <th colSpan={4} className="p-2 font-semibold text-slate-700">
+                  {group.group}
+                </th>
+              </tr>,
               ...group.permissions.map((permission: any) => (
                 <tr key={permission.id} className="border-b border-slate-100">
-                  <td className="p-2"><span className="font-medium">{permission.label}</span><span className="ml-2 text-xs text-slate-400">{permission.id}</span></td>
+                  <td className="p-2">
+                    <span className="font-medium">{permission.label}</span>
+                    <span className="ml-2 text-xs text-slate-400">
+                      {permission.id}
+                    </span>
+                  </td>
                   {roles.map((role) => (
                     <td key={role.id} className="p-2 text-center">
                       <input
                         type="checkbox"
                         aria-label={`${permission.label} für ${role.label}`}
-                        checked={Array.isArray(form[role.id]) && form[role.id].includes(permission.id)}
-                        onChange={(event) => toggle(role.id, permission.id, event.target.checked)}
+                        checked={
+                          Array.isArray(form[role.id]) &&
+                          form[role.id].includes(permission.id)
+                        }
+                        onChange={(event) =>
+                          toggle(role.id, permission.id, event.target.checked)
+                        }
                       />
                     </td>
                   ))}

@@ -244,19 +244,19 @@ export default function WidgetDesigner({
             So erscheint der Chat auf deiner Website.
           </p>
           <div
-            className="relative mt-4 h-[500px] overflow-hidden rounded-lg border border-slate-700 bg-slate-800"
+            className="rv-widget-preview relative mt-4 h-[500px] overflow-hidden rounded-lg border border-slate-700 bg-slate-800"
             style={{
               background: "linear-gradient(135deg, #e2e8f0, #cbd5e1)",
             }}
           >
             <div className="absolute inset-5 rounded-md border border-white/60 bg-white/30" />
             <div
-              className={`absolute bottom-4 ${
+              className={`rv-widget-preview-position absolute bottom-4 ${
                 widgetSettings.position === "bottom-left" ? "left-4" : "right-4"
               }`}
             >
               <div
-                className="mb-3 w-[280px] overflow-hidden shadow-2xl"
+                className="mb-3 w-[280px] max-w-full overflow-hidden shadow-2xl"
                 style={{
                   borderRadius: Number(widgetSettings.borderRadius),
                   fontFamily:

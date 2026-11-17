@@ -114,8 +114,47 @@ The conversation workflow, ticket/business-action handlers, authentication/login
 
 **Deferred by request:** do not treat code inspection as TypeScript/formatting/browser verification. No new tests, full CI runs or server-agent changes were performed during this continuation. The new code needs the normal review/verification before merging.
 
+## Admin workspace rollout (17 November 2026)
+
+All `/admin` routes now use the employee dashboard's navy sidebar, light canvas,
+royal-blue actions, white panels, and typography. The styles live in
+`frontend/src/app/admin/admin-workspace.css` and are scoped to `.rv-admin`.
+Local theme tokens take precedence within this workspace without changing saved
+profile preferences, authentication screens or customer portals. Compatibility
+selectors handle the existing semantic and legacy Tailwind surfaces, including
+forms, tables, destructive actions and feedback states.
+
+- `lib/admin-navigation.ts` is the shared route directory for the sidebar and
+  overview. It groups all 26 destinations (including the overview) into Support &
+  Team, KI & Wissen, Organisation, and Plattform & Sicherheit. Nested routes
+  select only the most specific matching destination.
+- The overview offers four direct links plus the complete grouped directory.
+  Its counts are not presented as operational metrics; no sample business data
+  is shipped. The organisation/platform scope is explained alongside the links.
+- The sidebar has a labelled search, current-page indication, keyboard focus,
+  a skip link and a link back to the employee dashboard. Below 950px it becomes
+  a disclosure menu; Escape closes it and returns focus to its button.
+- The toolbar retains the organization selector and adds route context and a
+  profile link. Switching organizations still remounts the page subtree, and
+  existing server-side authorization and API handlers remain authoritative.
+- Settings use the shared sidebar instead of a second navigation column.
+  The embedded assistant configuration uses local section buttons instead of
+  another full dashboard sidebar. Its profile entry is available in the common
+  toolbar. Existing forms, handlers and tenant selection remain in place.
+- Bootstrap loading, failure/retry and missing-organization states use the same
+  workspace. Reduced-motion preferences are respected throughout the admin UI.
+
+Validation: production build and TypeScript pass; the existing 4 UI utility,
+17 page authorization and 12 production-server authorization integration checks
+pass. Browser checks render all 26 destinations at 1440px, 390px and 320px widths
+using local fixtures and explicit unavailable-data states, exercise navigation
+filtering, Escape and organization switching, and inspect representative
+screenshots. These checks do not establish live-backend mutation acceptance or
+Jenkins readiness. Existing lint warnings in the legacy dashboard/settings
+components remain separate from the new shell.
+
 ## Limits and follow-up
 
-The reference mockup is a **visual specification**, not a source of example customer names, event counts, dates or ratings. The first rollout updates the employee homepage and its shared sidebar; pre-existing admin settings, editors, profile and portal flows retain their own established UI until they undergo deliberate component-by-component migration.
+The reference mockup is a **visual specification**, not a source of example customer names, event counts, dates or ratings. The employee workspace and admin pages now share the same visual language; profile and customer portal flows retain their own established UI.
 
 Before merge: run Jenkins builds, mobile/desktop browser screenshots and keyboard/accessibility checks. Monitor real dashboard performance with representative customer and ticket volumes.

@@ -1,0 +1,825 @@
+/* The admin workspace shares the employee dashboard palette. Tokens are local:
+   saved profile themes and customer-facing surfaces keep their own appearance. */
+/* biome-ignore-all lint/complexity/noImportantStyles: Scoped compatibility with the existing global !important theme rules. */
+.rv-admin {
+  --background: #f7f9fc;
+  --foreground: #101b39;
+  --card: #fff;
+  --card-strong: #fff;
+  --muted: #eef2f8;
+  --muted-foreground: #667694;
+  --border: #e3e9f2;
+  --border-strong: #cbd5e5;
+  --primary: #416fed;
+  --primary-hover: #315bd0;
+  --primary-foreground: #fff;
+  --destructive: #bc354e;
+  --success: #16836d;
+  --warning: #9c650e;
+  --ring: rgba(65, 111, 237, 0.18);
+  --user-radius: 10px;
+  --shadow-card: 0 4px 20px rgba(22, 42, 82, 0.035);
+  --shadow-elevated: 0 16px 40px rgba(22, 42, 82, 0.12);
+  color-scheme: light;
+  display: grid;
+  grid-template-columns: 264px minmax(0, 1fr);
+  min-height: 100dvh;
+  background: var(--background);
+  color: var(--foreground);
+  font-family:
+    Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.rv-admin :focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+.rv-admin svg {
+  flex-shrink: 0;
+}
+.rv-admin-skip {
+  position: fixed;
+  top: -100px;
+  left: 16px;
+  z-index: 100;
+  padding: 12px 18px;
+  background: white;
+  color: #254dbb;
+  border-radius: 8px;
+}
+.rv-admin-skip:focus {
+  top: 12px;
+}
+.rv-admin-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: #111e32;
+  color: #bac8df;
+  border-right: 1px solid #22324b;
+}
+.rv-admin-brand-row {
+  min-height: 78px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 23px;
+  border-bottom: 1px solid #26364e;
+}
+.rv-admin-brand {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  text-decoration: none;
+}
+.rv-admin-brand-mark,
+.rv-admin-loading-mark {
+  display: grid;
+  place-items: center;
+  width: 37px;
+  height: 37px;
+  border-radius: 11px;
+  background: #416fed;
+  color: white;
+  font-size: 23px;
+  font-weight: 750;
+}
+.rv-admin-brand strong {
+  display: block;
+  font-size: 19px;
+  line-height: 1.3;
+  letter-spacing: -0.6px;
+  color: white;
+}
+.rv-admin-brand small {
+  display: block;
+  color: #9cacc5;
+  font-size: 11px;
+  margin-top: 2px;
+}
+.rv-admin-menu-toggle {
+  display: none;
+  padding: 10px;
+  color: white;
+  border: 1px solid #3b4b64;
+  border-radius: 8px;
+}
+.rv-admin-navigation {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 16px 13px;
+  scrollbar-color: #3a4c69 transparent;
+}
+.rv-admin-nav-search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 2px 16px;
+  padding: 0 10px;
+  border: 1px solid #344560;
+  background: #192941;
+  border-radius: 9px;
+}
+.rv-admin .rv-admin-nav-search input {
+  min-width: 0;
+  width: 100%;
+  height: 37px;
+  border: 0 !important;
+  background: transparent;
+  box-shadow: none;
+  color: #ecf2ff;
+  font-size: 12px;
+}
+.rv-admin-nav-search input::placeholder {
+  color: #a4b3cc;
+}
+.rv-admin-nav-search:focus-within {
+  outline: 2px solid #86a7ff;
+  outline-offset: 2px;
+}
+.rv-admin-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 39px;
+  padding: 9px 12px;
+  margin: 2px 0;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  line-height: 1.4;
+}
+.rv-admin-nav-link:hover {
+  background: #203152;
+  color: #fff;
+}
+.rv-admin-nav-link[aria-current="page"] {
+  background: #3564df;
+  color: #fff;
+  box-shadow: 0 4px 14px #091b4640;
+}
+.rv-admin-nav-group {
+  margin-top: 21px;
+}
+.rv-admin-nav-group > p {
+  margin: 0 12px 7px;
+  color: #92a4c1;
+  font-size: 11px;
+  font-weight: 600;
+}
+.rv-admin-nav-empty {
+  padding: 16px 12px;
+  font-size: 12px;
+  color: #bac8df;
+}
+.rv-admin-sidebar-footer {
+  margin: auto 8px 0;
+  padding-top: 24px;
+}
+.rv-admin-sidebar-footer > a {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  border-top: 1px solid #2b3b55;
+  padding: 16px 0 8px;
+  color: #d1ddf0;
+  font-size: 12px;
+}
+.rv-admin-sidebar-footer > a:hover {
+  color: white;
+}
+.rv-admin-sidebar-footer > span {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 0 0;
+  color: #94a6c3;
+  font-size: 10px;
+}
+.rv-admin-sidebar :focus-visible {
+  outline-color: #9fb9ff;
+}
+.rv-admin-workspace,
+.rv-admin-content,
+.rv-admin-page {
+  min-width: 0;
+}
+.rv-admin-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 78px;
+  padding: 16px 32px;
+  border-bottom: 1px solid var(--border);
+  background: #fff;
+}
+.rv-admin-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.rv-admin-breadcrumb > a:hover {
+  color: var(--primary);
+}
+.rv-admin-breadcrumb > span {
+  color: #263755;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rv-admin-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 17px;
+  min-width: 0;
+}
+.rv-admin-organization {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #f9fafd;
+  color: #536584;
+  min-width: 0;
+}
+.rv-admin .rv-admin-organization select {
+  max-width: 240px;
+  min-width: 0;
+  height: 37px;
+  background: transparent;
+  border: 0 !important;
+  font-size: 12px;
+  color: #263755;
+}
+.rv-admin-profile {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  background: #eaf0ff;
+  color: #315bc7;
+  font-weight: 700;
+}
+
+/* Normalize page structure once, including the legacy settings and configuration
+   editors. Data loading, forms and mutation handlers stay in their pages. */
+.rv-admin-page > main,
+.rv-admin-page > .rv-admin-configuration {
+  width: 100%;
+  max-width: 1440px;
+  min-height: 0;
+  margin: 0 auto;
+  padding: 30px 32px 48px;
+  background: transparent !important;
+}
+.rv-admin-content h1 {
+  color: var(--foreground);
+  font-size: clamp(23px, 2.2vw, 30px);
+  font-weight: 720;
+  line-height: 1.25;
+  letter-spacing: -0.035em;
+}
+.rv-admin-content :where(.border, .border-b, .border-t, .border-l) {
+  border-color: var(--border);
+}
+.rv-admin-content h2 {
+  color: #172744;
+  letter-spacing: -0.015em;
+}
+.rv-admin-content :where(h1 + p) {
+  max-width: 78ch;
+  margin-top: 9px;
+  line-height: 1.65;
+  color: var(--muted-foreground);
+}
+.rv-admin-content :where(section, article, aside, div).rounded-xl.border {
+  background: #fff;
+  border-color: var(--border) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--shadow-card);
+}
+.rv-admin-content
+  :where(.bg-slate-950, .bg-slate-900, .bg-slate-950\/60, .bg-slate-900\/60) {
+  background: var(--card) !important;
+}
+.rv-admin-content :where(h1, h2, h3).text-white {
+  color: var(--foreground);
+}
+.rv-admin-content .bg-blue-600.text-white {
+  color: #fff;
+}
+.rv-admin-content :where(.text-blue-300, .text-blue-400) {
+  color: #315bd0;
+}
+.rv-admin-content :where(.text-red-300, .text-red-400) {
+  color: #b8324c;
+}
+.rv-admin-content
+  :where(.text-emerald-300, .text-emerald-400, .text-green-400) {
+  color: #137e66;
+}
+.rv-admin-content :where(.text-amber-300, .text-amber-400, .text-yellow-400) {
+  color: #926013;
+}
+.rv-admin-content :where([class~="bg-red-950/50"], [class~="bg-red-950/40"]) {
+  background: #fff0f2;
+}
+.rv-admin-content :where([class~="bg-emerald-950/50"]) {
+  background: #e9f8f2;
+}
+.rv-admin-content :where([class~="bg-blue-950/30"]) {
+  background: #edf2ff;
+}
+.rv-admin-content :where(.border-red-900, .border-red-700) {
+  border-color: #edbdc7;
+}
+.rv-admin-content :where(.border-slate-600, .border-slate-400) {
+  border-color: var(--border-strong);
+}
+.rv-admin-content
+  :where(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
+      [type="color"]
+    ),
+    select,
+    textarea
+  ) {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 8px !important;
+  background: #fff !important;
+  color: #233451 !important;
+  padding: 9px 12px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+.rv-admin-content
+  :where(input[type="checkbox"], input[type="radio"], input[type="range"]) {
+  accent-color: #416fed;
+}
+.rv-admin-content :where(input[type="checkbox"], input[type="radio"]) {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.rv-admin-content .rv-employee-search input {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none;
+  padding: 0;
+}
+.rv-admin-content .rv-employee-search:focus-within {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.rv-admin-content :where(button, a).bg-foreground,
+.rv-admin-content :where(button, a).bg-blue-600,
+.rv-admin-content :where(button, a).bg-blue-500,
+.rv-admin-content button.bg-slate-900 {
+  background: #416fed !important;
+  color: #fff !important;
+  border-color: #416fed !important;
+  box-shadow: 0 2px 4px #234dba16;
+}
+.rv-admin-content :where(button, a).bg-foreground:hover,
+.rv-admin-content :where(button, a).bg-blue-600:hover,
+.rv-admin-content :where(button, a).bg-blue-500:hover,
+.rv-admin-content button.bg-slate-900:hover {
+  background: #315bd0 !important;
+}
+.rv-admin-content :where(button).border {
+  background: #fff;
+}
+.rv-admin-content :where(button).border:hover:not(:disabled) {
+  background: #f0f4fc;
+}
+.rv-admin-content :where(button) {
+  min-height: 36px;
+  font-weight: 550;
+}
+.rv-admin-content :where(button).rounded-full {
+  min-height: 0;
+}
+.rv-admin-content :where(pre) {
+  max-width: 100%;
+  overflow-x: auto;
+  background: #f0f3f9;
+  color: #334867;
+  border-radius: 9px;
+}
+.rv-admin-content :where(table) {
+  width: 100%;
+  font-size: 12px;
+}
+.rv-admin-content :where(th) {
+  background: #f5f7fb;
+  color: #536584;
+  font-weight: 600;
+  text-align: left;
+  letter-spacing: 0;
+}
+.rv-admin-content :where(th, td) {
+  padding: 12px 14px;
+  border-bottom: 1px solid #e9edf5;
+}
+.rv-admin-content :where(tbody tr:last-child td) {
+  border-bottom: 0;
+}
+.rv-admin-content :where(.overflow-x-auto) {
+  border-radius: 9px;
+}
+.rv-admin-content :where(.min-w-64, .min-w-72, .min-w-40) {
+  min-width: min(100%, 16rem);
+}
+.rv-admin-content :where(.grid) > * {
+  min-width: 0;
+}
+
+.rv-admin-home {
+  display: grid;
+  gap: 25px;
+}
+.rv-admin-home-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 6px 0 8px;
+}
+.rv-admin-role {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  padding: 7px 10px;
+  border: 1px solid #e1e7f0;
+  border-radius: 7px;
+  background: #fff;
+  color: #657590;
+  font-size: 11px;
+}
+.rv-admin-section-title {
+  font-size: 13px;
+  font-weight: 650;
+  margin-bottom: 12px;
+}
+.rv-admin-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.rv-admin-tone-blue {
+  --admin-tone: #416fed;
+  --admin-tint: #edf2ff;
+}
+.rv-admin-tone-violet {
+  --admin-tone: #8055d7;
+  --admin-tint: #f2edff;
+}
+.rv-admin-tone-mint {
+  --admin-tone: #188a74;
+  --admin-tint: #e9f8f3;
+}
+.rv-admin-tone-slate {
+  --admin-tone: #526888;
+  --admin-tint: #eef2f8;
+}
+.rv-admin-shortcut {
+  display: block;
+  padding: 19px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-card);
+  text-decoration: none;
+}
+.rv-admin-shortcut:hover {
+  border-color: var(--admin-tone);
+  background: #fcfdff;
+}
+.rv-admin-shortcut-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #91a0b7;
+  margin-bottom: 20px;
+}
+.rv-admin-icon {
+  display: grid;
+  place-items: center;
+  width: 43px;
+  height: 43px;
+  border-radius: 12px;
+  color: var(--admin-tone);
+  background: var(--admin-tint);
+}
+.rv-admin-shortcut h3 {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+.rv-admin-shortcut p {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+  max-width: 32ch;
+}
+.rv-admin-scope-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 0 2px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.rv-admin-scope-note svg {
+  margin-top: 1px;
+  color: #7186a6;
+}
+.rv-admin-scope-note p {
+  max-width: 100ch;
+}
+.rv-admin-directory {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 22px;
+}
+.rv-admin-directory-group {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.rv-admin-directory-group > header {
+  padding: 22px 22px 17px;
+  border-bottom: 1px solid #edf0f6;
+}
+.rv-admin-directory-group h2 {
+  font-size: 15px;
+  font-weight: 700;
+}
+.rv-admin-directory-group :where(header) p {
+  font-size: 12px;
+  line-height: 1.6;
+  margin-top: 5px;
+  color: var(--muted-foreground);
+}
+.rv-admin-directory-group > div {
+  padding: 6px 12px;
+}
+.rv-admin-directory-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 10px;
+  border-radius: 9px;
+  text-decoration: none;
+}
+.rv-admin-directory-link:hover {
+  background: #f5f7fc;
+}
+.rv-admin-directory-icon {
+  display: grid;
+  place-items: center;
+  width: 33px;
+  height: 36px;
+  flex-shrink: 0;
+  color: var(--admin-tone);
+}
+.rv-admin-directory-link > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+.rv-admin-directory-link strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+}
+.rv-admin-directory-link small {
+  display: block;
+  font-size: 11px;
+  line-height: 1.5;
+  margin-top: 3px;
+  color: var(--muted-foreground);
+}
+.rv-admin-directory-link > svg {
+  color: #9aa9bf;
+}
+.rv-admin-state {
+  min-height: 65vh;
+  padding: 40px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  text-align: center;
+}
+.rv-admin-state > svg {
+  color: #7186a6;
+}
+.rv-admin-state p {
+  color: var(--muted-foreground);
+  max-width: 58ch;
+}
+.rv-admin-state a {
+  color: #315bd0;
+}
+.rv-admin-state button {
+  padding: 9px 16px;
+  border-radius: 9px;
+  background: #416fed;
+  color: #fff;
+}
+.rv-admin-settings > section > div:first-child {
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.rv-admin .rv-admin-configuration {
+  display: flex;
+  flex-direction: column;
+  height: auto;
+  overflow: visible;
+}
+.rv-admin-config-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-bottom: 19px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+.rv-admin-config-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 13px;
+  border-radius: 8px;
+  color: #536584;
+  font-size: 12px;
+}
+.rv-admin-config-tabs button[aria-pressed="true"] {
+  background: #e9efff;
+  color: #315bd0;
+}
+.rv-admin-config-tabs button:hover {
+  background: #edf2fc;
+}
+.rv-admin .rv-admin-configuration > main.rv-main {
+  padding: 0 !important;
+  overflow: visible;
+  background: transparent !important;
+}
+.rv-admin-configuration .rv-section-empty {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+.rv-admin .rv-widget-preview-position {
+  max-width: calc(100% - 32px);
+}
+.rv-admin .rv-widget-preview .text-white {
+  color: #fff !important;
+}
+
+@media (max-width: 1200px) {
+  .rv-admin {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+  .rv-admin-toolbar {
+    padding-inline: 24px;
+  }
+  .rv-admin-page > main,
+  .rv-admin-page > .rv-admin-configuration {
+    padding: 25px 24px 40px;
+  }
+  .rv-admin-shortcuts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .rv-admin-home-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+}
+@media (max-width: 950px) {
+  .rv-admin {
+    display: block;
+  }
+  .rv-admin-sidebar {
+    position: relative;
+    height: auto;
+    border: 0;
+  }
+  .rv-admin-brand-row {
+    min-height: 66px;
+    padding: 12px 20px;
+  }
+  .rv-admin-menu-toggle {
+    display: grid;
+    place-items: center;
+  }
+  .rv-admin-navigation {
+    display: none;
+  }
+  .rv-admin-navigation.is-open {
+    display: flex;
+    max-height: 70dvh;
+  }
+  .rv-admin-toolbar {
+    min-height: 66px;
+  }
+  .rv-admin-sidebar-footer {
+    margin-top: 20px;
+  }
+}
+@media (max-width: 640px) {
+  .rv-admin-toolbar {
+    padding: 12px 16px;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .rv-admin-breadcrumb {
+    width: 100%;
+  }
+  .rv-admin-toolbar-actions {
+    width: 100%;
+    gap: 12px;
+  }
+  .rv-admin-organization {
+    flex: 1;
+  }
+  .rv-admin .rv-admin-organization select {
+    width: 100%;
+    max-width: 100%;
+  }
+  .rv-admin-page > main,
+  .rv-admin-page > .rv-admin-configuration {
+    padding: 24px 16px 36px;
+  }
+  .rv-admin-home {
+    gap: 22px;
+  }
+  .rv-admin-directory {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+  }
+  .rv-admin-shortcuts {
+    gap: 10px;
+  }
+  .rv-admin-shortcut {
+    padding: 14px;
+  }
+  .rv-admin-shortcut-top {
+    margin-bottom: 14px;
+  }
+  .rv-admin-shortcut h3 {
+    font-size: 13px;
+  }
+  .rv-admin-shortcut p {
+    font-size: 11px;
+  }
+  .rv-admin-directory-group > header {
+    padding: 18px;
+  }
+  .rv-admin-content :where(section, article).rounded-xl.border {
+    padding: 16px;
+  }
+  .rv-admin-content .flex > .min-w-64,
+  .rv-admin-content .flex > .min-w-72 {
+    width: 100%;
+  }
+  .rv-admin-content .rv-admin-settings .flex:has(> .block) {
+    flex-wrap: wrap;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rv-admin *,
+  .rv-admin *::before,
+  .rv-admin *::after {
+    scroll-behavior: auto !important;
+    animation: none !important;
+    transition: none !important;
+  }
+}

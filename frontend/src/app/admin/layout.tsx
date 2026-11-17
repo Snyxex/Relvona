@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import AdminLayoutClient from "./admin-layout-client";
 import { requirePageSession } from "@/lib/server-page-guard";
+import "./admin-workspace.css";
 
 export default async function AdminLayout({
   children,

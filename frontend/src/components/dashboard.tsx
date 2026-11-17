@@ -1289,7 +1289,11 @@ export default function Dashboard({
   // --- Main SaaS Dashboard Layout ---
   return (
     <div
-      className={`relvona-workspace flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden ${activeTab === "overview" ? "relvona-workspace--overview" : ""}`}
+      className={
+        administration
+          ? "rv-admin-configuration"
+          : `relvona-workspace flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden ${activeTab === "overview" ? "relvona-workspace--overview" : ""}`
+      }
     >
       {notification && (
         <div className="fixed top-4 right-4 z-50 bg-blue-600 text-white px-4 py-2.5 rounded-lg shadow-xl text-sm flex items-center gap-2 animate-bounce">
@@ -1298,162 +1302,183 @@ export default function Dashboard({
         </div>
       )}
 
-      <aside className="rv-sidebar w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between shrink-0">
-        <div>
-          <div className="p-4 border-b border-slate-800 flex items-center justify-between">
-            <div className="flex items-center gap-2.5 overflow-hidden">
-              <div className="rv-brand-mark w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-white shrink-0">
-                R
+      {administration ? (
+        <nav
+          className="rv-admin-config-tabs"
+          aria-label="Assistenten-Konfiguration"
+        >
+          {dashboardNavigation(true)
+            .filter((item) => item.id !== "profile")
+            .map(({ id, label, icon: Icon }) => (
+              <button
+                type="button"
+                key={id}
+                aria-pressed={activeTab === id}
+                onClick={() => setActiveTab(id)}
+              >
+                <Icon size={16} aria-hidden="true" />
+                {label}
+              </button>
+            ))}
+        </nav>
+      ) : (
+        <aside className="rv-sidebar w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between shrink-0">
+          <div>
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2.5 overflow-hidden">
+                <div className="rv-brand-mark w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-white shrink-0">
+                  R
+                </div>
+                <div className="truncate">
+                  <h2 className="text-sm font-bold truncate text-white">
+                    Relvona
+                  </h2>
+                  <span className="text-[10px] bg-blue-950 text-blue-400 px-1.5 py-0.5 rounded font-mono border border-blue-800">
+                    {activeOrg?.role || "member"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {!administration && auth.organizations.length > 1 && (
+              <div className="px-3 py-2 border-b border-slate-800">
+                <select
+                  className="w-full bg-slate-800 text-xs text-slate-200 border border-slate-700 rounded px-2 py-1 focus:outline-none"
+                  value={activeOrg?.id}
+                  onChange={(e) => {
+                    const selected = auth.organizations.find(
+                      (o) => o.id === e.target.value,
+                    );
+                    if (selected && selected.id !== activeOrg?.id) {
+                      tenantFetchEpoch.current += 1;
+                      ticketDetailRequestId.current += 1;
+                      conversationDetailRequestId.current += 1;
+                      suggestionRequestId.current += 1;
+                      selectedConversationId.current = undefined;
+                      setSuggesting(false);
+                      setOverviewMetrics(null);
+                      setConversationsList([]);
+                      setSelectedConv(null);
+                      setConvMessages([]);
+                      setInboxSearch("");
+                      setDebouncedInboxSearch("");
+                      setInboxTags([]);
+                      setInboxAgents([]);
+                      setInboxTimeline([]);
+                      setInboxHandoff(null);
+                      setSuggestion(null);
+                      setSelectedTicket(null);
+                      setTicketCommentsList([]);
+                      setTicketsList([]);
+                      setKnowledgeBases([]);
+                      setKnowledgeSources([]);
+                      setSelectedKbId("");
+                      setAssistantsList([]);
+                      setActiveAssistant(null);
+                      setAgentsList([]);
+                      setCustomersList([]);
+                      setTranslations({});
+                      setPdfFile(null);
+                      setDocTitle("");
+                      setDocContent("");
+                      setCrawlUrl("");
+                      setActiveOrg(selected);
+                      localStorage.setItem("active_org_id", selected.id);
+                    }
+                  }}
+                >
+                  {auth.organizations.map((org) => (
+                    <option key={org.id} value={org.id}>
+                      {org.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <nav className="rv-main-nav p-3 space-y-1">
+              {administration && (
+                <a href="/admin" className="block p-3 text-sm text-blue-400">
+                  Plattformverwaltung
+                </a>
+              )}
+              {!administration && auth.user.systemRole === "superadmin" && (
+                <a href="/admin" className="block p-3 text-sm text-blue-400">
+                  Plattformverwaltung
+                </a>
+              )}
+              {dashboardNavigation(administration).map((item) => {
+                const Icon = item.icon;
+                const isActive = activeTab === item.id;
+                return (
+                  <button
+                    type="button"
+                    key={item.id}
+                    onClick={() => setActiveTab(item.id)}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                      isActive
+                        ? "bg-blue-600 text-white font-semibold"
+                        : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                    }`}
+                  >
+                    <Icon className="w-4 h-4 shrink-0" />
+                    <span className="truncate">{item.label}</span>
+                  </button>
+                );
+              })}
+              {!administration && auth.user.systemRole === "superadmin" && (
+                <div className="rv-nav-secondary">
+                  <p>Workspace</p>
+                  <a href="/admin/scheduling">
+                    <CalendarDays size={16} /> Termine
+                  </a>
+                  <a href="/admin/support-automations">
+                    <Workflow size={16} /> AI-Automationen
+                  </a>
+                  <a href="/admin/employees">
+                    <Users size={16} /> Mitarbeiter
+                  </a>
+                  <a href="/admin/integrations">
+                    <Globe size={16} /> Integrationen
+                  </a>
+                </div>
+              )}
+            </nav>
+          </div>
+
+          <div className="p-3 border-t border-slate-800 flex items-center justify-between">
+            <div className="flex items-center gap-2 overflow-hidden">
+              <div className="w-7 h-7 overflow-hidden rounded-full bg-slate-700 flex items-center justify-center font-bold text-xs">
+                {auth.user.avatarUrl ? (
+                  <img
+                    src={auth.user.avatarUrl}
+                    alt=""
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  auth.user.name.charAt(0)
+                )}
               </div>
               <div className="truncate">
-                <h2 className="text-sm font-bold truncate text-white">
-                  Relvona
-                </h2>
-                <span className="text-[10px] bg-blue-950 text-blue-400 px-1.5 py-0.5 rounded font-mono border border-blue-800">
-                  {activeOrg?.role || "member"}
-                </span>
+                <p className="text-xs font-medium text-slate-200 truncate">
+                  {auth.user.name}
+                </p>
+                <p className="text-[10px] text-slate-500 truncate">
+                  {auth.user.email}
+                </p>
               </div>
             </div>
+            <button
+              type="button"
+              onClick={handleLogout}
+              title="Abmelden"
+              className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
-
-          {!administration && auth.organizations.length > 1 && (
-            <div className="px-3 py-2 border-b border-slate-800">
-              <select
-                className="w-full bg-slate-800 text-xs text-slate-200 border border-slate-700 rounded px-2 py-1 focus:outline-none"
-                value={activeOrg?.id}
-                onChange={(e) => {
-                  const selected = auth.organizations.find(
-                    (o) => o.id === e.target.value,
-                  );
-                  if (selected && selected.id !== activeOrg?.id) {
-                    tenantFetchEpoch.current += 1;
-                    ticketDetailRequestId.current += 1;
-                    conversationDetailRequestId.current += 1;
-                    suggestionRequestId.current += 1;
-                    selectedConversationId.current = undefined;
-                    setSuggesting(false);
-                    setOverviewMetrics(null);
-                    setConversationsList([]);
-                    setSelectedConv(null);
-                    setConvMessages([]);
-                    setInboxSearch("");
-                    setDebouncedInboxSearch("");
-                    setInboxTags([]);
-                    setInboxAgents([]);
-                    setInboxTimeline([]);
-                    setInboxHandoff(null);
-                    setSuggestion(null);
-                    setSelectedTicket(null);
-                    setTicketCommentsList([]);
-                    setTicketsList([]);
-                    setKnowledgeBases([]);
-                    setKnowledgeSources([]);
-                    setSelectedKbId("");
-                    setAssistantsList([]);
-                    setActiveAssistant(null);
-                    setAgentsList([]);
-                    setCustomersList([]);
-                    setTranslations({});
-                    setPdfFile(null);
-                    setDocTitle("");
-                    setDocContent("");
-                    setCrawlUrl("");
-                    setActiveOrg(selected);
-                    localStorage.setItem("active_org_id", selected.id);
-                  }
-                }}
-              >
-                {auth.organizations.map((org) => (
-                  <option key={org.id} value={org.id}>
-                    {org.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          <nav className="rv-main-nav p-3 space-y-1">
-            {administration && (
-              <a href="/admin" className="block p-3 text-sm text-blue-400">
-                Plattformverwaltung
-              </a>
-            )}
-            {!administration && auth.user.systemRole === "superadmin" && (
-              <a href="/admin" className="block p-3 text-sm text-blue-400">
-                Plattformverwaltung
-              </a>
-            )}
-            {dashboardNavigation(administration).map((item) => {
-              const Icon = item.icon;
-              const isActive = activeTab === item.id;
-              return (
-                <button
-                  type="button"
-                  key={item.id}
-                  onClick={() => setActiveTab(item.id)}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                    isActive
-                      ? "bg-blue-600 text-white font-semibold"
-                      : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-                  }`}
-                >
-                  <Icon className="w-4 h-4 shrink-0" />
-                  <span className="truncate">{item.label}</span>
-                </button>
-              );
-            })}
-            {!administration && auth.user.systemRole === "superadmin" && (
-              <div className="rv-nav-secondary">
-                <p>Workspace</p>
-                <a href="/admin/scheduling">
-                  <CalendarDays size={16} /> Termine
-                </a>
-                <a href="/admin/support-automations">
-                  <Workflow size={16} /> AI-Automationen
-                </a>
-                <a href="/admin/employees">
-                  <Users size={16} /> Mitarbeiter
-                </a>
-                <a href="/admin/integrations">
-                  <Globe size={16} /> Integrationen
-                </a>
-              </div>
-            )}
-          </nav>
-        </div>
-
-        <div className="p-3 border-t border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2 overflow-hidden">
-            <div className="w-7 h-7 overflow-hidden rounded-full bg-slate-700 flex items-center justify-center font-bold text-xs">
-              {auth.user.avatarUrl ? (
-                <img
-                  src={auth.user.avatarUrl}
-                  alt=""
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                auth.user.name.charAt(0)
-              )}
-            </div>
-            <div className="truncate">
-              <p className="text-xs font-medium text-slate-200 truncate">
-                {auth.user.name}
-              </p>
-              <p className="text-[10px] text-slate-500 truncate">
-                {auth.user.email}
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={handleLogout}
-            title="Abmelden"
-            className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded transition-colors"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
-        </div>
-      </aside>
+        </aside>
+      )}
 
       <main
         className={

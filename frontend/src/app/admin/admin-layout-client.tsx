@@ -1,7 +1,20 @@
-"use client";
+﻿"use client";
 
+import {
+  ArrowLeft,
+  Building2,
+  ChevronRight,
+  LayoutDashboard,
+  Menu,
+  Search,
+  ShieldCheck,
+  UserRound,
+  X,
+} from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { adminGroups, findAdminDestination } from "@/lib/admin-navigation";
 import { api } from "@/lib/api";
 import { applyUserTheme } from "@/lib/user-theme";
 
@@ -12,17 +25,39 @@ export default function AdminLayoutClient({
 }: {
   children: ReactNode;
 }) {
+  const pathname = usePathname();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [selected, setSelected] = useState("");
+  const [userName, setUserName] = useState("");
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const current = findAdminDestination(pathname);
+  const query = search.trim().toLocaleLowerCase("de-DE");
+  const groups = adminGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) =>
+        `${group.label} ${item.label} ${item.description}`
+          .toLocaleLowerCase("de-DE")
+          .includes(query),
+      ),
+    }))
+    .filter((group) => group.items.length);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: A manual retry must rerun the cancellable bootstrap.
   useEffect(() => {
     let active = true;
+    setError("");
+    setReady(false);
     Promise.all([api.get("/admin/organizations"), api.get("/auth/me")])
       .then(([{ data }, me]) => {
         if (!active) return;
         applyUserTheme(me.data.user.themePreferences);
+        setUserName(me.data.user.name || "Administrator");
         setOrganizations(data);
         const id =
           data.find(
@@ -45,109 +80,198 @@ export default function AdminLayoutClient({
     return () => {
       active = false;
     };
-  }, []);
+  }, [attempt]);
 
-  if (error)
-    return (
-      <main className="min-h-screen bg-slate-950 p-4 text-white sm:p-10">
-        <h1 className="text-xl font-bold">Plattformverwaltung</h1>
-        <p role="alert" className="my-6 break-words">
-          {error}
-        </p>
-        <Link href="/" className="text-blue-300">
-          Zum Mitarbeiter-Dashboard
-        </Link>
-      </main>
-    );
-  if (!ready)
-    return (
-      <p role="status" className="p-4 sm:p-10">
-        Berechtigung wird geprüft ...
-      </p>
-    );
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setMenuOpen(false);
+      menuButton.current?.focus();
+    }
+    document.addEventListener("keydown", onEscape);
+    return () => document.removeEventListener("keydown", onEscape);
+  }, [menuOpen]);
 
   return (
-    <>
-      <header className="flex flex-col gap-3 border-b border-slate-700 bg-slate-950 px-4 py-4 text-white sm:px-6 lg:flex-row lg:items-center lg:gap-5">
-        <Link href="/admin" className="font-bold">
-          Relvona · Plattformverwaltung
-        </Link>
-        <label className="flex min-w-0 flex-col gap-1 text-sm sm:flex-row sm:items-center sm:gap-3">
-          <span>Organisation</span>
-          <select
-            className="min-w-0 max-w-full rounded border border-slate-600 bg-slate-900 p-2"
-            value={selected}
-            onChange={(e) => {
-              localStorage.setItem("active_org_id", e.target.value);
-              setSelected(e.target.value);
-            }}
-          >
-            {organizations.map((org) => (
-              <option key={org.id} value={org.id}>
-                {org.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <nav className="flex flex-wrap gap-3 text-sm lg:ml-auto">
-          <Link href="/admin/agents" className="text-blue-300">
-            Agent-Versionen
-          </Link>
-          <Link href="/admin/support-coverage" className="text-blue-300">Arbeitszeiten</Link>
-          <Link href="/admin/support-teams" className="text-blue-300">Teams & SLA</Link>
-          <Link href="/admin/employees" className="text-blue-300">
-            Mitarbeiter
-          </Link>
-          <Link href="/admin/support-automations" className="text-blue-300">Automationen</Link>
-          <Link href="/admin/support-analytics" className="text-blue-300">Support-Analytics</Link>
-          <Link href="/admin/analytics" className="text-blue-300">
-            Analytics
-          </Link>
-          <Link href="/admin/knowledge" className="text-blue-300">
-            Knowledge Intelligence
-          </Link>
-          <Link href="/admin/actions" className="text-blue-300">
-            AI Actions
-          </Link>
-          <Link href="/admin/scheduling" className="text-blue-300">
-            Scheduling
-          </Link>
-          <Link href="/admin/notifications" className="text-blue-300">
-            Benachrichtigungen
-          </Link>
-          <Link href="/admin/platform-security" className="text-blue-300">
-            Plattform-Sicherheit
-          </Link>
-          <Link href="/admin/mail-server" className="text-blue-300">
-            Mailserver
-          </Link>
-          <Link href="/admin/integrations" className="text-blue-300">
-            Integrationen
-          </Link>
+    <div className="rv-admin">
+      <a className="rv-admin-skip" href="#admin-content">
+        Zum Inhalt springen
+      </a>
+      <aside className="rv-admin-sidebar" aria-label="Plattformverwaltung">
+        <div className="rv-admin-brand-row">
           <Link
-            href="/admin/integrations/zendesk-inbound"
-            className="text-blue-300"
+            href="/admin"
+            className="rv-admin-brand"
+            onClick={() => setMenuOpen(false)}
           >
-            Zendesk Inbound
+            <span className="rv-admin-brand-mark" aria-hidden="true">
+              R
+            </span>
+            <span>
+              <strong>Relvona</strong>
+              <small>Plattformverwaltung</small>
+            </span>
           </Link>
-          <Link href="/profile" className="text-blue-300">
-            Profil-Einstellungen
-          </Link>
-          <Link href="/" className="text-blue-300">
-            Mitarbeiter-Dashboard
-          </Link>
-        </nav>
-      </header>
-      {selected ? (
-        <div key={selected} className="min-w-0">
-          {children}
+          <button
+            type="button"
+            ref={menuButton}
+            className="rv-admin-menu-toggle"
+            aria-expanded={menuOpen}
+            aria-controls="admin-navigation"
+            aria-label={menuOpen ? "Navigation schließen" : "Navigation öffnen"}
+            onClick={() => setMenuOpen(!menuOpen)}
+          >
+            {menuOpen ? <X size={21} /> : <Menu size={21} />}
+          </button>
         </div>
-      ) : (
-        <p className="p-4 sm:p-10">
-          Noch keine Organisation vorhanden. Erstellen Sie zunächst eine
-          Organisation über die Registrierung.
-        </p>
-      )}
-    </>
+        <div
+          id="admin-navigation"
+          className={`rv-admin-navigation ${menuOpen ? "is-open" : ""}`}
+        >
+          <label className="rv-admin-nav-search">
+            <Search size={16} aria-hidden="true" />
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Bereich finden …"
+              aria-label="Verwaltungsbereiche filtern"
+            />
+          </label>
+          <nav aria-label="Admin-Bereiche">
+            <Link
+              href="/admin"
+              className="rv-admin-nav-link"
+              aria-current={pathname === "/admin" ? "page" : undefined}
+              onClick={() => setMenuOpen(false)}
+            >
+              <LayoutDashboard size={17} aria-hidden="true" />
+              Übersicht
+            </Link>
+            {groups.map((group) => (
+              <div className="rv-admin-nav-group" key={group.label}>
+                <p>{group.label}</p>
+                {group.items.map(({ href, label, icon: Icon }) => (
+                  <Link
+                    key={href}
+                    href={href}
+                    className="rv-admin-nav-link"
+                    aria-current={current?.href === href ? "page" : undefined}
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    <Icon size={17} aria-hidden="true" />
+                    <span>{label}</span>
+                  </Link>
+                ))}
+              </div>
+            ))}
+            {!groups.length && (
+              <p className="rv-admin-nav-empty" role="status">
+                Kein Bereich gefunden. Versuche einen anderen Suchbegriff.
+              </p>
+            )}
+          </nav>
+          <div className="rv-admin-sidebar-footer">
+            <Link href="/">
+              <ArrowLeft size={16} aria-hidden="true" />
+              Mitarbeiter-Dashboard
+            </Link>
+            <span>
+              <ShieldCheck size={14} aria-hidden="true" />
+              Administratorbereich
+            </span>
+          </div>
+        </div>
+      </aside>
+      <div className="rv-admin-workspace">
+        <header className="rv-admin-toolbar">
+          <nav
+            aria-label="Brotkrümelnavigation"
+            className="rv-admin-breadcrumb"
+          >
+            <Link href="/admin">Verwaltung</Link>
+            <ChevronRight size={14} aria-hidden="true" />
+            <span aria-current="page">{current?.label || "Übersicht"}</span>
+          </nav>
+          <div className="rv-admin-toolbar-actions">
+            <label className="rv-admin-organization">
+              <Building2 size={17} aria-hidden="true" />
+              <span className="sr-only">Organisation</span>
+              <select
+                aria-label="Aktive Organisation"
+                value={selected}
+                disabled={!ready || !organizations.length}
+                onChange={(event) => {
+                  localStorage.setItem("active_org_id", event.target.value);
+                  setSelected(event.target.value);
+                }}
+              >
+                {!organizations.length && (
+                  <option value="">
+                    {ready
+                      ? "Keine Organisation"
+                      : "Organisation wird geladen …"}
+                  </option>
+                )}
+                {organizations.map((org) => (
+                  <option key={org.id} value={org.id}>
+                    {org.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Link
+              href="/profile"
+              className="rv-admin-profile"
+              aria-label={
+                userName ? `Profil von ${userName}` : "Profil-Einstellungen"
+              }
+              title={userName || "Profil-Einstellungen"}
+            >
+              {userName ? (
+                userName.charAt(0).toLocaleUpperCase("de-DE")
+              ) : (
+                <UserRound size={18} />
+              )}
+            </Link>
+          </div>
+        </header>
+        <div id="admin-content" className="rv-admin-content" tabIndex={-1}>
+          {error ? (
+            <main className="rv-admin-state">
+              <ShieldCheck size={32} aria-hidden="true" />
+              <h1>Verwaltung nicht verfügbar</h1>
+              <p role="alert">{error}</p>
+              <button type="button" onClick={() => setAttempt(attempt + 1)}>
+                Erneut versuchen
+              </button>
+              <Link href="/">Zum Mitarbeiter-Dashboard</Link>
+            </main>
+          ) : !ready ? (
+            <main className="rv-admin-state" aria-busy="true">
+              <span className="rv-admin-loading-mark" aria-hidden="true">
+                R
+              </span>
+              <h1>Verwaltung wird vorbereitet</h1>
+              <p role="status">
+                Berechtigung und Organisationen werden geladen …
+              </p>
+            </main>
+          ) : selected ? (
+            <div key={selected} className="rv-admin-page">
+              {children}
+            </div>
+          ) : (
+            <main className="rv-admin-state">
+              <Building2 size={32} aria-hidden="true" />
+              <h1>Noch keine Organisation</h1>
+              <p>Erstelle zunächst eine Organisation über die Registrierung.</p>
+              <Link href="/">Zum Mitarbeiter-Dashboard</Link>
+            </main>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
