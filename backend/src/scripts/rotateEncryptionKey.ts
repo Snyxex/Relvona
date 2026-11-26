@@ -10,7 +10,7 @@ async function rotate() {
   try {
     await client.query("BEGIN");
     const assistantRows = (await client.query("SELECT id, api_key, embedding_api_key FROM assistants")).rows;
-    const settingsRows = (await client.query("SELECT id, openai_key_encrypted, nvidia_key_encrypted FROM organization_settings")).rows;
+    const settingsRows = (await client.query("SELECT id, openai_key_encrypted, nvidia_key_encrypted, oidc_configuration, active_directory_bind_password_encrypted, entra_client_secret_encrypted FROM organization_settings")).rows;
     for (const assistant of assistantRows) {
       const apiKey = reencryptSecret(assistant.api_key);
       const embeddingApiKey = reencryptSecret(assistant.embedding_api_key);
@@ -20,6 +20,13 @@ async function rotate() {
       }
     }
     for (const settings of settingsRows) {
+      const config = settings.oidc_configuration;
+      if (config?.clientSecretEncrypted) {
+        config.clientSecretEncrypted = reencryptSecret(config.clientSecretEncrypted);
+        await client.query("UPDATE organization_settings SET oidc_configuration = $1, updated_at = NOW() WHERE id = $2", [JSON.stringify(config), settings.id]);
+        rotated++;
+      }
+      await client.query("UPDATE organization_settings SET active_directory_bind_password_encrypted = $1, entra_client_secret_encrypted = $2 WHERE id = $3", [reencryptSecret(settings.active_directory_bind_password_encrypted), reencryptSecret(settings.entra_client_secret_encrypted), settings.id]);
       const openaiKeyEncrypted = reencryptSecret(settings.openai_key_encrypted);
       const nvidiaKeyEncrypted = reencryptSecret(settings.nvidia_key_encrypted);
       if (openaiKeyEncrypted !== settings.openai_key_encrypted || nvidiaKeyEncrypted !== settings.nvidia_key_encrypted) {

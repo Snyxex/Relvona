@@ -1,4 +1,5 @@
 "use client";
+import FederationLogin from "@/components/federation-login";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -1278,6 +1279,9 @@ export default function Dashboard({
             </form>
           )}
 
+          {!awaitingTwoFactor && (
+            <FederationLogin onTwoFactor={() => setAwaitingTwoFactor(true)} />
+          )}
           <div className="mt-6 border-t border-slate-800 pt-4 text-center text-xs text-slate-400">
             Konten werden durch eine Organisationseinladung bereitgestellt.
           </div>

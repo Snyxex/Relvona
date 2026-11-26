@@ -6,6 +6,7 @@ import { db } from "../db/index.js";
 import * as schema from "../db/schema.js";
 import { verifiedDashboardOrigins } from "../services/dashboardDomainService.js";
 import { hashPassword, verifyPassword } from "./password.js";
+import { federationPlugin } from "./federationPlugin.js";
 import { entraPlugin } from "./entraPlugin.js";
 import { getTwoFactorPolicy } from "../services/platformSecurityService.js";
 
@@ -29,7 +30,7 @@ export const auth = betterAuth({
   },
   plugins: [
     twoFactor({ issuer: "Relvona", twoFactorTable: "twoFactor", allowPasswordless: true, accountLockout: { enabled: true, maxFailedAttempts: 8, durationSeconds: 900 } }),
-    entraPlugin(),
+    entraPlugin(), federationPlugin(),
   ],
   hooks: {
     before: createAuthMiddleware(async (context) => {

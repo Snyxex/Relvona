@@ -6,6 +6,7 @@ import { decryptSecret } from "../utils/crypto.js";
 import { CrawlerSecurity } from "./crawlerSecurity.js";
 
 export type ActiveDirectorySettings = {
+  ldapDirectoryType?: string;
   activeDirectoryEnabled: boolean;
   activeDirectoryUrl: string | null;
   activeDirectoryBaseDn: string | null;
@@ -63,7 +64,7 @@ export class ActiveDirectoryService {
         sizeLimit: 2,
         timeLimit: 5,
         attributes: ["distinguishedName"],
-        filter: escapeFilter`(&(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2))(|(userPrincipalName=${username.trim()})(mail=${username.trim()})(sAMAccountName=${username.trim()})))`,
+        filter: settings.ldapDirectoryType === "ldap" ? escapeFilter`(&(objectClass=inetOrgPerson)(|(uid=${username.trim()})(mail=${username.trim()})))` : escapeFilter`(&(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2))(|(userPrincipalName=${username.trim()})(mail=${username.trim()})(sAMAccountName=${username.trim()})))`,
       });
       if (result.searchEntries.length !== 1) return false;
       await client.bind(result.searchEntries[0].dn, password);

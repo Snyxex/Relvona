@@ -77,6 +77,8 @@ app.use((req, res, next) => (req.path.startsWith("/api/v1/widget/") ? widgetCors
 app.use(createRateLimiter({ keyPrefix: "global", limit: Number(process.env.GLOBAL_RATE_LIMIT_PER_MINUTE || 300), windowMs: 60_000, keyGenerator: (req) => req.ip }));
 app.use(bindDashboardDomain as (req: AuthRequest, res: express.Response, next: express.NextFunction) => void);
 app.use(requireTrustedOrigin);
+app.use("/api/auth/ldap", createRateLimiter({ keyPrefix: "ldap-login", limit: 8, windowMs: 15 * 60_000, keyGenerator: req => req.ip }));
+app.use("/api/auth/oidc", createRateLimiter({ keyPrefix: "oidc-login", limit: 30, windowMs: 15 * 60_000, keyGenerator: req => req.ip }));
 app.all("/api/auth/*", toNodeHandler(auth));
 const defaultJsonParser = express.json({
   limit: process.env.JSON_BODY_LIMIT || "128kb",

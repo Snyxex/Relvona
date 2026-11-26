@@ -470,6 +470,8 @@ export const organizationSettings = pgTable("organization_settings", {
   activeDirectoryBindPasswordEncrypted: text("active_directory_bind_password_encrypted"),
   localLoginEnabled: boolean("local_login_enabled").default(true).notNull(),
   invitationEnabled: boolean("invitation_enabled").default(true).notNull(),
+  oidcConfiguration: jsonb("oidc_configuration"),
+  ldapDirectoryType: text("ldap_directory_type").default("ad").notNull(),
   ssoEnabled: boolean("sso_enabled").default(false).notNull(),
   entraTenantId: text("entra_tenant_id"),
   entraClientId: text("entra_client_id"),
@@ -524,7 +526,7 @@ export const platformSupportSessions = pgTable("platform_support_sessions", {
 }, (table) => ({ supportSessionIdx: index("support_session_idx").on(table.platformAdminUserId, table.organizationId, table.expiresAt) }));
 
 export const ssoLoginStates = pgTable("sso_login_states", {
-  id: uuid("id").primaryKey().defaultRandom(), organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(), stateHash: text("state_hash").notNull().unique(), nonce: text("nonce").notNull(), pkceVerifierEncrypted: text("pkce_verifier_encrypted"), expiresAt: timestamp("expires_at").notNull(), consumedAt: timestamp("consumed_at"), createdAt: timestamp("created_at").defaultNow().notNull(),
+  id: uuid("id").primaryKey().defaultRandom(), organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }).notNull(), provider: text("provider").default("entra").notNull(), stateHash: text("state_hash").notNull().unique(), nonce: text("nonce").notNull(), pkceVerifierEncrypted: text("pkce_verifier_encrypted"), expiresAt: timestamp("expires_at").notNull(), consumedAt: timestamp("consumed_at"), createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({ ssoStateExpiryIdx: index("sso_state_expiry_idx").on(table.expiresAt) }));
 
 export const userExternalIdentities = pgTable("user_external_identities", {

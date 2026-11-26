@@ -58,7 +58,7 @@ export class EntraAuthService {
     const now = new Date();
     const [state] = await db.update(ssoLoginStates)
       .set({ consumedAt: now })
-      .where(and(eq(ssoLoginStates.stateHash, stateHash), isNull(ssoLoginStates.consumedAt), gt(ssoLoginStates.expiresAt, now)))
+      .where(and(eq(ssoLoginStates.stateHash, stateHash), eq(ssoLoginStates.provider, "entra"), isNull(ssoLoginStates.consumedAt), gt(ssoLoginStates.expiresAt, now)))
       .returning({ organizationId: ssoLoginStates.organizationId, nonce: ssoLoginStates.nonce,
         pkceVerifierEncrypted: ssoLoginStates.pkceVerifierEncrypted });
     if (!state) throw new Error("SSO_INVALID_STATE");
@@ -158,7 +158,7 @@ export class EntraAuthService {
         }
       }
 
-      await tx.insert(auditLogs).values({ organizationId: input.organizationId, actorUserId: userId, action: "sso.entra.login", resourceType: "user", metadata: { providerId: input.providerId } });
+      await tx.insert(auditLogs).values({ organizationId: input.organizationId, actorUserId: userId, action: input.providerId.startsWith("oidc:") ? "sso.oidc.login" : "sso.entra.login", resourceType: "user", metadata: { providerId: input.providerId } });
       return userId;
     });
   }

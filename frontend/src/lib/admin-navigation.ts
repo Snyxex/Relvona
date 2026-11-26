@@ -200,6 +200,12 @@ export const adminGroups: {
         icon: ShieldCheck,
       },
       {
+        href: "/admin/authentication",
+        label: "Anmeldung & SSO",
+        description: "Authentik, OpenID Connect und LDAP konfigurieren.",
+        icon: KeyRound,
+      },
+      {
         href: "/admin/settings/security",
         label: "Organisationssicherheit",
         description:

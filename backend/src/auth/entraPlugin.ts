@@ -1,5 +1,5 @@
 import type { BetterAuthPlugin } from "better-auth";
-import { createAuthEndpoint } from "better-auth/api";
+import { APIError, createAuthEndpoint } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import crypto from "crypto";
@@ -43,7 +43,7 @@ export const entraPlugin = () => ({
         authorize.searchParams.set("code_challenge_method", pkce.method);
         throw ctx.redirect(authorize.toString());
       } catch (error) {
-        if (error instanceof Response) throw error;
+        if (error instanceof Response || error instanceof APIError && error.statusCode === 302) throw error;
         return ctx.json({ error: (error as Error).message }, { status: (error as Error).message === "SSO_NOT_ENABLED" ? 403 : 500 });
       }
     }),
@@ -111,7 +111,7 @@ export const entraPlugin = () => ({
         await setSessionCookie(ctx, { session, user });
         throw ctx.redirect(`${frontendOrigin()}/?sso=completed&organization=${encodeURIComponent(login.organizationId)}`);
       } catch (error) {
-        if (error instanceof Response) throw error;
+        if (error instanceof Response || error instanceof APIError && error.statusCode === 302) throw error;
         throw fail((error as Error).message.startsWith("SSO_") ? (error as Error).message : "SSO_VALIDATION_FAILED");
       }
     }),

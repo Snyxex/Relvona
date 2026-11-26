@@ -1,3 +1,4 @@
+import { federationSettings } from "./federationSettings.js";
 import { Router } from "express";
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
@@ -38,7 +39,7 @@ async function settingsFor(orgId: string) {
 }
 
 function publicSettings(settings: typeof organizationSettings.$inferSelect) {
-  const { openaiKeyEncrypted, nvidiaKeyEncrypted, githubTokenEncrypted, activeDirectoryBindPasswordEncrypted, ...safe } = settings;
+  const { openaiKeyEncrypted, nvidiaKeyEncrypted, githubTokenEncrypted, activeDirectoryBindPasswordEncrypted, entraClientSecretEncrypted, oidcConfiguration, ...safe } = settings;
   return {
     ...safe,
     openaiKeyConfigured: Boolean(openaiKeyEncrypted),
@@ -59,6 +60,8 @@ router.use(async (req: AuthRequest, res, next) => {
     next();
   } catch (error) { next(error); }
 });
+
+router.use(federationSettings(settingsFor));
 
 router.get("/settings", async (req: AuthRequest, res) => {
   const settings = await settingsFor(req.organization!.id);

@@ -658,54 +658,13 @@ function Security({ form, change }: any) {
           />
         </Field>
       </div>
-      <fieldset className="space-y-4 border-t pt-6">
-        <legend className="text-base font-semibold">Active Directory</legend>
-        <p className="text-sm text-slate-600">
-          Anmeldung über ein vorhandenes Active-Directory-Konto. Es wird
-          ausschließlich LDAPS mit Zertifikatsprüfung verwendet.
-        </p>
-        <label className="flex items-center gap-2 text-sm font-medium">
-          <input
-            type="checkbox"
-            checked={form.activeDirectoryEnabled === true}
-            onChange={(e) => change("activeDirectoryEnabled", e.target.checked)}
-          />{" "}
-          Active Directory als Anmeldemethode aktivieren
-        </label>
-        <Field label="LDAPS-URL">
-          <Input
-            value={form.activeDirectoryUrl || ""}
-            placeholder="ldaps://dc01.example.internal:636"
-            onChange={(v: string) => change("activeDirectoryUrl", v)}
-          />
-        </Field>
-        <Field label="Base DN">
-          <Input
-            value={form.activeDirectoryBaseDn || ""}
-            placeholder="DC=example,DC=internal"
-            onChange={(v: string) => change("activeDirectoryBaseDn", v)}
-          />
-        </Field>
-        <Field label="Bind DN">
-          <Input
-            value={form.activeDirectoryBindDn || ""}
-            placeholder="CN=supportai-bind,OU=Service Accounts,DC=example,DC=internal"
-            onChange={(v: string) => change("activeDirectoryBindDn", v)}
-          />
-        </Field>
-        <Field label="Bind-Passwort">
-          <Input
-            type="password"
-            value={form.activeDirectoryBindPassword || ""}
-            placeholder={
-              form.activeDirectoryBindPasswordConfigured
-                ? "•••••••• (konfiguriert)"
-                : "Passwort eingeben"
-            }
-            onChange={(v: string) => change("activeDirectoryBindPassword", v)}
-          />
-        </Field>
-      </fieldset>
+      <p className="text-sm text-muted-foreground">
+        Verzeichnis- und SSO-Anmeldungen unter{" "}
+        <a href="/admin/authentication" className="text-blue-700 underline">
+          Anmeldung &amp; SSO
+        </a>{" "}
+        verwalten.
+      </p>
     </div>
   );
 }
