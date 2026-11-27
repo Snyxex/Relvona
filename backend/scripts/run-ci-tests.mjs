@@ -28,6 +28,7 @@ const groups = {
   ],
   ai: [
     "ingestion.test.ts",
+    "pdfParsing.test.ts",
     "streaming.test.ts",
     "toolRegistry.test.ts",
   ],
