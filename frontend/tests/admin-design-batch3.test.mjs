@@ -22,12 +22,7 @@ const pages = [
   },
   {
     route: "agents/page.tsx",
-    endpoints: [
-      "/assistants",
-      "/versions",
-      "/activate",
-      "/playground",
-    ],
+    endpoints: ["/assistants", "/versions", "/activate", "/playground"],
     actions: [
       "async function publish(",
       "async function activate(",

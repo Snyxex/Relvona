@@ -67,9 +67,8 @@ export default function AdminAgentsPage() {
   const [loading, setLoading] = useState(false);
   const [playgroundVersionId, setPlaygroundVersionId] = useState("");
   const [playgroundMessage, setPlaygroundMessage] = useState("");
-  const [playgroundResult, setPlaygroundResult] = useState<PlaygroundResult | null>(
-    null,
-  );
+  const [playgroundResult, setPlaygroundResult] =
+    useState<PlaygroundResult | null>(null);
   const [playgroundLoading, setPlaygroundLoading] = useState(false);
 
   const loadAssistants = useCallback(async () => {
@@ -79,7 +78,9 @@ export default function AdminAgentsPage() {
       setAssistants(data);
       setAssistantId((current) => current || data[0]?.id || "");
     } catch (caught: unknown) {
-      setError(errorMessage(caught, "Assistants konnten nicht geladen werden."));
+      setError(
+        errorMessage(caught, "Assistants konnten nicht geladen werden."),
+      );
     }
   }, []);
 
@@ -124,7 +125,9 @@ export default function AdminAgentsPage() {
       setLabel("");
       await loadVersions(assistantId);
     } catch (caught: unknown) {
-      setError(errorMessage(caught, "Version konnte nicht veröffentlicht werden."));
+      setError(
+        errorMessage(caught, "Version konnte nicht veröffentlicht werden."),
+      );
     } finally {
       setLoading(false);
     }
@@ -144,11 +147,7 @@ export default function AdminAgentsPage() {
     setError("");
     try {
       await api.post(
-        "/assistants/" +
-          assistantId +
-          "/versions/" +
-          version.id +
-          "/activate",
+        "/assistants/" + assistantId + "/versions/" + version.id + "/activate",
       );
       await Promise.all([loadVersions(assistantId), loadAssistants()]);
     } catch (caught: unknown) {
@@ -177,7 +176,9 @@ export default function AdminAgentsPage() {
       );
       setPlaygroundResult(data);
     } catch (caught: unknown) {
-      setError(errorMessage(caught, "Playground konnte nicht ausgeführt werden."));
+      setError(
+        errorMessage(caught, "Playground konnte nicht ausgeführt werden."),
+      );
     } finally {
       setPlaygroundLoading(false);
     }
@@ -237,7 +238,9 @@ export default function AdminAgentsPage() {
         >
           <form onSubmit={publish} className="flex flex-wrap items-end gap-3">
             <label className="min-w-0 flex-1 space-y-2 text-sm text-[#536584]">
-              <span className="block font-medium">Versionslabel (optional)</span>
+              <span className="block font-medium">
+                Versionslabel (optional)
+              </span>
               <input
                 value={label}
                 onChange={(event) => setLabel(event.target.value)}
@@ -362,7 +365,9 @@ export default function AdminAgentsPage() {
                         </span>
                       )}
                       <AdminBadge
-                        tone={version.status === "active" ? "success" : "neutral"}
+                        tone={
+                          version.status === "active" ? "success" : "neutral"
+                        }
                       >
                         {version.status}
                       </AdminBadge>

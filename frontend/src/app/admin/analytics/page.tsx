@@ -99,7 +99,8 @@ export default function AdminAnalyticsPage() {
     } catch (caught: unknown) {
       const response = caught as { response?: { data?: { error?: string } } };
       setError(
-        response.response?.data?.error || "Analytics konnten nicht geladen werden.",
+        response.response?.data?.error ||
+          "Analytics konnten nicht geladen werden.",
       );
     } finally {
       setInitialLoading(false);
@@ -335,12 +336,14 @@ export default function AdminAnalyticsPage() {
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {([
-                      ["acknowledged", "Bestätigen"],
-                      ["resolved", "Gelöst"],
-                      ["ignored", "Ignorieren"],
-                      ["open", "Öffnen"],
-                    ] as const).map(([status, label]) => (
+                    {(
+                      [
+                        ["acknowledged", "Bestätigen"],
+                        ["resolved", "Gelöst"],
+                        ["ignored", "Ignorieren"],
+                        ["open", "Öffnen"],
+                      ] as const
+                    ).map(([status, label]) => (
                       <AdminButton
                         key={status}
                         variant="secondary"
