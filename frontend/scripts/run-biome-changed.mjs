@@ -58,7 +58,16 @@ const formatArgs = mode === "format-write" ? ["--write"] : [];
 const command = mode === "format-write" ? "format" : mode;
 const result = spawnSync(
   process.execPath,
-  [biomeEntrypoint, command, ...lintArgs, ...formatArgs, ...files],
+  // A Dockerfile-only or asset-only diff has no Biome-supported inputs.
+  // Do not fail for unmatched inputs; actual lint/format errors still fail.
+  [
+    biomeEntrypoint,
+    command,
+    "--no-errors-on-unmatched",
+    ...lintArgs,
+    ...formatArgs,
+    ...files,
+  ],
   {
     env: process.env,
     stdio: "inherit",
