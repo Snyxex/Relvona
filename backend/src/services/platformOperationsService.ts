@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db, withTenantTransaction } from "../db/index.js";
 import { auditLogs, organizations, platformSupportSessions } from "../db/schema.js";
 
@@ -85,13 +85,20 @@ export class PlatformOperationsService {
   }
 
   static async endSupportSession(sessionId: string, actor: PlatformAuditActor): Promise<boolean> {
-    const [current] = await db.select({ organizationId: platformSupportSessions.organizationId })
-      .from(platformSupportSessions)
-      .where(and(
-        eq(platformSupportSessions.id, sessionId),
-        eq(platformSupportSessions.platformAdminUserId, actor.userId),
-        isNull(platformSupportSessions.endedAt),
-      )).limit(1);
+    const current = await db.transaction(async (tx) => {
+      // Only this operator's specific support-session ID is visible before
+      // the tenant is known; the capability dies at transaction completion.
+      await tx.execute(sql`SELECT set_config('app.platform_support_session_id', ${sessionId}, true)`);
+      await tx.execute(sql`SELECT set_config('app.platform_support_actor_id', ${actor.userId}, true)`);
+      const [matched] = await tx.select({ organizationId: platformSupportSessions.organizationId })
+        .from(platformSupportSessions)
+        .where(and(
+          eq(platformSupportSessions.id, sessionId),
+          eq(platformSupportSessions.platformAdminUserId, actor.userId),
+          isNull(platformSupportSessions.endedAt),
+        )).limit(1);
+      return matched;
+    });
     if (!current) return false;
 
     return withTenantTransaction(current.organizationId, async (tx) => {

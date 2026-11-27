@@ -7,7 +7,7 @@ const appPassword = process.env.DATABASE_APP_PASSWORD;
 if (!/^[a-z_][a-z0-9_]{0,62}$/i.test(appRole) || !appPassword) throw new Error("DATABASE_APP_USER and DATABASE_APP_PASSWORD must configure the non-owner application login");
 
 const tenantTables = [
-  "organization_role_policies", "organization_invitations", "sso_login_states",
+  "organization_role_policies", "organization_invitations", "sso_login_states", "platform_support_sessions",
   "knowledge_ingestion_jobs", "api_keys", "customers", "assistants", "assistant_versions", "knowledge_bases", "knowledge_sources", "document_chunks", "websites", "website_pages", "conversations", "conversation_messages", "message_feedback", "tickets", "ticket_comments", "analytics_events", "audit_logs", "organization_settings", "model_routing_rules", "conversation_activities", "conversation_handoffs", "conversation_tags", "conversation_tag_links", "agent_presence", "employee_directory", "mail_server_settings", "anonymous_visitors", "visitor_conversations", "visitor_memories", "customer_portal_accounts", "customer_portal_magic_links", "customer_portal_sessions", "customer_portal_visitor_links", "ticket_sla_policies", "ticket_case_metadata", "ticket_case_events", "calendar_connections", "meeting_types", "availability_rules", "bookings", "booking_events", "booking_calendar_sync", "action_executions", "calendar_oauth_states", "conversation_scheduling_states", "knowledge_gaps", "knowledge_gap_signals", "knowledge_source_intelligence", "knowledge_retrieval_events", "knowledge_faq_drafts", "knowledge_collections", "source_knowledge_collections", "assistant_knowledge_collections", "webhook_subscriptions", "webhook_events", "webhook_deliveries", "integration_connections", "integration_sync_rules", "integration_sync_executions", "integration_inbound_events", "external_actors", "external_ticket_messages", "notification_settings", "notifications", "support_teams", "support_team_members", "ticket_routing", "sla_escalation_settings", "support_schedules", "support_absences", "support_automation_rules", "support_automation_runs",
 ];
 
@@ -521,6 +521,19 @@ main().catch((error) => { console.error(error); process.exitCode = 1; });
 
 main().catch((error) => { console.error(error); process.exitCode = 1; });
 
+        )`,
+    );
+
+    // A support operator must look up a particular own session by opaque ID
+    // before tenant context is established. All subsequent mutations happen
+    // inside the resolved tenant transaction.
+    await client.query("DROP POLICY IF EXISTS supportai_support_session_lookup ON public.platform_support_sessions");
+    await client.query(
+      `CREATE POLICY supportai_support_session_lookup ON public.platform_support_sessions
+        FOR SELECT TO "${appRole}"
+        USING (
+          id::text = current_setting('app.platform_support_session_id', true)
+          AND platform_admin_user_id::text = current_setting('app.platform_support_actor_id', true)
         )`,
     );
 

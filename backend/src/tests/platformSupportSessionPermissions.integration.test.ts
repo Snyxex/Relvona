@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import type { Response } from "express";
-import { closeDatabasePool } from "../db/index.js";
+import { closeDatabasePool, pool } from "../db/index.js";
 import { withDatabaseTenantContext } from "../db/tenantContext.js";
 import { tenantContext, requireRole, PLATFORM_SUPPORT_READ_PERMISSIONS, type AuthRequest } from "../middleware/auth.js";
 import { platformPermissionsForRole, type PlatformRole } from "../services/platformRbac.js";
@@ -98,6 +98,8 @@ async function main() {
       [operatorId, foreignOrganizationId],
     );
     const sessionId = sessionRow.rows[0].id;
+    const unscoped = await pool.query("SELECT id FROM platform_support_sessions WHERE id = $1", [sessionId]);
+    assert.equal(unscoped.rowCount, 0, "support-session rows must not be readable without a tenant or scoped capability");
 
     const missing = await evaluate(operatorId, foreignOrganizationId, "GET");
     assert.equal(missing.status, 403);
