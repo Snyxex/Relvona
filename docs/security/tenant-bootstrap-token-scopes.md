@@ -31,7 +31,15 @@ Existing auth-regression integration tests exercise acceptance, replay
 denial and encrypted PKCE state; additional negative DB reads/updates
 assert that direct unscoped access cannot obtain them.
 
+Platform support sessions are likewise tenant-scoped for normal creation,
+reads and closure. Before an operator ends a session by its ID, an isolated
+transaction sets `app.platform_support_session_id` and
+`app.platform_support_actor_id` to limit the lookup to that operator's exact
+session. The middleware checks active sessions inside a target-tenant
+transaction and publishes tenant context only after permission checks.
+The support-session regression tests reject unscoped reads and retain the
+operator-bound, read-only access restrictions.
+
 Remaining bootstrap tables needing dedicated work:
-`organization_members`, `organization_dashboard_domains`, and
-`platform_support_sessions`. Do not claim full tenant isolation until
+`organization_members` and `organization_dashboard_domains`. Do not claim full tenant isolation until
 those and the full worker/API/file-storage paths are verified.
