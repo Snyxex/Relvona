@@ -36,3 +36,13 @@ for (const page of routes) {
     }
   });
 }
+
+test("SMTP changes require a successful settings load", () => {
+  const content = source("mail-server/page.tsx");
+  assert.ok(content.includes("setLoaded(true)"));
+  assert.ok(content.includes("if (loading || !loaded)"));
+  assert.equal(
+    content.split("if (!loaded || saving || testing) return;").length - 1,
+    2,
+  );
+});
