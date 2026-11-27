@@ -27,7 +27,7 @@ for (const page of routes) {
     assert.ok(content.includes("<AdminPanel"));
     assert.ok(content.includes("<AdminButton"));
     assert.ok(content.includes('AdminNotice tone="error"'));
-    assert.ok(!content.includes('bg-slate-950'));
+    assert.ok(!content.includes("bg-slate-950"));
     for (const endpoint of page.endpoints) {
       assert.ok(content.includes(endpoint), "missing endpoint " + endpoint);
     }

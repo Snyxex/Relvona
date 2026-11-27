@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { cloneElement, isValidElement, useCallback, useEffect, useId, useState, type ReactNode, type ReactElement } from "react";
 import { Mail, RefreshCw, Save, TestTube2 } from "lucide-react";
 import {
   AdminButton,
@@ -36,13 +36,26 @@ const defaults: MailSettings = {
   passwordConfigured: false,
 };
 
-function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
+function Field({
+  label,
+  children,
+  hint,
+}: {
+  label: string;
+  children: ReactNode;
+  hint?: string;
+}) {
+  const id = useId();
   return (
-    <label className="block space-y-1.5 text-sm text-[#536584]">
-      <span className="font-medium text-[#172742]">{label}</span>
-      {children}
+    <div className="block space-y-1.5 text-sm text-[#536584]">
+      <label htmlFor={id} className="block font-medium text-[#172742]">
+        {label}
+      </label>
+      {isValidElement<{ id?: string }>(children)
+        ? cloneElement(children as ReactElement<{ id?: string }>, { id })
+        : children}
       {hint && <span className="block text-xs text-[#667694]">{hint}</span>}
-    </label>
+    </div>
   );
 }
 
@@ -57,7 +70,10 @@ export default function MailServerPage() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
-  const change = <K extends keyof MailSettings>(key: K, value: MailSettings[K]) => {
+  const change = <K extends keyof MailSettings>(
+    key: K,
+    value: MailSettings[K],
+  ) => {
     setForm((current) => ({ ...current, [key]: value }));
   };
 
@@ -69,13 +85,18 @@ export default function MailServerPage() {
       setForm({ ...defaults, ...data.settings });
       setPassword("");
     } catch (e: any) {
-      setError(e.response?.data?.error || "Mailserver-Einstellungen konnten nicht geladen werden.");
+      setError(
+        e.response?.data?.error ||
+          "Mailserver-Einstellungen konnten nicht geladen werden.",
+      );
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const payload = () => ({
     enabled: form.enabled,
@@ -99,7 +120,10 @@ export default function MailServerPage() {
       setPassword("");
       setNotice("Mailserver-Einstellungen wurden gespeichert.");
     } catch (e: any) {
-      setError(e.response?.data?.error || "Mailserver-Einstellungen konnten nicht gespeichert werden.");
+      setError(
+        e.response?.data?.error ||
+          "Mailserver-Einstellungen konnten nicht gespeichert werden.",
+      );
     } finally {
       setSaving(false);
     }
@@ -120,7 +144,23 @@ export default function MailServerPage() {
   }
 
   if (loading) {
-    return <AdminPage width="narrow"><AdminHeader eyebrow="Verwaltung / Kommunikation" title="Mailserver" description="SMTP für Terminbestätigungen konfigurieren." icon={Mail} /><AdminPanel><div role="status" aria-label="Mailserver-Einstellungen werden geladen" className="h-60 animate-pulse rounded-xl bg-[#f1f5fb]" /></AdminPanel></AdminPage>;
+    return (
+      <AdminPage width="narrow">
+        <AdminHeader
+          eyebrow="Verwaltung / Kommunikation"
+          title="Mailserver"
+          description="SMTP für Terminbestätigungen konfigurieren."
+          icon={Mail}
+        />
+        <AdminPanel>
+          <div
+            role="status"
+            aria-label="Mailserver-Einstellungen werden geladen"
+            className="h-60 animate-pulse rounded-xl bg-[#f1f5fb]"
+          />
+        </AdminPanel>
+      </AdminPage>
+    );
   }
 
   return (
@@ -135,26 +175,71 @@ export default function MailServerPage() {
       {notice && <AdminNotice tone="success">{notice}</AdminNotice>}
       {error && <AdminNotice tone="error">{error}</AdminNotice>}
 
-      <AdminPanel title="SMTP-Konfiguration" description="Zugangsdaten und Absenderinformationen für automatische Terminbestätigungen.">
+      <AdminPanel
+        title="SMTP-Konfiguration"
+        description="Zugangsdaten und Absenderinformationen für automatische Terminbestätigungen."
+      >
         <label className="flex items-start gap-3 rounded-xl border border-[#e5eaf3] bg-[#f8faff] p-4">
-          <input type="checkbox" checked={form.enabled} onChange={(event) => change("enabled", event.target.checked)} className="mt-1 h-4 w-4" />
+          <input
+            type="checkbox"
+            checked={form.enabled}
+            onChange={(event) => change("enabled", event.target.checked)}
+            className="mt-1 h-4 w-4"
+          />
           <span>
-            <span className="block font-medium">Terminbestätigungen per E-Mail aktivieren</span>
-            <span className="mt-1 block text-sm text-[#667694]">Nach einer erfolgreich erstellten Kundenbuchung sendet Relvona automatisch eine Bestätigung. Ein Mailfehler macht die Buchung nicht rückgängig.</span>
+            <span className="block font-medium">
+              Terminbestätigungen per E-Mail aktivieren
+            </span>
+            <span className="mt-1 block text-sm text-[#667694]">
+              Nach einer erfolgreich erstellten Kundenbuchung sendet Relvona
+              automatisch eine Bestätigung. Ein Mailfehler macht die Buchung
+              nicht rückgängig.
+            </span>
           </span>
         </label>
 
         <div className="grid gap-5 sm:grid-cols-[1fr_140px]">
-          <Field label="SMTP-Host" hint="Hostname oder IP-Adresse, ohne smtp:// oder https://">
-            <input className={inputClass} value={form.host || ""} onChange={(event) => change("host", event.target.value)} placeholder="smtp.example.com" autoComplete="off" />
+          <Field
+            label="SMTP-Host"
+            hint="Hostname oder IP-Adresse, ohne smtp:// oder https://"
+          >
+            <input
+              className={inputClass}
+              value={form.host || ""}
+              onChange={(event) => change("host", event.target.value)}
+              placeholder="smtp.example.com"
+              autoComplete="off"
+            />
           </Field>
           <Field label="Port">
-            <input className={inputClass} type="number" min={1} max={65535} value={form.port} onChange={(event) => change("port", Number(event.target.value))} />
+            <input
+              className={inputClass}
+              type="number"
+              min={1}
+              max={65535}
+              value={form.port}
+              onChange={(event) => change("port", Number(event.target.value))}
+            />
           </Field>
         </div>
 
-        <Field label="Verbindungssicherheit" hint={form.security === "tls" ? "Direktes TLS, typischerweise Port 465." : form.security === "starttls" ? "STARTTLS aktualisiert die Verbindung vor der Anmeldung, typischerweise Port 587." : "Unverschlüsselt. Nur in einem vertrauenswürdigen internen Netzwerk verwenden."}>
-          <select className={inputClass} value={form.security} onChange={(event) => change("security", event.target.value as MailSettings["security"])}>
+        <Field
+          label="Verbindungssicherheit"
+          hint={
+            form.security === "tls"
+              ? "Direktes TLS, typischerweise Port 465."
+              : form.security === "starttls"
+                ? "STARTTLS aktualisiert die Verbindung vor der Anmeldung, typischerweise Port 587."
+                : "Unverschlüsselt. Nur in einem vertrauenswürdigen internen Netzwerk verwenden."
+          }
+        >
+          <select
+            className={inputClass}
+            value={form.security}
+            onChange={(event) =>
+              change("security", event.target.value as MailSettings["security"])
+            }
+          >
             <option value="starttls">STARTTLS (empfohlen)</option>
             <option value="tls">TLS</option>
             <option value="none">Keine Verschlüsselung</option>

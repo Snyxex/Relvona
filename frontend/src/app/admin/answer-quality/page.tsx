@@ -113,7 +113,10 @@ export default function AnswerQualityPage() {
         icon={FileCheck2}
       />
 
-      <AdminPanel title="Antwortentwurf und Quellen" description="Wähle die verwendeten Quellen aus und prüfe den Entwurf auf erkennbare Qualitätsprobleme.">
+      <AdminPanel
+        title="Antwortentwurf und Quellen"
+        description="Wähle die verwendeten Quellen aus und prüfe den Entwurf auf erkennbare Qualitätsprobleme."
+      >
         <label
           className="block text-sm font-medium"
           htmlFor="answer-review-draft"
