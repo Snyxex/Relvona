@@ -118,7 +118,7 @@ async function testInvitationSingleUse() {
     [sha256(token)],
   );
   assert.equal(unscopedDeletion.rowCount, 0, "unscoped app must not revoke invitations");
-    const accepted = await InvitationService.accept(token, { email }, { name: "Invited User", password: "VeryStrongPassword-Invite-123" });
+  const accepted = await InvitationService.accept(token, { email }, { name: "Invited User", password: "VeryStrongPassword-Invite-123" });
   assert.equal(accepted.email, email);
   const membership = await admin.query("SELECT role FROM organization_members m JOIN users u ON u.id = m.user_id WHERE m.organization_id = $1 AND u.email = $2", [organizationId, email]);
   assert.equal(membership.rows[0]?.role, "agent", "invite role must come from the server-side invitation");
