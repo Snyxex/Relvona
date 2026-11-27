@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { platformAuditLogs, platformSecuritySettings } from "../db/schema.js";
 
@@ -27,6 +27,9 @@ export async function setTwoFactorPolicy(
 ) {
   if (!TWO_FACTOR_POLICIES.includes(value)) throw new Error("INVALID_TWO_FACTOR_POLICY");
   const settings = await db.transaction(async (tx) => {
+    // FOR UPDATE cannot lock a missing global row; serialize the initial
+    // insert and subsequent updates across instances before reading it.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(673154281, 26272671)`);
     const [previous] = await tx.select().from(platformSecuritySettings)
       .where(eq(platformSecuritySettings.id, "global")).limit(1).for("update");
     if (previous?.twoFactorPolicy === value) return previous;
@@ -48,7 +51,8 @@ export async function setTwoFactorPolicy(
     });
     return updated;
   });
-  // A failed or rolled-back audit must not publish the new setting in memory.
-  cached = { value, expiresAt: Date.now() + 5_000 };
+  // Concurrent requests may publish cache values out of commit order.
+  // Invalidate after commit instead of caching possibly stale state.
+  cached = null;
   return settings;
 }

@@ -140,9 +140,52 @@ async function main() {
     await admin.query("ALTER TABLE platform_audit_logs DROP CONSTRAINT platform_audit_policy_test_abort");
     policyConstraintCreated = false;
 
+    // Concurrent writes must audit the actual predecessor, not a stale read.
+    const concurrentPolicies = (["required", "recommended", "disabled"] as const)
+      .filter((policy) => policy !== changedPolicy);
+    await Promise.all(
+      concurrentPolicies.map((policy) => setTwoFactorPolicy(policy, ids[3])),
+    );
+    const concurrentAudits = await admin.query<{
+      metadata: { previousPolicy: string; newPolicy: string };
+    }>(
+      "SELECT metadata FROM platform_audit_logs WHERE actor_user_id = $1 " +
+      "AND resource_type = 'platform_security_settings'",
+      [ids[3]],
+    );
+    assert.equal(concurrentAudits.rows.length, 3);
+    const concurrentTransitions = concurrentAudits.rows
+      .filter((event) => concurrentPolicies.includes(
+        event.metadata.newPolicy as (typeof concurrentPolicies)[number],
+      ));
+    assert.equal(concurrentTransitions.length, 2);
+    const initialTransition = concurrentTransitions.find(
+      (event) => event.metadata.previousPolicy === changedPolicy,
+    );
+    assert.ok(initialTransition, "first write must audit the real previous policy");
+    const subsequent = concurrentTransitions.find(
+      (event) =>
+        event.metadata.previousPolicy === initialTransition.metadata.newPolicy &&
+        event.metadata.newPolicy !== initialTransition.metadata.newPolicy,
+    );
+    assert.ok(subsequent, "second write must observe the first committed policy");
+    assert.equal(
+      await getTwoFactorPolicy(),
+      subsequent.metadata.newPolicy,
+      "policy cache must reflect the final committed write",
+    );
+
     // App login must never see, update or delete global audit events.
     await assert.rejects(
       app.query("SELECT id FROM platform_audit_logs"),
+      (error: unknown) => (error as { code?: string }).code === "42501",
+    );
+    await assert.rejects(
+      app.query("UPDATE platform_audit_logs SET action = action"),
+      (error: unknown) => (error as { code?: string }).code === "42501",
+    );
+    await assert.rejects(
+      app.query("TRUNCATE platform_audit_logs"),
       (error: unknown) => (error as { code?: string }).code === "42501",
     );
     await assert.rejects(
