@@ -21,13 +21,15 @@ function git(args) {
   return result.stdout.split("\0").filter(Boolean);
 }
 
+// Compare PR commits from the merge base. A two-dot diff against a moving
+// target branch also selects upstream-only changes, breaking unrelated PRs.
 const changed = git([
   "diff",
   "--relative",
   "--name-only",
   "--diff-filter=ACMR",
   "-z",
-  base,
+  target ? `${base}...HEAD` : base,
   "--",
   ".",
 ]);

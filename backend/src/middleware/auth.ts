@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-import { db, pool } from "../db/index.js";
+import { db, pool, withTenantTransaction } from "../db/index.js";
 import { setDatabaseTenant } from "../db/tenantContext.js";
 import { organizationMembers, organizations, apiKeys, platformSupportSessions } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
@@ -158,11 +158,17 @@ export async function tenantContext(req: AuthRequest, res: Response, next: NextF
     if (req.user.platformPermissions?.includes("platform.support_sessions.manage")) {
       const supportSessionId = req.headers["x-support-session-id"] as string;
       if (!supportSessionId || !/^[0-9a-f-]{36}$/i.test(supportSessionId)) return res.status(403).json({ error: "SUPPORT_ACCESS_REQUIRED" });
-      const [supportSession] = await db.select().from(platformSupportSessions).where(and(
-        eq(platformSupportSessions.id, supportSessionId),
-        eq(platformSupportSessions.platformAdminUserId, req.user.id),
-        eq(platformSupportSessions.organizationId, targetOrgId),
-      )).limit(1);
+      // The target tenant is known but is not yet authorized for this request.
+      // Use it only within this scoped lookup; do not publish the tenant to
+      // the HTTP request context until the support grant is verified.
+      const supportSession = await withTenantTransaction(targetOrgId, async (tx) => {
+        const [matched] = await tx.select().from(platformSupportSessions).where(and(
+          eq(platformSupportSessions.id, supportSessionId),
+          eq(platformSupportSessions.platformAdminUserId, req.user!.id),
+          eq(platformSupportSessions.organizationId, targetOrgId),
+        )).limit(1);
+        return matched;
+      });
       if (!supportSession || supportSession.endedAt || supportSession.expiresAt <= new Date()) return res.status(403).json({ error: "SUPPORT_ACCESS_EXPIRED" });
       // No support-session write access, even if the target tenant grants its
       // configured viewer role elevated permissions.

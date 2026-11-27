@@ -13,15 +13,11 @@ if (!adminUrl || !appUrl) {
 }
 
 // These tables are accessed before a tenant context is established, during
-// login/domain discovery, invitation acceptance or privileged support-session
-// resolution. They require narrowly scoped authenticated resolver functions
-// before enabling forced RLS; they are NOT considered protected by this test.
+// login and dashboard-domain discovery. These exceptions still need pre-tenant
+// resolver functions and dedicated tests; they are NOT covered by this test.
 const pendingAuthBootstrapIsolation = new Set([
   "organization_members",
   "organization_dashboard_domains",
-  "organization_invitations",
-  "platform_support_sessions",
-  "sso_login_states",
 ]);
 
 const protectedStorageTables = [
@@ -110,6 +106,22 @@ async function verifyCoverage() {
       "WHERE schemaname = 'public' AND policyname = 'supportai_tenant_isolation'",
   );
   const policies = new Map(policyRows.rows.map((row) => [row.tablename, row]));
+  const bootstrapPolicies = await admin.query<{ tablename: string; policyname: string }>(
+    "SELECT tablename, policyname FROM pg_policies WHERE schemaname = 'public' " +
+      "AND tablename IN ('organization_invitations', 'sso_login_states', 'platform_support_sessions')",
+  );
+  const existingBootstrapPolicies = new Set(
+    bootstrapPolicies.rows.map((row) => row.tablename + ":" + row.policyname),
+  );
+  for (const policy of [
+    "organization_invitations:supportai_invitation_token_lookup",
+    "sso_login_states:supportai_sso_state_lookup",
+    "sso_login_states:supportai_sso_state_consume",
+    "platform_support_sessions:supportai_support_session_lookup",
+  ]) {
+    assert.ok(existingBootstrapPolicies.has(policy), "missing token-scoped RLS policy: " + policy);
+  }
+
   const uncovered = coverage.rows.filter((row) => {
     if (pendingAuthBootstrapIsolation.has(row.name)) return false;
     const policy = policies.get(row.name);
