@@ -1,7 +1,8 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { platformRoles } from "../db/platformRoles.js";
-import { authSessions, users } from "../db/schema.js";
+import { authSessions, platformAuditLogs, users } from "../db/schema.js";
+import { localOperatorAuditIdentity } from "./platformAuditService.js";
 import { isLimitedPlatformRole, type LimitedPlatformRole } from "./platformRbac.js";
 
 /**
@@ -15,6 +16,7 @@ export async function grantLimitedPlatformRole(
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail || normalizedEmail.length > 254 || !normalizedEmail.includes("@")) throw new Error("Invalid email");
 
+  const actorIdentity = localOperatorAuditIdentity();
   return db.transaction(async (tx) => {
     const [user] = await tx.select({
       id: users.id, status: users.status, tokenVersion: users.tokenVersion,
@@ -34,6 +36,13 @@ export async function grantLimitedPlatformRole(
       systemRole: "user", tokenVersion: user.tokenVersion + 1, updatedAt: new Date(),
     }).where(eq(users.id, user.id));
     await tx.delete(authSessions).where(eq(authSessions.userId, user.id));
+    await tx.insert(platformAuditLogs).values({
+      actorIdentity,
+      action: "platform.role.granted",
+      resourceType: "platform_user",
+      resourceId: user.id,
+      metadata: { previousRole: "none", newRole: requestedRole },
+    });
     return { userId: user.id, changed: true };
   });
 }
@@ -41,6 +50,7 @@ export async function grantLimitedPlatformRole(
 export async function revokeLimitedPlatformRole(email: string): Promise<{ userId: string; changed: boolean }> {
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail || normalizedEmail.length > 254 || !normalizedEmail.includes("@")) throw new Error("Invalid email");
+  const actorIdentity = localOperatorAuditIdentity();
   return db.transaction(async (tx) => {
     const [user] = await tx.select({
       id: users.id, tokenVersion: users.tokenVersion,
@@ -58,6 +68,13 @@ export async function revokeLimitedPlatformRole(email: string): Promise<{ userId
       systemRole: "user", tokenVersion: user.tokenVersion + 1, updatedAt: new Date(),
     }).where(eq(users.id, user.id));
     await tx.delete(authSessions).where(eq(authSessions.userId, user.id));
+    await tx.insert(platformAuditLogs).values({
+      actorIdentity,
+      action: "platform.role.revoked",
+      resourceType: "platform_user",
+      resourceId: user.id,
+      metadata: { previousRole: existing.role, newRole: "none" },
+    });
     return { userId: user.id, changed: true };
   });
 }

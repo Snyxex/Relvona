@@ -507,6 +507,29 @@ export const authTwoFactors = pgTable("auth_two_factors", {
 }, (table) => ({ authTwoFactorUserIdx: uniqueIndex("auth_two_factor_user_unique").on(table.userId) }));
 
 // Global authentication policy controlled by platform administrators.
+
+/**
+ * Globally scoped privileged-operation history. Never associate these events
+ * with an arbitrary tenant's audit stream or delete them on user removal.
+ * The application DB role has INSERT-only access; there is no application
+ * read or update policy. Production operators query using restricted DBA access.
+ */
+export const platformAuditLogs = pgTable("platform_audit_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  actorIdentity: text("actor_identity").notNull(),
+  actorUserId: uuid("actor_user_id"),
+  action: text("action").notNull(),
+  resourceType: text("resource_type").notNull(),
+  resourceId: text("resource_id").notNull(),
+  metadata: jsonb("metadata").$type<Record<string, string>>().default({}).notNull(),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  createdIdx: index("platform_audit_created_idx").on(table.createdAt),
+  resourceIdx: index("platform_audit_resource_idx").on(table.resourceType, table.resourceId, table.createdAt),
+}));
+
 export const platformSecuritySettings = pgTable("platform_security_settings", {
   id: text("id").primaryKey(),
   twoFactorPolicy: text("two_factor_policy").default("recommended").notNull(),

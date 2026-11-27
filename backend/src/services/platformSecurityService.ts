@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { platformSecuritySettings } from "../db/schema.js";
+import { platformAuditLogs, platformSecuritySettings } from "../db/schema.js";
 
 export const TWO_FACTOR_POLICIES = ["required", "recommended", "disabled"] as const;
 export type TwoFactorPolicy = typeof TWO_FACTOR_POLICIES[number];
@@ -20,14 +20,39 @@ export async function getTwoFactorPolicy(): Promise<TwoFactorPolicy> {
   return value;
 }
 
-export async function setTwoFactorPolicy(value: TwoFactorPolicy, userId: string) {
-  const [settings] = await db.insert(platformSecuritySettings)
-    .values({ id: "global", twoFactorPolicy: value, updatedByUserId: userId })
-    .onConflictDoUpdate({
-      target: platformSecuritySettings.id,
-      set: { twoFactorPolicy: value, updatedByUserId: userId, updatedAt: new Date() },
-    })
-    .returning();
-  cached = { value, expiresAt: Date.now() + 5_000 };
+export async function setTwoFactorPolicy(
+  value: TwoFactorPolicy,
+  userId: string,
+  context: { ipAddress?: string | null; userAgent?: string | null } = {},
+) {
+  if (!TWO_FACTOR_POLICIES.includes(value)) throw new Error("INVALID_TWO_FACTOR_POLICY");
+  const settings = await db.transaction(async (tx) => {
+    // FOR UPDATE cannot lock a missing global row; serialize the initial
+    // insert and subsequent updates across instances before reading it.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(673154281, 26272671)`);
+    const [previous] = await tx.select().from(platformSecuritySettings)
+      .where(eq(platformSecuritySettings.id, "global")).limit(1).for("update");
+    if (previous?.twoFactorPolicy === value) return previous;
+    const [updated] = await tx.insert(platformSecuritySettings)
+      .values({ id: "global", twoFactorPolicy: value, updatedByUserId: userId })
+      .onConflictDoUpdate({
+        target: platformSecuritySettings.id,
+        set: { twoFactorPolicy: value, updatedByUserId: userId, updatedAt: new Date() },
+      }).returning();
+    await tx.insert(platformAuditLogs).values({
+      actorIdentity: "platform-user:" + userId,
+      actorUserId: userId,
+      action: "platform.security.two_factor_policy.changed",
+      resourceType: "platform_security_settings",
+      resourceId: "global",
+      metadata: { previousPolicy: previous?.twoFactorPolicy || "unset", newPolicy: value },
+      ipAddress: context.ipAddress?.slice(0, 64) || null,
+      userAgent: context.userAgent?.slice(0, 1024) || null,
+    });
+    return updated;
+  });
+  // Concurrent requests may publish cache values out of commit order.
+  // Invalidate after commit instead of caching possibly stale state.
+  cached = null;
   return settings;
 }

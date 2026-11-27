@@ -30,7 +30,10 @@ router.put("/security-settings", requirePlatformPermission("platform.security.ma
     return res.status(409).json({ error: "Richte zuerst 2FA für dein eigenes Konto ein, bevor du sie verpflichtend machst.", code: "PLATFORM_ADMIN_2FA_REQUIRED" });
   }
   try {
-    const settings = await setTwoFactorPolicy(policy, req.user!.id);
+    const settings = await setTwoFactorPolicy(policy, req.user!.id, {
+      ipAddress: req.ip || req.socket.remoteAddress || null,
+      userAgent: req.get("user-agent")?.slice(0, 1024) || null,
+    });
     return res.json({ twoFactorPolicy: settings.twoFactorPolicy });
   } catch (error) { return next(error); }
 });

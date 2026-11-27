@@ -28,8 +28,9 @@ back a status update.
 
 ## Remaining limitations
 
-The existing global two-factor policy does not have a platform-wide audit
-stream. It cannot be attributed to an arbitrary organization's audit log.
-Other older best-effort audit calls are unchanged and require a separate audit
-coverage review. This PR does not alter the database schema or require any
-production data migration. It can merge independently of PR #66.
+A dedicated global audit stream has been added for operator role
+assignments/revocations and the global two-factor policy, separate from this
+organization-scoped audit table. See `platform-global-audit.md`. Bootstrap
+administration and other legacy best-effort calls still require coverage
+review. This original tenant-audit change itself required no migration;
+the separate global-audit change introduces an additive database table.
