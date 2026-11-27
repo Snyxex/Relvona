@@ -1,6 +1,15 @@
 "use client";
 
-import { cloneElement, isValidElement, useCallback, useEffect, useId, useState, type ReactNode, type ReactElement } from "react";
+import {
+  cloneElement,
+  isValidElement,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useState,
+} from "react";
+import { isAxiosError } from "axios";
 import { Mail, RefreshCw, Save, TestTube2 } from "lucide-react";
 import {
   AdminButton,
@@ -52,7 +61,7 @@ function Field({
         {label}
       </label>
       {isValidElement<{ id?: string }>(children)
-        ? cloneElement(children as ReactElement<{ id?: string }>, { id })
+        ? cloneElement(children, { id })
         : children}
       {hint && <span className="block text-xs text-[#667694]">{hint}</span>}
     </div>
@@ -61,10 +70,18 @@ function Field({
 
 const inputClass = adminControlClassName;
 
+function errorMessage(error: unknown, fallback: string): string {
+  if (isAxiosError<{ error?: string }>(error)) {
+    return error.response?.data?.error || fallback;
+  }
+  return fallback;
+}
+
 export default function MailServerPage() {
   const [form, setForm] = useState<MailSettings>(defaults);
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [notice, setNotice] = useState("");
@@ -79,15 +96,20 @@ export default function MailServerPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoaded(false);
     setError("");
+    setNotice("");
     try {
       const { data } = await api.get("/admin/mail-server");
       setForm({ ...defaults, ...data.settings });
       setPassword("");
-    } catch (e: any) {
+      setLoaded(true);
+    } catch (caught: unknown) {
       setError(
-        e.response?.data?.error ||
+        errorMessage(
+          caught,
           "Mailserver-Einstellungen konnten nicht geladen werden.",
+        ),
       );
     } finally {
       setLoading(false);
@@ -111,6 +133,7 @@ export default function MailServerPage() {
   });
 
   async function save() {
+    if (!loaded || saving || testing) return;
     setSaving(true);
     setNotice("");
     setError("");
@@ -119,10 +142,12 @@ export default function MailServerPage() {
       setForm({ ...defaults, ...data.settings });
       setPassword("");
       setNotice("Mailserver-Einstellungen wurden gespeichert.");
-    } catch (e: any) {
+    } catch (caught: unknown) {
       setError(
-        e.response?.data?.error ||
+        errorMessage(
+          caught,
           "Mailserver-Einstellungen konnten nicht gespeichert werden.",
+        ),
       );
     } finally {
       setSaving(false);
@@ -130,20 +155,21 @@ export default function MailServerPage() {
   }
 
   async function testConnection() {
+    if (!loaded || saving || testing) return;
     setTesting(true);
     setNotice("");
     setError("");
     try {
       await api.post("/admin/mail-server/test", payload());
       setNotice("Verbindung und SMTP-Anmeldung sind erfolgreich.");
-    } catch (e: any) {
-      setError(e.response?.data?.error || "Mailserver-Test fehlgeschlagen.");
+    } catch (caught: unknown) {
+      setError(errorMessage(caught, "Mailserver-Test fehlgeschlagen."));
     } finally {
       setTesting(false);
     }
   }
 
-  if (loading) {
+  if (loading || !loaded) {
     return (
       <AdminPage width="narrow">
         <AdminHeader
@@ -153,11 +179,21 @@ export default function MailServerPage() {
           icon={Mail}
         />
         <AdminPanel>
-          <div
-            role="status"
-            aria-label="Mailserver-Einstellungen werden geladen"
-            className="h-60 animate-pulse rounded-xl bg-[#f1f5fb]"
-          />
+          {loading ? (
+            <div
+              role="status"
+              aria-label="Mailserver-Einstellungen werden geladen"
+              className="h-60 animate-pulse rounded-xl bg-[#f1f5fb]"
+            />
+          ) : (
+            <>
+              <AdminNotice tone="error">{error}</AdminNotice>
+              <AdminButton variant="secondary" onClick={() => void load()}>
+                <RefreshCw size={16} />
+                Erneut laden
+              </AdminButton>
+            </>
+          )}
         </AdminPanel>
       </AdminPage>
     );
@@ -248,33 +284,87 @@ export default function MailServerPage() {
 
         <div className="grid gap-5 sm:grid-cols-2">
           <Field label="SMTP-Benutzername">
-            <input className={inputClass} value={form.username || ""} onChange={(event) => change("username", event.target.value)} autoComplete="username" placeholder="mailer@example.com" />
+            <input
+              className={inputClass}
+              value={form.username || ""}
+              onChange={(event) => change("username", event.target.value)}
+              autoComplete="username"
+              placeholder="mailer@example.com"
+            />
           </Field>
-          <Field label="SMTP-Passwort" hint={form.passwordConfigured && !password ? "Ein Passwort ist bereits verschlüsselt gespeichert. Leer lassen, um es beizubehalten." : "Das Passwort wird verschlüsselt gespeichert und nach dem Speichern nicht erneut angezeigt."}>
-            <input className={inputClass} type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" placeholder={form.passwordConfigured ? "•••••••• (konfiguriert)" : "Passwort"} />
+          <Field
+            label="SMTP-Passwort"
+            hint={
+              form.passwordConfigured && !password
+                ? "Ein Passwort ist bereits verschlüsselt gespeichert. Leer lassen, um es beizubehalten."
+                : "Das Passwort wird verschlüsselt gespeichert und nach dem Speichern nicht erneut angezeigt."
+            }
+          >
+            <input
+              className={inputClass}
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="new-password"
+              placeholder={
+                form.passwordConfigured ? "•••••••• (konfiguriert)" : "Passwort"
+              }
+            />
           </Field>
         </div>
 
         <div className="grid gap-5 sm:grid-cols-2">
           <Field label="Absendername">
-            <input className={inputClass} value={form.fromName || ""} onChange={(event) => change("fromName", event.target.value)} placeholder="Relvona Support" />
+            <input
+              className={inputClass}
+              value={form.fromName || ""}
+              onChange={(event) => change("fromName", event.target.value)}
+              placeholder="Relvona Support"
+            />
           </Field>
           <Field label="Absender-E-Mail">
-            <input className={inputClass} type="email" value={form.fromEmail || ""} onChange={(event) => change("fromEmail", event.target.value)} placeholder="support@example.com" />
+            <input
+              className={inputClass}
+              type="email"
+              value={form.fromEmail || ""}
+              onChange={(event) => change("fromEmail", event.target.value)}
+              placeholder="support@example.com"
+            />
           </Field>
         </div>
 
-        <Field label="Reply-To (optional)" hint="Antworten des Kunden werden an diese Adresse gesendet. Leer = Absenderadresse.">
-          <input className={inputClass} type="email" value={form.replyTo || ""} onChange={(event) => change("replyTo", event.target.value)} placeholder="support@example.com" />
+        <Field
+          label="Reply-To (optional)"
+          hint="Antworten des Kunden werden an diese Adresse gesendet. Leer = Absenderadresse."
+        >
+          <input
+            className={inputClass}
+            type="email"
+            value={form.replyTo || ""}
+            onChange={(event) => change("replyTo", event.target.value)}
+            placeholder="support@example.com"
+          />
         </Field>
 
         <div className="flex flex-col gap-3 border-t border-[#edf0f6] pt-5 sm:flex-row sm:justify-end">
-          <AdminButton variant="secondary" disabled={testing || saving} onClick={testConnection}>
-            {testing ? <RefreshCw size={16} className="animate-spin" /> : <TestTube2 size={16} />}
+          <AdminButton
+            variant="secondary"
+            disabled={testing || saving}
+            onClick={testConnection}
+          >
+            {testing ? (
+              <RefreshCw size={16} className="animate-spin" />
+            ) : (
+              <TestTube2 size={16} />
+            )}
             Verbindung testen
           </AdminButton>
           <AdminButton disabled={saving || testing} onClick={save}>
-            {saving ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
+            {saving ? (
+              <RefreshCw size={16} className="animate-spin" />
+            ) : (
+              <Save size={16} />
+            )}
             Speichern
           </AdminButton>
         </div>
