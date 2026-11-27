@@ -35,7 +35,8 @@ async function main() {
     // may append evidence but may not read, edit or delete it through tenant
     // endpoints. Role/privilege enforcement is independent of tenant RLS.
     const platformAuditExists = await client.query("SELECT to_regclass('public.platform_audit_logs') AS table_name");
-    if (platformAuditExists.rows[0]?.table_name) {
+    if (!platformAuditExists.rows[0]?.table_name) throw new Error("Global platform audit table missing; run db:migrate before enabling RLS");
+    {
       await client.query("REVOKE ALL ON TABLE public.platform_audit_logs FROM PUBLIC");
       await client.query(`REVOKE ALL ON TABLE public.platform_audit_logs FROM "${appRole}"`);
       await client.query(`GRANT INSERT ON TABLE public.platform_audit_logs TO "${appRole}"`);
