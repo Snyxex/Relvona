@@ -1,7 +1,7 @@
 import pg from "pg";
 
-const adminUrl = process.env.DATABASE_ADMIN_URL;
-if (!adminUrl) throw new Error("DATABASE_ADMIN_URL is required for the platform audit migration");
+const adminUrl = process.env.DATABASE_ADMIN_URL || process.env.DATABASE_URL;
+if (!adminUrl) throw new Error("DATABASE_ADMIN_URL or DATABASE_URL is required for platform audit migration");
 
 async function main() {
   const client = new pg.Client({ connectionString: adminUrl });

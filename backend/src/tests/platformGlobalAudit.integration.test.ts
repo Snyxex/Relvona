@@ -17,13 +17,13 @@ const admin = new pg.Client({ connectionString: adminUrl });
 const app = new pg.Client({ connectionString: appUrl });
 const ids = [randomUUID(), randomUUID(), randomUUID(), randomUUID()];
 const emails = ids.map((id) => "platform-audit-" + id + "@example.test");
-const actions = ["platform.role.granted", "platform.role.revoked", "platform.security.two_factor_policy.changed"];
 
 async function main() {
   await admin.connect();
   await app.connect();
   let previousPolicy: "required" | "recommended" | "disabled" | null = null;
   let failureConstraintCreated = false;
+  let policyConstraintCreated = false;
   try {
     const existing = await admin.query<{ two_factor_policy: "required" | "recommended" | "disabled" }>(
       "SELECT two_factor_policy FROM platform_security_settings WHERE id = 'global'",
@@ -104,12 +104,13 @@ async function main() {
     failureConstraintCreated = false;
 
     // Global settings must use the same transactional audit stream.
-    await setTwoFactorPolicy("disabled", ids[3], {
+    const changedPolicy = previousPolicy === "disabled" ? "required" : "disabled";
+    await setTwoFactorPolicy(changedPolicy, ids[3], {
       ipAddress: "127.0.0.1",
       userAgent: "Platform audit integration test",
     });
-    await setTwoFactorPolicy("disabled", ids[3]);
-    assert.equal(await getTwoFactorPolicy(), "disabled");
+    await setTwoFactorPolicy(changedPolicy, ids[3]);
+    assert.equal(await getTwoFactorPolicy(), changedPolicy);
     const policyAudit = await admin.query<{
       actor_user_id: string;
       metadata: Record<string, string>;
@@ -120,8 +121,24 @@ async function main() {
       [ids[3]],
     );
     assert.equal(policyAudit.rowCount, 1, "idempotent global policy writes must not add audit events");
-    assert.equal(policyAudit.rows[0].metadata.newPolicy, "disabled");
+    assert.equal(policyAudit.rows[0].metadata.newPolicy, changedPolicy);
     assert.equal(policyAudit.rows[0].ip_address, "127.0.0.1");
+
+    // A global 2FA policy update must also roll back when its audit fails.
+    await admin.query(
+      "ALTER TABLE platform_audit_logs ADD CONSTRAINT platform_audit_policy_test_abort " +
+      "CHECK (action <> 'platform.security.two_factor_policy.changed') NOT VALID",
+    );
+    policyConstraintCreated = true;
+    const attemptedPolicy = changedPolicy === "required" ? "recommended" : "required";
+    await assert.rejects(setTwoFactorPolicy(attemptedPolicy, ids[3]));
+    const preserved = await admin.query<{ two_factor_policy: string }>(
+      "SELECT two_factor_policy FROM platform_security_settings WHERE id = 'global'",
+    );
+    assert.equal(preserved.rows[0]?.two_factor_policy, changedPolicy);
+    assert.equal(await getTwoFactorPolicy(), changedPolicy, "failed write cannot change cached policy");
+    await admin.query("ALTER TABLE platform_audit_logs DROP CONSTRAINT platform_audit_policy_test_abort");
+    policyConstraintCreated = false;
 
     // App login must never see, update or delete global audit events.
     await assert.rejects(
@@ -132,9 +149,11 @@ async function main() {
       app.query("DELETE FROM platform_audit_logs"),
       (error: unknown) => (error as { code?: string }).code === "42501",
     );
-    assert.ok(actions.includes("platform.role.granted"));
     console.log("Platform global required-audit integration checks passed.");
   } finally {
+    if (policyConstraintCreated) {
+      await admin.query("ALTER TABLE platform_audit_logs DROP CONSTRAINT platform_audit_policy_test_abort").catch(() => undefined);
+    }
     if (failureConstraintCreated) {
       await admin.query("ALTER TABLE platform_audit_logs DROP CONSTRAINT platform_audit_test_abort").catch(() => undefined);
     }
