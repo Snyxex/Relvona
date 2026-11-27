@@ -1,21 +1,286 @@
 "use client";
-import { useEffect, useState } from "react";
+
+import { useCallback, useEffect, useState } from "react";
+import { UsersRound } from "lucide-react";
+import {
+  AdminButton,
+  AdminEmpty,
+  AdminHeader,
+  AdminNotice,
+  AdminPage,
+  AdminPanel,
+  adminControlClassName,
+} from "@/components/admin/admin-ui";
 import { api } from "@/lib/api";
-type Team={id:string;name:string;description:string|null;requiredSkills:string[];enabled:boolean;leadUserId:string|null;members:string[]};
-type Agent={userId:string;name:string;role:string};
-export default function TeamsPage(){
- const [teams,setTeams]=useState<Team[]>([]),[members,setMembers]=useState<Agent[]>([]),[name,setName]=useState(""),[skills,setSkills]=useState(""),[lead,setLead]=useState(""),[error,setError]=useState(""),[busy,setBusy]=useState(false);
- const [config,setConfig]=useState({enabled:true,warningMinutes:15,autoRaisePriority:false});
- async function load(){
-  const [t,m,s]=await Promise.all([api.get("/support-teams"),api.get("/admin/employees"),api.get("/support-teams/sla-escalations")]);
-  setTeams(t.data);setMembers(m.data.members);setConfig(s.data);
- }
- useEffect(()=>{void load().catch(()=>setError("Teamdaten konnten nicht geladen werden."));},[]);
- async function create(){setBusy(true);setError("");try{await api.post("/support-teams",{name,requiredSkills:skills.split(",").map(s=>s.trim()).filter(Boolean),leadUserId:lead||null});setName("");setSkills("");setLead("");await load();}catch(e:any){setError(e.response?.data?.error||"Team konnte nicht erstellt werden.");}finally{setBusy(false);}}
- async function toggleMember(team:Team,userId:string){setError("");try{const ids=team.members.includes(userId)?team.members.filter(id=>id!==userId):[...team.members,userId];await api.put(`/support-teams/${team.id}/members`,{userIds:ids});await load();}catch(e:any){setError(e.response?.data?.error||"Mitglied konnte nicht geändert werden.");}}
- async function saveSla(){setError("");try{await api.put("/support-teams/sla-escalations",config);await load();}catch(e:any){setError(e.response?.data?.error||"SLA-Einstellungen konnten nicht gespeichert werden.");}}
- return <main className="mx-auto max-w-5xl space-y-8 p-6 text-slate-100"><h1 className="text-2xl font-semibold">Support-Teams & Routing</h1><p className="text-sm text-slate-400">Neue Tickets werden anhand von Skills, Status und Auslastung freien Teammitgliedern zugeordnet. Manuell zugewiesene Tickets bleiben unverändert.</p>{error&&<p role="alert" className="text-red-300">{error}</p>}
- <section className="rounded-xl border border-slate-700 p-5"><h2 className="mb-4 font-semibold">Team erstellen</h2><div className="grid gap-3 sm:grid-cols-3"><input aria-label="Teamname" placeholder="Teamname" className="rounded bg-slate-900 p-2" value={name} onChange={e=>setName(e.target.value)}/><input aria-label="Skills" placeholder="Skills, kommagetrennt" className="rounded bg-slate-900 p-2" value={skills} onChange={e=>setSkills(e.target.value)}/><select aria-label="Teamleitung" className="rounded bg-slate-900 p-2" value={lead} onChange={e=>setLead(e.target.value)}><option value="">Keine Teamleitung</option>{members.map(m=><option key={m.userId} value={m.userId}>{m.name} ({m.role})</option>)}</select></div><button disabled={!name.trim()||busy} onClick={()=>void create()} className="mt-3 rounded bg-blue-600 px-4 py-2 disabled:opacity-50">Team erstellen</button></section>
- <section className="grid gap-4 md:grid-cols-2">{teams.map(team=><article key={team.id} className="rounded-xl border border-slate-700 p-5"><h3 className="font-semibold">{team.name}</h3><p className="my-2 text-xs text-slate-400">Skills: {team.requiredSkills.join(", ")||"Keine"}</p><p className="mb-3 text-xs text-slate-400">Teamleitung: {members.find(m=>m.userId===team.leadUserId)?.name||"Nicht gesetzt"}</p><div className="space-y-2">{members.map(m=><label key={m.userId} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={team.members.includes(m.userId)} onChange={()=>void toggleMember(team,m.userId)}/>{m.name} ({m.role})</label>)}</div></article>)}</section>
- <section className="rounded-xl border border-slate-700 p-5"><h2 className="mb-4 font-semibold">SLA-Eskalationen</h2><label className="flex gap-2"><input type="checkbox" checked={config.enabled} onChange={e=>setConfig({...config,enabled:e.target.checked})}/>Automatische Warnungen aktivieren</label><label className="mt-4 block text-sm">Warnung vor Ablauf (Minuten)<input type="number" min={1} max={1440} className="mt-2 block rounded bg-slate-900 p-2" value={config.warningMinutes} onChange={e=>setConfig({...config,warningMinutes:Number(e.target.value)})}/></label><p className="mt-3 text-xs text-slate-400">Bei SLA-Verstößen werden zuständige Agenten, Teamleitung und Administratoren informiert.</p><button onClick={()=>void saveSla()} className="mt-3 rounded bg-blue-600 px-4 py-2">Speichern</button></section></main>;
+
+type Team = {
+  id: string;
+  name: string;
+  description: string | null;
+  requiredSkills: string[];
+  enabled: boolean;
+  leadUserId: string | null;
+  members: string[];
+};
+type Agent = { userId: string; name: string; role: string };
+type SlaConfig = {
+  enabled: boolean;
+  warningMinutes: number;
+  autoRaisePriority: boolean;
+};
+
+export default function TeamsPage() {
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [members, setMembers] = useState<Agent[]>([]);
+  const [name, setName] = useState("");
+  const [skills, setSkills] = useState("");
+  const [lead, setLead] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [updatingMember, setUpdatingMember] = useState<string | null>(null);
+  const [savingSla, setSavingSla] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [config, setConfig] = useState<SlaConfig>({
+    enabled: true,
+    warningMinutes: 15,
+    autoRaisePriority: false,
+  });
+
+  const load = useCallback(async () => {
+    const [teamsResult, membersResult, configResult] = await Promise.all([
+      api.get("/support-teams"),
+      api.get("/admin/employees"),
+      api.get("/support-teams/sla-escalations"),
+    ]);
+    setTeams(teamsResult.data);
+    setMembers(membersResult.data.members);
+    setConfig(configResult.data);
+  }, []);
+
+  useEffect(() => {
+    void load()
+      .catch(() => setError("Teamdaten konnten nicht geladen werden."))
+      .finally(() => setLoading(false));
+  }, [load]);
+
+  async function create() {
+    setBusy(true);
+    setError("");
+    try {
+      await api.post("/support-teams", {
+        name,
+        requiredSkills: skills
+          .split(",")
+          .map((skill) => skill.trim())
+          .filter(Boolean),
+        leadUserId: lead || null,
+      });
+      setName("");
+      setSkills("");
+      setLead("");
+      await load();
+    } catch (caught: unknown) {
+      const response = caught as { response?: { data?: { error?: string } } };
+      setError(
+        response.response?.data?.error || "Team konnte nicht erstellt werden.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleMember(team: Team, userId: string) {
+    setError("");
+    setUpdatingMember(userId);
+    try {
+      const userIds = team.members.includes(userId)
+        ? team.members.filter((id) => id !== userId)
+        : [...team.members, userId];
+      await api.put("/support-teams/" + team.id + "/members", { userIds });
+      await load();
+    } catch (caught: unknown) {
+      const response = caught as { response?: { data?: { error?: string } } };
+      setError(
+        response.response?.data?.error ||
+          "Mitglied konnte nicht geändert werden.",
+      );
+    } finally {
+      setUpdatingMember(null);
+    }
+  }
+
+  async function saveSla() {
+    setError("");
+    setSavingSla(true);
+    try {
+      await api.put("/support-teams/sla-escalations", config);
+      await load();
+    } catch (caught: unknown) {
+      const response = caught as { response?: { data?: { error?: string } } };
+      setError(
+        response.response?.data?.error ||
+          "SLA-Einstellungen konnten nicht gespeichert werden.",
+      );
+    } finally {
+      setSavingSla(false);
+    }
+  }
+
+  return (
+    <AdminPage>
+      <AdminHeader
+        eyebrow="Arbeitsbereich / Support"
+        title="Support-Teams & Routing"
+        description="Neue Tickets werden nach Skills, Status und Auslastung freien Teammitgliedern zugeordnet. Manuell zugewiesene Tickets bleiben unverändert."
+        icon={UsersRound}
+      />
+      {error && <AdminNotice tone="error">{error}</AdminNotice>}
+      <AdminPanel
+        title="Team erstellen"
+        description="Erstelle ein Team mit optionalen Skills und Teamleitung."
+      >
+        <div className="grid gap-4 sm:grid-cols-3">
+          <label className="block space-y-2 text-sm text-[#536584]">
+            <span>Teamname</span>
+            <input
+              aria-label="Teamname"
+              placeholder="Teamname"
+              className={adminControlClassName}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </label>
+          <label className="block space-y-2 text-sm text-[#536584]">
+            <span>Skills</span>
+            <input
+              aria-label="Skills"
+              placeholder="Skills, kommagetrennt"
+              className={adminControlClassName}
+              value={skills}
+              onChange={(event) => setSkills(event.target.value)}
+            />
+          </label>
+          <label className="block space-y-2 text-sm text-[#536584]">
+            <span>Teamleitung</span>
+            <select
+              aria-label="Teamleitung"
+              className={adminControlClassName}
+              value={lead}
+              onChange={(event) => setLead(event.target.value)}
+            >
+              <option value="">Keine Teamleitung</option>
+              {members.map((member) => (
+                <option key={member.userId} value={member.userId}>
+                  {member.name} ({member.role})
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="flex justify-end">
+          <AdminButton
+            disabled={!name.trim() || busy || loading}
+            onClick={() => void create()}
+          >
+            {busy ? "Erstelle …" : "Team erstellen"}
+          </AdminButton>
+        </div>
+      </AdminPanel>
+
+      {loading ? (
+        <AdminPanel>
+          <p role="status" className="text-sm text-[#667694]">
+            Teamdaten werden geladen …
+          </p>
+        </AdminPanel>
+      ) : teams.length === 0 ? (
+        <AdminPanel>
+          <AdminEmpty
+            icon={UsersRound}
+            title="Noch keine Support-Teams"
+            description="Erstelle ein Team, um Skills und Zuständigkeiten festzulegen."
+          />
+        </AdminPanel>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2">
+          {teams.map((team) => (
+            <AdminPanel
+              key={team.id}
+              title={team.name}
+              description={team.description || undefined}
+            >
+              <div className="space-y-1 text-sm text-[#667694]">
+                <p>Skills: {team.requiredSkills.join(", ") || "Keine"}</p>
+                <p>
+                  Teamleitung:{" "}
+                  {members.find((member) => member.userId === team.leadUserId)
+                    ?.name || "Nicht gesetzt"}
+                </p>
+              </div>
+              <div className="max-h-60 space-y-3 overflow-auto border-t border-[#edf0f6] pt-4">
+                {members.map((member) => (
+                  <label
+                    key={member.userId}
+                    className="flex items-center gap-3 text-sm text-[#263954]"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={team.members.includes(member.userId)}
+                      disabled={updatingMember !== null}
+                      onChange={() => void toggleMember(team, member.userId)}
+                    />
+                    {member.name} ({member.role})
+                  </label>
+                ))}
+              </div>
+            </AdminPanel>
+          ))}
+        </div>
+      )}
+
+      <AdminPanel
+        title="SLA-Eskalationen"
+        description="Lege fest, wann Mitarbeiter und Teamleitungen vor SLA-Verstößen gewarnt werden."
+      >
+        <label className="flex items-center gap-3 text-sm font-medium text-[#263954]">
+          <input
+            type="checkbox"
+            checked={config.enabled}
+            onChange={(event) =>
+              setConfig({ ...config, enabled: event.target.checked })
+            }
+          />
+          Automatische Warnungen aktivieren
+        </label>
+        <label className="block max-w-xs space-y-2 text-sm text-[#536584]">
+          <span>Warnung vor Ablauf (Minuten)</span>
+          <input
+            type="number"
+            min={1}
+            max={1440}
+            className={adminControlClassName}
+            value={config.warningMinutes}
+            onChange={(event) =>
+              setConfig({
+                ...config,
+                warningMinutes: Number(event.target.value),
+              })
+            }
+          />
+        </label>
+        <p className="text-xs text-[#667694]">
+          Bei SLA-Verstößen werden zuständige Agenten, Teamleitung und
+          Administratoren informiert.
+        </p>
+        <div className="flex justify-end border-t border-[#edf0f6] pt-4">
+          <AdminButton
+            disabled={savingSla || loading}
+            onClick={() => void saveSla()}
+          >
+            {savingSla ? "Speichere …" : "SLA-Einstellungen speichern"}
+          </AdminButton>
+        </div>
+      </AdminPanel>
+    </AdminPage>
+  );
 }
