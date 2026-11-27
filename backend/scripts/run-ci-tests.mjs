@@ -59,6 +59,7 @@ const groups = {
     "knowledgeRetrievalTracking.integration.test.ts",
     "knowledgeRevisionHistory.integration.test.ts",
     "platformAdmin.test.ts",
+    "platformGlobalAudit.integration.test.ts",
     "platformRbac.integration.test.ts",
     "platformOperationsAudit.integration.test.ts",
     "platformSupportSessionPermissions.integration.test.ts",

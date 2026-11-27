@@ -54,10 +54,12 @@ version and invalidate Better Auth sessions in the same transaction.
 The separate \`grantPlatformAdmin.js\` remains the full administrator path.
 The platform role table remains unique per user.
 
-**Audit limitation:** This CLI does not yet have a platform-wide
-append-only audit stream; existing tenant-scoped audit cannot correctly
-represent global user access. Restricted shell access, execution logs and
-change review remain required until the platform-wide audit PR is completed.
+**Global audit (new):** CLI role grants/revocations now require a
+platform-global audit insert in the same transaction as the role mutation
+and session revocation. The restricted shell's OS username and hostname
+identify the execution account; auditd/sudo logs and peer review remain
+necessary to attribute that account to a human. See
+`docs/security/platform-global-audit.md`.
 
 ## Testing
 

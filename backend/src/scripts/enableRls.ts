@@ -31,6 +31,20 @@ async function main() {
       await client.query(`CREATE POLICY supportai_tenant_isolation ON "${table}" USING (organization_id::text = current_setting('app.organization_id', true)) WITH CHECK (organization_id::text = current_setting('app.organization_id', true))`);
     }
 
+    // Global platform audit events have no organization_id. The application
+    // may append evidence but may not read, edit or delete it through tenant
+    // endpoints. Role/privilege enforcement is independent of tenant RLS.
+    const platformAuditExists = await client.query("SELECT to_regclass('public.platform_audit_logs') AS table_name");
+    if (platformAuditExists.rows[0]?.table_name) {
+      await client.query("REVOKE ALL ON TABLE public.platform_audit_logs FROM PUBLIC");
+      await client.query(`REVOKE ALL ON TABLE public.platform_audit_logs FROM "${appRole}"`);
+      await client.query(`GRANT INSERT ON TABLE public.platform_audit_logs TO "${appRole}"`);
+      await client.query("ALTER TABLE public.platform_audit_logs ENABLE ROW LEVEL SECURITY");
+      await client.query("ALTER TABLE public.platform_audit_logs FORCE ROW LEVEL SECURITY");
+      await client.query("DROP POLICY IF EXISTS platform_audit_append_only ON public.platform_audit_logs");
+      await client.query(`CREATE POLICY platform_audit_append_only ON public.platform_audit_logs FOR INSERT TO "${appRole}" WITH CHECK (true)`);
+    }
+
     const chunksExist = await client.query("SELECT to_regclass('public.document_chunks') AS table_name");
     const intelligenceExists = await client.query("SELECT to_regclass('public.knowledge_source_intelligence') AS table_name");
     if (chunksExist.rows[0]?.table_name && intelligenceExists.rows[0]?.table_name) {

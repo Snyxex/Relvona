@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { authSessions, users } from "../db/schema.js";
+import { authSessions, platformAuditLogs, users } from "../db/schema.js";
+import { localOperatorAuditIdentity } from "./platformAuditService.js";
 import { platformRoles, PLATFORM_ADMIN_ROLE } from "../db/platformRoles.js";
 
 /**
@@ -13,6 +14,7 @@ export async function grantPlatformAdministrator(email: string): Promise<{ userI
     throw new Error("Valid existing-user email required");
   }
 
+  const actorIdentity = localOperatorAuditIdentity();
   return db.transaction(async (tx) => {
     // Serialize repeat/concurrent grants for a single user.
     const [user] = await tx.select({
@@ -44,6 +46,13 @@ export async function grantPlatformAdministrator(email: string): Promise<{ userI
     }).where(eq(users.id, user.id));
     // Pre-grant Better Auth sessions must not survive a privilege change.
     await tx.delete(authSessions).where(eq(authSessions.userId, user.id));
+    await tx.insert(platformAuditLogs).values({
+      actorIdentity,
+      action: "platform.role.granted",
+      resourceType: "platform_user",
+      resourceId: user.id,
+      metadata: { previousRole: "none", newRole: PLATFORM_ADMIN_ROLE },
+    });
     return { userId: user.id, granted: true };
   });
 }
