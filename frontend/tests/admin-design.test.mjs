@@ -26,9 +26,7 @@ test("admin primitives are shared and have semantic statuses", () => {
 });
 
 const migrated = {
-  "admin/platform-security/page.tsx": [
-    "/platform-admin/security-settings",
-  ],
+  "admin/platform-security/page.tsx": ["/platform-admin/security-settings"],
   "admin/notifications/page.tsx": ["/notifications/settings"],
   "admin/actions/page.tsx": ["/tools/executions"],
   "admin/support-teams/page.tsx": [

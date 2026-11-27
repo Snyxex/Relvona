@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ClipboardCheck, RefreshCw } from "lucide-react";
 import {
   AdminBadge,
@@ -26,7 +26,11 @@ type Execution = {
 
 function statusTone(status: string) {
   if (status === "pending") return "warning" as const;
-  if (status === "approved" || status === "completed" || status === "succeeded") {
+  if (
+    status === "approved" ||
+    status === "completed" ||
+    status === "succeeded"
+  ) {
     return "success" as const;
   }
   if (status === "rejected" || status === "failed") return "danger" as const;
@@ -39,7 +43,7 @@ export default function AdminActionsPage() {
   const [error, setError] = useState("");
   const [processingId, setProcessingId] = useState<string | null>(null);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
@@ -48,16 +52,17 @@ export default function AdminActionsPage() {
     } catch (caught: unknown) {
       const response = caught as { response?: { data?: { error?: string } } };
       setError(
-        response.response?.data?.error || "AI Actions konnten nicht geladen werden.",
+        response.response?.data?.error ||
+          "AI Actions konnten nicht geladen werden.",
       );
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   async function decide(id: string, action: "approve" | "reject") {
     setError("");
@@ -68,7 +73,8 @@ export default function AdminActionsPage() {
     } catch (caught: unknown) {
       const response = caught as { response?: { data?: { error?: string } } };
       setError(
-        response.response?.data?.error || "Aktion konnte nicht verarbeitet werden.",
+        response.response?.data?.error ||
+          "Aktion konnte nicht verarbeitet werden.",
       );
     } finally {
       setProcessingId(null);
@@ -83,7 +89,11 @@ export default function AdminActionsPage() {
         description="Prüfe schreibende KI-Aktionen und entscheide vor der Ausführung über die Freigabe."
         icon={ClipboardCheck}
         actions={
-          <AdminButton variant="secondary" disabled={loading} onClick={() => void load()}>
+          <AdminButton
+            variant="secondary"
+            disabled={loading}
+            onClick={() => void load()}
+          >
             <RefreshCw size={16} aria-hidden="true" />
             Aktualisieren
           </AdminButton>
@@ -118,7 +128,9 @@ export default function AdminActionsPage() {
                     {row.riskLevel}
                   </p>
                 </div>
-                <AdminBadge tone={statusTone(row.status)}>{row.status}</AdminBadge>
+                <AdminBadge tone={statusTone(row.status)}>
+                  {row.status}
+                </AdminBadge>
               </div>
               <pre className="max-h-72 overflow-auto rounded-xl border border-[#e5eaf3] bg-[#f8faff] p-4 text-xs text-[#263954]">
                 {JSON.stringify(row.input, null, 2)}
@@ -135,7 +147,9 @@ export default function AdminActionsPage() {
                     disabled={processingId !== null}
                     onClick={() => void decide(row.id, "approve")}
                   >
-                    {processingId === row.id ? "Verarbeite …" : "Freigeben & ausführen"}
+                    {processingId === row.id
+                      ? "Verarbeite …"
+                      : "Freigeben & ausführen"}
                   </AdminButton>
                   <AdminButton
                     variant="danger"

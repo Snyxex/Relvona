@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { UsersRound } from "lucide-react";
 import {
   AdminButton,
@@ -46,7 +46,7 @@ export default function TeamsPage() {
     autoRaisePriority: false,
   });
 
-  async function load() {
+  const load = useCallback(async () => {
     const [teamsResult, membersResult, configResult] = await Promise.all([
       api.get("/support-teams"),
       api.get("/admin/employees"),
@@ -55,13 +55,13 @@ export default function TeamsPage() {
     setTeams(teamsResult.data);
     setMembers(membersResult.data.members);
     setConfig(configResult.data);
-  }
+  }, []);
 
   useEffect(() => {
     void load()
       .catch(() => setError("Teamdaten konnten nicht geladen werden."))
       .finally(() => setLoading(false));
-  }, []);
+  }, [load]);
 
   async function create() {
     setBusy(true);
@@ -81,7 +81,9 @@ export default function TeamsPage() {
       await load();
     } catch (caught: unknown) {
       const response = caught as { response?: { data?: { error?: string } } };
-      setError(response.response?.data?.error || "Team konnte nicht erstellt werden.");
+      setError(
+        response.response?.data?.error || "Team konnte nicht erstellt werden.",
+      );
     } finally {
       setBusy(false);
     }
@@ -99,7 +101,8 @@ export default function TeamsPage() {
     } catch (caught: unknown) {
       const response = caught as { response?: { data?: { error?: string } } };
       setError(
-        response.response?.data?.error || "Mitglied konnte nicht geändert werden.",
+        response.response?.data?.error ||
+          "Mitglied konnte nicht geändert werden.",
       );
     } finally {
       setUpdatingMember(null);
@@ -132,7 +135,10 @@ export default function TeamsPage() {
         icon={UsersRound}
       />
       {error && <AdminNotice tone="error">{error}</AdminNotice>}
-      <AdminPanel title="Team erstellen" description="Erstelle ein Team mit optionalen Skills und Teamleitung.">
+      <AdminPanel
+        title="Team erstellen"
+        description="Erstelle ein Team mit optionalen Skills und Teamleitung."
+      >
         <div className="grid gap-4 sm:grid-cols-3">
           <label className="block space-y-2 text-sm text-[#536584]">
             <span>Teamname</span>
@@ -198,7 +204,11 @@ export default function TeamsPage() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {teams.map((team) => (
-            <AdminPanel key={team.id} title={team.name} description={team.description || undefined}>
+            <AdminPanel
+              key={team.id}
+              title={team.name}
+              description={team.description || undefined}
+            >
               <div className="space-y-1 text-sm text-[#667694]">
                 <p>Skills: {team.requiredSkills.join(", ") || "Keine"}</p>
                 <p>
@@ -251,7 +261,10 @@ export default function TeamsPage() {
             className={adminControlClassName}
             value={config.warningMinutes}
             onChange={(event) =>
-              setConfig({ ...config, warningMinutes: Number(event.target.value) })
+              setConfig({
+                ...config,
+                warningMinutes: Number(event.target.value),
+              })
             }
           />
         </label>

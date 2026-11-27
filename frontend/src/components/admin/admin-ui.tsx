@@ -73,7 +73,9 @@ export function AdminPanel({
       {(title || description) && (
         <div className="space-y-1 border-b border-[#edf0f6] pb-4">
           {title && <h2 className="font-semibold text-[#172742]">{title}</h2>}
-          {description && <p className="text-sm text-[#667694]">{description}</p>}
+          {description && (
+            <p className="text-sm text-[#667694]">{description}</p>
+          )}
         </div>
       )}
       {children}
