@@ -17,12 +17,18 @@ const tokenHash = (token: string) => crypto.createHash("sha256").update(token).d
 export class InvitationService {
   static async getActive(token: string) {
     const hash = tokenHash(token);
-    const [record] = await db
-      .select({ invite: organizationInvitations, organizationStatus: organizations.status })
-      .from(organizationInvitations)
-      .innerJoin(organizations, eq(organizations.id, organizationInvitations.organizationId))
-      .where(eq(organizationInvitations.tokenHash, hash))
-      .limit(1);
+    // No organization is known yet. Constrain this one lookup using a
+    // transaction-local, single-token RLS capability; do not open the table.
+    const record = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT set_config('app.invitation_token_hash', ${hash}, true)`);
+      const [matched] = await tx
+        .select({ invite: organizationInvitations, organizationStatus: organizations.status })
+        .from(organizationInvitations)
+        .innerJoin(organizations, eq(organizations.id, organizationInvitations.organizationId))
+        .where(eq(organizationInvitations.tokenHash, hash))
+        .limit(1);
+      return matched;
+    });
 
     const invite = record?.invite;
     if (!invite) throw new Error("INVITATION_INVALID");

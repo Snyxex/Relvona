@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { db, withTenantTransaction } from "../db/index.js";
 import {
   auditLogs,
@@ -48,19 +48,27 @@ export class EntraAuthService {
     if (!/^[A-Za-z0-9._~-]{43,128}$/.test(pkceVerifier)) throw new Error("SSO_INVALID_PKCE");
     const pkceVerifierEncrypted = encryptSecret(pkceVerifier);
     if (!pkceVerifierEncrypted) throw new Error("SSO_PKCE_STORAGE_FAILED");
-    await db.insert(ssoLoginStates).values({
-      organizationId, stateHash, nonce, pkceVerifierEncrypted,
-      expiresAt: new Date(Date.now() + 10 * 60_000),
-    });
+    await withTenantTransaction(organizationId, (tx) =>
+      tx.insert(ssoLoginStates).values({
+        organizationId, stateHash, nonce, pkceVerifierEncrypted,
+        expiresAt: new Date(Date.now() + 10 * 60_000),
+      }),
+    );
   }
 
   static async consumeLoginState(stateHash: string): Promise<EntraLoginContext> {
     const now = new Date();
-    const [state] = await db.update(ssoLoginStates)
-      .set({ consumedAt: now })
-      .where(and(eq(ssoLoginStates.stateHash, stateHash), isNull(ssoLoginStates.consumedAt), gt(ssoLoginStates.expiresAt, now)))
-      .returning({ organizationId: ssoLoginStates.organizationId, nonce: ssoLoginStates.nonce,
-        pkceVerifierEncrypted: ssoLoginStates.pkceVerifierEncrypted });
+    const state = await db.transaction(async (tx) => {
+      // Pre-tenant OIDC callback lookup is restricted to the opaque state hash.
+      // The capability is transaction-local, and replay is rejected atomically.
+      await tx.execute(sql`SELECT set_config('app.sso_state_hash', ${stateHash}, true)`);
+      const [matched] = await tx.update(ssoLoginStates)
+        .set({ consumedAt: now })
+        .where(and(eq(ssoLoginStates.stateHash, stateHash), isNull(ssoLoginStates.consumedAt), gt(ssoLoginStates.expiresAt, now)))
+        .returning({ organizationId: ssoLoginStates.organizationId, nonce: ssoLoginStates.nonce,
+          pkceVerifierEncrypted: ssoLoginStates.pkceVerifierEncrypted });
+      return matched;
+    });
     if (!state) throw new Error("SSO_INVALID_STATE");
     // Pre-upgrade states do not have PKCE and must be restarted rather than downgraded.
     if (!state.pkceVerifierEncrypted) throw new Error("SSO_PKCE_REQUIRED");

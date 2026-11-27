@@ -9,7 +9,7 @@ import { EntraAuthService } from "../services/entraAuthService.js";
 import { LEGACY_PASSWORD_SENTINEL } from "../auth/password.js";
 import { decryptSecret } from "../utils/crypto.js";
 import { PLATFORM_ADMIN_ROLE } from "../db/platformRoles.js";
-import { closeDatabasePool } from "../db/index.js";
+import { closeDatabasePool, pool } from "../db/index.js";
 import { withDatabaseTenantContext } from "../db/tenantContext.js";
 import { tenantContext, type AuthRequest } from "../middleware/auth.js";
 import { platformPermissionsForRole } from "../services/platformRbac.js";
@@ -108,7 +108,17 @@ async function testInvitationSingleUse() {
   await admin.query("INSERT INTO organization_settings (organization_id, invitation_enabled) VALUES ($1, true)", [organizationId]);
   await admin.query("INSERT INTO organization_invitations (organization_id, email, role, token_hash, expires_at) VALUES ($1, $2, 'agent', $3, now() + interval '1 hour')", [organizationId, email, sha256(token)]);
 
-  const accepted = await InvitationService.accept(token, { email }, { name: "Invited User", password: "VeryStrongPassword-Invite-123" });
+  const unscopedInvite = await pool.query(
+    "SELECT id FROM organization_invitations WHERE token_hash = $1",
+    [sha256(token)],
+  );
+  assert.equal(unscopedInvite.rowCount, 0, "unscoped app must not list invitations");
+  const unscopedDeletion = await pool.query(
+    "DELETE FROM organization_invitations WHERE token_hash = $1",
+    [sha256(token)],
+  );
+  assert.equal(unscopedDeletion.rowCount, 0, "unscoped app must not revoke invitations");
+    const accepted = await InvitationService.accept(token, { email }, { name: "Invited User", password: "VeryStrongPassword-Invite-123" });
   assert.equal(accepted.email, email);
   const membership = await admin.query("SELECT role FROM organization_members m JOIN users u ON u.id = m.user_id WHERE m.organization_id = $1 AND u.email = $2", [organizationId, email]);
   assert.equal(membership.rows[0]?.role, "agent", "invite role must come from the server-side invitation");
@@ -132,7 +142,17 @@ async function testSsoStateAndAccountLinking() {
   const stateHash = sha256(state);
   const pkceVerifier = crypto.randomBytes(32).toString("base64url");
   await EntraAuthService.createLoginState(organizationId, stateHash, "nonce-value", pkceVerifier);
-  const consumed = await EntraAuthService.consumeLoginState(stateHash);
+  const unscopedState = await pool.query(
+    "SELECT id FROM sso_login_states WHERE state_hash = $1",
+    [stateHash],
+  );
+  assert.equal(unscopedState.rowCount, 0, "unscoped app must not read SSO state");
+  const unscopedConsumption = await pool.query(
+    "UPDATE sso_login_states SET consumed_at = now() WHERE state_hash = $1",
+    [stateHash],
+  );
+  assert.equal(unscopedConsumption.rowCount, 0, "unscoped app must not consume SSO state");
+    const consumed = await EntraAuthService.consumeLoginState(stateHash);
   assert.equal(consumed.organizationId, organizationId);
   assert.equal(consumed.tenantId, tenantId);
   assert.notEqual(consumed.pkceVerifierEncrypted, pkceVerifier, "PKCE secret must be encrypted at rest");
