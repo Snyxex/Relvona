@@ -26,34 +26,34 @@ private key can defeat this protection.
 
 Create a dedicated login using DBA tooling; do not reuse the app user,
 a superuser or a database owner. For example, provision an existing
-unprivileged \`relvona_audit_reader\` login and set its password securely.
+unprivileged `relvona_audit_reader` login and set its password securely.
 In the normal database migration environment set:
 
-\`DATABASE_PLATFORM_AUDIT_READER_USER=relvona_audit_reader\`
+`DATABASE_PLATFORM_AUDIT_READER_USER=relvona_audit_reader`
 
-Run the existing \`db:migrate\` procedure after PR #78 has created the
-audit table. \`enableRls.ts\` then grants **SELECT only** on
-\`platform_audit_logs\`, adds its dedicated forced-RLS SELECT policy,
+Run the existing `db:migrate` procedure after PR #78 has created the
+audit table. `enableRls.ts` then grants **SELECT only** on
+`platform_audit_logs`, adds its dedicated forced-RLS SELECT policy,
 and refuses inappropriate role membership or inherited write privileges.
 
 The attestor host uses a separate secret:
 
-\`DATABASE_PLATFORM_AUDIT_READ_URL=postgresql://relvona_audit_reader:...@dbhost:5432/...\`
+`DATABASE_PLATFORM_AUDIT_READ_URL=postgresql://relvona_audit_reader:...@dbhost:5432/...`
 
-Restrict access at the firewall and database \`pg_hba.conf\`. Protect the
+Restrict access at the firewall and database `pg_hba.conf`. Protect the
 connection string and require TLS for non-local database connections.
 
 ## Generate an independent Ed25519 keypair
 
 On an attestation machine not controlled by the database administrators:
 
-\`\`\`sh
+```sh
 umask 077
 mkdir -p "$HOME/.config/relvona-audit"
 openssl genpkey -algorithm ED25519 -out "$HOME/.config/relvona-audit/private.pem"
 openssl pkey -in "$HOME/.config/relvona-audit/private.pem" \
   -pubout -out "$HOME/.config/relvona-audit/public.pem"
-\`\`\`
+```
 
 Back up the public key and private key in separate trusted locations.
 Never put the private key, checkpoint credential or plaintext audit rows
@@ -62,45 +62,45 @@ in GitHub, application source, or a regular database backup.
 ## Create and validate checkpoints
 
 Run from a compiled backend package on the independent attestor host,
-after exporting \`DATABASE_PLATFORM_AUDIT_READ_URL\` through a secret
+after exporting `DATABASE_PLATFORM_AUDIT_READ_URL` through a secret
 manager. The command reads audit rows but writes nothing to the database.
 
 The initial checkpoint is an explicit, one-time trust baseline:
 
-\`\`\`sh
+```sh
 node dist/scripts/platformAuditCheckpoint.js create \
   --initial \
   --public-key "$HOME/.config/relvona-audit/public.pem" \
   --private-key "$HOME/.config/relvona-audit/private.pem" \
   --out "checkpoints/platform-audit-000001.json"
-\`\`\`
+```
 
 Copy this signed file to external immutable storage **immediately**.
 For the next snapshot, supply the already independently archived
 previous checkpoint; the command rejects any previously anchored
 events that have been changed or removed:
 
-\`\`\`sh
+```sh
 node dist/scripts/platformAuditCheckpoint.js create \
   --previous "checkpoints/platform-audit-000001.json" \
   --public-key "$HOME/.config/relvona-audit/public.pem" \
   --private-key "$HOME/.config/relvona-audit/private.pem" \
   --out "checkpoints/platform-audit-000002.json"
-\`\`\`
+```
 
 Verification works using just the public key and the read-only
 database account; the signing private key is unnecessary:
 
-\`\`\`sh
+```sh
 node dist/scripts/platformAuditCheckpoint.js verify \
   --checkpoint "checkpoints/platform-audit-000002.json" \
   --previous "checkpoints/platform-audit-000001.json" \
   --public-key "$HOME/.config/relvona-audit/public.pem"
-\`\`\`
+```
 
 The verifier exits nonzero on invalid signatures, mismatched predecessor
 digests, deleted or edited anchored events. It reports how many **new
-unanchored events** have appeared since that snapshot. \`--strict\`
+unanchored events** have appeared since that snapshot. `--strict`
 additionally fails when any unanchored events exist.
 
 Files are written with create-only semantics (no overwrite) and
@@ -113,7 +113,7 @@ Run the checkpoint step every 5–15 minutes from an **independent** host
 ship each new checkpoint to an immutable, versioned archive. Trigger
 an urgent security alert on any nonzero exit or on unexpected absence
 of new checkpoints. Independently run verification against archived
-checkpoints. Never accept a new \`--initial\` baseline to silence a
+checkpoints. Never accept a new `--initial` baseline to silence a
 mismatch.
 
 Limitations: the period since the most recent checkpoint is an

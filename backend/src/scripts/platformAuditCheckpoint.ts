@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import pg from "pg";
 import {
   assertSignedPlatformAuditCheckpoint,
+  assertPlatformAuditCheckpointChain,
   comparePlatformAuditCheckpoint,
   createSignedPlatformAuditCheckpoint,
   signedCheckpointDigest,
@@ -65,19 +66,30 @@ async function readEvidence(): Promise<PlatformAuditEvidenceRow[]> {
   const client = new pg.Client({ connectionString });
   await client.connect();
   try {
+    await client.query("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
     const role = await client.query<{
       rolsuper: boolean;
       rolbypassrls: boolean;
+      rolcreatedb: boolean;
+      rolcreaterole: boolean;
       is_owner: boolean;
+      is_owner_member: boolean;
       can_insert: boolean;
       can_update: boolean;
       can_delete: boolean;
+      can_truncate: boolean;
+      can_trigger: boolean;
+      can_references: boolean;
     }>(
-      "SELECT r.rolsuper, r.rolbypassrls, " +
+      "SELECT r.rolsuper, r.rolbypassrls, r.rolcreatedb, r.rolcreaterole, " +
         "(r.oid = c.relowner) AS is_owner, " +
+        "pg_has_role(current_user, c.relowner, 'MEMBER') AS is_owner_member, " +
         "has_table_privilege(current_user, 'public.platform_audit_logs', 'INSERT') AS can_insert, " +
         "has_table_privilege(current_user, 'public.platform_audit_logs', 'UPDATE') AS can_update, " +
-        "has_table_privilege(current_user, 'public.platform_audit_logs', 'DELETE') AS can_delete " +
+        "has_table_privilege(current_user, 'public.platform_audit_logs', 'DELETE') AS can_delete, " +
+        "has_table_privilege(current_user, 'public.platform_audit_logs', 'TRUNCATE') AS can_truncate, " +
+        "has_table_privilege(current_user, 'public.platform_audit_logs', 'TRIGGER') AS can_trigger, " +
+        "has_table_privilege(current_user, 'public.platform_audit_logs', 'REFERENCES') AS can_references " +
         "FROM pg_roles r CROSS JOIN pg_class c " +
         "WHERE r.rolname = current_user AND c.oid = 'public.platform_audit_logs'::regclass",
     );
@@ -86,22 +98,29 @@ async function readEvidence(): Promise<PlatformAuditEvidenceRow[]> {
       !access ||
       access.rolsuper ||
       access.rolbypassrls ||
+      access.rolcreatedb ||
+      access.rolcreaterole ||
       access.is_owner ||
+      access.is_owner_member ||
       access.can_insert ||
       access.can_update ||
-      access.can_delete
+      access.can_delete ||
+      access.can_truncate ||
+      access.can_trigger ||
+      access.can_references
     ) {
       throw new Error("Audit attestor requires a strictly read-only non-owner DB role");
     }
     const result = await client.query<PlatformAuditEvidenceRow>(
       "SELECT id::text AS id, actor_identity, actor_user_id::text AS actor_user_id, " +
         "action, resource_type, resource_id, metadata, ip_address, user_agent, " +
-        "created_at::text AS created_at_text " +
-        "FROM public.platform_audit_logs ORDER BY id",
+        "to_char(created_at, 'YYYY-MM-DD HH24:MI:SS.US') AS created_at_text " +
+        "FROM public.platform_audit_logs ORDER BY id LIMIT 200001",
     );
     if (result.rows.length > 200_000) {
       throw new Error("Audit snapshot is too large for v1; use a paged exporter");
     }
+    await client.query("COMMIT");
     return result.rows;
   } finally {
     await client.end();
@@ -148,9 +167,7 @@ async function main() {
   if (flags.has("--previous")) {
     const previous = readCheckpoint(flags.get("--previous")!);
     assertSignedPlatformAuditCheckpoint(previous, trustedPublicKey);
-    if (checkpoint.body.previousCheckpointDigest !== signedCheckpointDigest(previous)) {
-      throw new Error("Checkpoint chain does not match the supplied predecessor");
-    }
+    assertPlatformAuditCheckpointChain(checkpoint, previous, trustedPublicKey);
     const priorComparison = comparePlatformAuditCheckpoint(
       previous,
       trustedPublicKey,
@@ -167,7 +184,12 @@ async function main() {
   );
   console.log(
     JSON.stringify({
-      result: "verified",
+      result:
+        result.missing.length || result.modified.length
+          ? "tampering_detected"
+          : flags.has("--strict") && result.unanchored.length
+            ? "unanchored_events"
+            : "verified",
       checkpointDigest: signedCheckpointDigest(checkpoint),
       anchored: result.anchored,
       missing: result.missing.length,

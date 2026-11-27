@@ -132,6 +132,7 @@ export function assertSignedPlatformAuditCheckpoint(
       !/^[a-f0-9]{64}$/.test(body.previousCheckpointDigest)) ||
     !Array.isArray(body.entries) ||
     !Number.isSafeInteger(body.entryCount) ||
+    body.entryCount < 0 ||
     body.entryCount !== body.entries.length ||
     body.entries.some(
       (entry) =>
@@ -139,7 +140,8 @@ export function assertSignedPlatformAuditCheckpoint(
         typeof entry.id !== "string" ||
         !/^[a-f0-9]{64}$/.test(entry.sha256),
     ) ||
-    typeof signature !== "string"
+    typeof signature !== "string" ||
+    !/^[A-Za-z0-9+/]{86}==$/.test(signature)
   ) {
     throw new Error("Malformed platform audit checkpoint");
   }
@@ -151,6 +153,9 @@ export function assertSignedPlatformAuditCheckpoint(
   if (body.keyId !== publicKeyFingerprint(trustedPublicKeyPem)) {
     throw new Error("Checkpoint signing key is not independently trusted");
   }
+  if (Buffer.from(signature, "base64").length !== 64) {
+    throw new Error("Malformed platform audit checkpoint signature encoding");
+  }
   const valid = verify(
     null,
     Buffer.from(canonicalJson(body), "utf8"),
@@ -158,6 +163,27 @@ export function assertSignedPlatformAuditCheckpoint(
     Buffer.from(signature, "base64"),
   );
   if (!valid) throw new Error("Invalid platform audit checkpoint signature");
+}
+
+export function assertPlatformAuditCheckpointChain(
+  checkpoint: SignedPlatformAuditCheckpoint,
+  previous: SignedPlatformAuditCheckpoint,
+  trustedPublicKeyPem: string,
+): void {
+  assertSignedPlatformAuditCheckpoint(checkpoint, trustedPublicKeyPem);
+  assertSignedPlatformAuditCheckpoint(previous, trustedPublicKeyPem);
+  if (checkpoint.body.previousCheckpointDigest !== signedCheckpointDigest(previous)) {
+    throw new Error("Checkpoint chain does not match the supplied predecessor");
+  }
+  if (Date.parse(checkpoint.body.createdAt) < Date.parse(previous.body.createdAt)) {
+    throw new Error("Checkpoint chain timestamps are not monotonic");
+  }
+  const current = new Map(checkpoint.body.entries.map((entry) => [entry.id, entry.sha256]));
+  for (const entry of previous.body.entries) {
+    if (current.get(entry.id) !== entry.sha256) {
+      throw new Error("Checkpoint chain removed or modified previously anchored evidence");
+    }
+  }
 }
 
 export function comparePlatformAuditCheckpoint(

@@ -15,10 +15,12 @@ async function main() {
   const client = new pg.Client({ connectionString: adminUrl });
   await client.connect();
   try {
+    // Role grants and RLS policies must commit or roll back together.
+    await client.query("BEGIN");
     const role = await client.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [appRole]);
     const passwordLiteral = (await client.query("SELECT quote_literal($1) AS value", [appPassword])).rows[0].value as string;
-    if (role.rowCount) await client.query(`ALTER ROLE "${appRole}" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD ${passwordLiteral}`);
-    else await client.query(`CREATE ROLE "${appRole}" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD ${passwordLiteral}`);
+    if (role.rowCount) await client.query(`ALTER ROLE "${appRole}" LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD ${passwordLiteral}`);
+    else await client.query(`CREATE ROLE "${appRole}" LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD ${passwordLiteral}`);
     await client.query(`GRANT USAGE ON SCHEMA public TO "${appRole}"`);
     await client.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "${appRole}"`);
     await client.query(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "${appRole}"`);
@@ -133,7 +135,11 @@ async function main() {
     await client.query("REVOKE ALL ON FUNCTION public.supportai_resolve_api_key(text, text) FROM PUBLIC");
     await client.query(`GRANT EXECUTE ON FUNCTION public.supportai_resolve_api_key(text, text) TO "${appRole}"`);
 
+    await client.query("COMMIT");
     console.log("Enabled forced RLS policies and restricted public resolver functions.");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
   } finally {
     await client.end();
   }

@@ -3,6 +3,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { test } from "node:test";
 import {
   assertSignedPlatformAuditCheckpoint,
+  assertPlatformAuditCheckpointChain,
   comparePlatformAuditCheckpoint,
   createSignedPlatformAuditCheckpoint,
   platformAuditEvidenceHash,
@@ -148,6 +149,32 @@ test("duplicate audit event IDs and noncanonical snapshots are rejected", () => 
         { ...valid, body: { ...valid.body, entryCount: 0 } },
         trustedPublic,
       ),
+    /Malformed platform audit checkpoint/,
+  );
+});
+
+
+test("checkpoint chain rejects unlinked signed snapshots and preserves predecessors", () => {
+  const first = createSignedPlatformAuditCheckpoint([row], signingPrivate);
+  const nextRow = { ...row, id: "00000000-0000-4000-8000-000000000004" };
+  const second = createSignedPlatformAuditCheckpoint(
+    [row, nextRow], signingPrivate, first, trustedPublic,
+  );
+  assert.doesNotThrow(() =>
+    assertPlatformAuditCheckpointChain(second, first, trustedPublic),
+  );
+  const unrelated = createSignedPlatformAuditCheckpoint([nextRow], signingPrivate);
+  assert.throws(
+    () => assertPlatformAuditCheckpointChain(unrelated, first, trustedPublic),
+    /does not match/,
+  );
+});
+
+test("non-canonical signatures are rejected rather than normalized silently", () => {
+  const checkpoint = createSignedPlatformAuditCheckpoint([row], signingPrivate);
+  const malformed = { ...checkpoint, signature: checkpoint.signature + "\n" };
+  assert.throws(
+    () => assertSignedPlatformAuditCheckpoint(malformed, trustedPublic),
     /Malformed platform audit checkpoint/,
   );
 });
