@@ -1,14 +1,35 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { BarChart3, BookOpenText, Search } from "lucide-react";
+import {
+  AdminBadge,
+  AdminButton,
+  AdminEmpty,
+  AdminHeader,
+  AdminNotice,
+  AdminPage,
+  AdminPanel,
+  adminControlClassName,
+} from "@/components/admin/admin-ui";
 import { api } from "@/lib/api";
 
 type Metrics = {
   range: { days: number; from: string; to: string };
-  conversations: { total: number; resolved: number; waitingForAgent: number; agentActive: number; resolutionRate: number };
+  conversations: {
+    total: number;
+    resolved: number;
+    waitingForAgent: number;
+    agentActive: number;
+    resolutionRate: number;
+  };
   handoffs: { total: number; rate: number };
   tickets: { total: number; open: number; resolved: number };
-  feedback: { positive: number; negative: number; satisfactionRate: number | null };
+  feedback: {
+    positive: number;
+    negative: number;
+    satisfactionRate: number | null;
+  };
   knowledgeGaps: { open: number; occurrences: number };
 };
 
@@ -21,8 +42,36 @@ type KnowledgeGap = {
   lastSeenAt: string;
 };
 
+type GapStatus = "open" | "acknowledged" | "resolved" | "ignored";
+
 function percent(value: number | null) {
-  return value === null ? "–" : `${Math.round(value * 100)} %`;
+  return value === null ? "–" : Math.round(value * 100) + " %";
+}
+
+function statusTone(status: string): "success" | "warning" | "neutral" {
+  if (status === "resolved") return "success";
+  if (status === "open") return "warning";
+  return "neutral";
+}
+
+function Stat({
+  title,
+  value,
+  subtitle,
+}: {
+  title: string;
+  value: number | string;
+  subtitle: string;
+}) {
+  return (
+    <article className="min-w-0 space-y-3 rounded-2xl border border-[#e5eaf3] bg-white p-5 shadow-sm">
+      <p className="text-sm text-[#667694]">{title}</p>
+      <strong className="block text-3xl font-semibold tracking-tight text-[#172742]">
+        {value}
+      </strong>
+      <p className="text-xs text-[#667694]">{subtitle}</p>
+    </article>
+  );
 }
 
 export default function AdminAnalyticsPage() {
@@ -33,72 +82,284 @@ export default function AdminAnalyticsPage() {
   const [summary, setSummary] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [discovering, setDiscovering] = useState(false);
+  const [processingGapId, setProcessingGapId] = useState<string | null>(null);
   const [discoveryMessage, setDiscoveryMessage] = useState("");
 
-  async function load() {
+  const load = useCallback(async () => {
     setError("");
     try {
       const [metricsResult, gapsResult] = await Promise.all([
-        api.get(`/analytics/support?days=${days}`),
+        api.get("/analytics/support?days=" + days),
         api.get("/analytics/knowledge-gaps?limit=100"),
       ]);
       setMetrics(metricsResult.data);
       setGaps(gapsResult.data);
-    } catch (e: any) {
-      setError(e.response?.data?.error || "Analytics konnten nicht geladen werden.");
+    } catch (caught: unknown) {
+      const response = caught as { response?: { data?: { error?: string } } };
+      setError(
+        response.response?.data?.error ||
+          "Analytics konnten nicht geladen werden.",
+      );
+    } finally {
+      setInitialLoading(false);
+    }
+  }, [days]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function createGap(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      await api.post("/analytics/knowledge-gaps", {
+        topic,
+        summary,
+        metadata: { source: "admin_manual" },
+      });
+      setTopic("");
+      setSummary("");
+      await load();
+    } catch (caught: unknown) {
+      const response = caught as { response?: { data?: { error?: string } } };
+      setError(
+        response.response?.data?.error ||
+          "Knowledge Gap konnte nicht gespeichert werden.",
+      );
+    } finally {
+      setLoading(false);
     }
   }
 
-  useEffect(() => { void load(); }, [days]);
-
-  async function createGap(event: FormEvent) {
-    event.preventDefault(); setLoading(true); setError("");
-    try {
-      await api.post("/analytics/knowledge-gaps", { topic, summary, metadata: { source: "admin_manual" } });
-      setTopic(""); setSummary(""); await load();
-    } catch (e: any) {
-      setError(e.response?.data?.error || "Knowledge Gap konnte nicht gespeichert werden.");
-    } finally { setLoading(false); }
-  }
-
   async function discoverGaps() {
-    setDiscovering(true); setError(""); setDiscoveryMessage("");
-    try {
-      const { data } = await api.post("/analytics/knowledge-gaps/discover", { limit: 200 });
-      setDiscoveryMessage(`${data.scanned ?? 0} negative Bewertungen geprüft, ${data.processed ?? 0} Knowledge-Gap-Signale verarbeitet.`);
-      await load();
-    } catch (e: any) {
-      setError(e.response?.data?.error || "Negatives Feedback konnte nicht analysiert werden.");
-    } finally { setDiscovering(false); }
-  }
-
-  async function setStatus(id: string, status: "open" | "acknowledged" | "resolved" | "ignored") {
+    setDiscovering(true);
     setError("");
-    try { await api.patch(`/analytics/knowledge-gaps/${id}`, { status }); await load(); }
-    catch (e: any) { setError(e.response?.data?.error || "Knowledge Gap konnte nicht aktualisiert werden."); }
+    setDiscoveryMessage("");
+    try {
+      const { data } = await api.post("/analytics/knowledge-gaps/discover", {
+        limit: 200,
+      });
+      setDiscoveryMessage(
+        String(data.scanned ?? 0) +
+          " negative Bewertungen geprüft, " +
+          String(data.processed ?? 0) +
+          " Knowledge-Gap-Signale verarbeitet.",
+      );
+      await load();
+    } catch (caught: unknown) {
+      const response = caught as { response?: { data?: { error?: string } } };
+      setError(
+        response.response?.data?.error ||
+          "Negatives Feedback konnte nicht analysiert werden.",
+      );
+    } finally {
+      setDiscovering(false);
+    }
   }
 
-  return <main className="mx-auto max-w-7xl space-y-6 p-4 sm:p-8">
-    <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-sm text-muted-foreground">Support Operations</p><h1 className="text-2xl font-semibold">Analytics & Knowledge Gaps</h1><p className="mt-2 text-sm text-muted-foreground">Supportqualität, Eskalationen und fehlendes Wissen im Blick behalten.</p></div><div className="flex flex-wrap items-center gap-2"><button onClick={discoverGaps} disabled={discovering} className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50">{discovering ? "Analysiert…" : "Negatives Feedback analysieren"}</button><label className="text-sm">Zeitraum<select value={days} onChange={(e) => setDays(Number(e.target.value))} className="ml-2 rounded-lg border bg-background px-3 py-2"><option value={7}>7 Tage</option><option value={30}>30 Tage</option><option value={90}>90 Tage</option></select></label></div></div>
-    {error && <div className="rounded-lg border border-destructive/40 p-3 text-sm text-destructive">{error}</div>}
-    {discoveryMessage && <div className="rounded-lg border p-3 text-sm text-muted-foreground">{discoveryMessage}</div>}
+  async function setStatus(id: string, status: GapStatus) {
+    setError("");
+    setProcessingGapId(id);
+    try {
+      await api.patch("/analytics/knowledge-gaps/" + id, { status });
+      await load();
+    } catch (caught: unknown) {
+      const response = caught as { response?: { data?: { error?: string } } };
+      setError(
+        response.response?.data?.error ||
+          "Knowledge Gap konnte nicht aktualisiert werden.",
+      );
+    } finally {
+      setProcessingGapId(null);
+    }
+  }
 
-    {metrics && <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
-      <Stat title="Conversations" value={metrics.conversations.total} subtitle={`${metrics.conversations.resolved} gelöst`} />
-      <Stat title="Resolution Rate" value={percent(metrics.conversations.resolutionRate)} subtitle="im Zeitraum" />
-      <Stat title="Handoff Rate" value={percent(metrics.handoffs.rate)} subtitle={`${metrics.handoffs.total} Übergaben`} />
-      <Stat title="Offene Tickets" value={metrics.tickets.open} subtitle={`${metrics.tickets.resolved} gelöst`} />
-      <Stat title="Zufriedenheit" value={percent(metrics.feedback.satisfactionRate)} subtitle={`${metrics.feedback.positive} positiv · ${metrics.feedback.negative} negativ`} />
-      <Stat title="Knowledge Gaps" value={metrics.knowledgeGaps.open} subtitle={`${metrics.knowledgeGaps.occurrences} Vorkommen`} />
-    </section>}
+  return (
+    <AdminPage>
+      <AdminHeader
+        eyebrow="Auswertung / Support Operations"
+        title="Analytics & Knowledge Gaps"
+        description="Supportqualität, Eskalationen und fehlendes Wissen im Blick behalten."
+        icon={BarChart3}
+        actions={
+          <>
+            <AdminButton
+              variant="secondary"
+              disabled={discovering || loading}
+              onClick={() => void discoverGaps()}
+            >
+              <Search size={16} aria-hidden="true" />
+              {discovering ? "Analysiert…" : "Negatives Feedback analysieren"}
+            </AdminButton>
+            <label className="flex items-center gap-2 text-sm text-[#536584]">
+              <span>Zeitraum</span>
+              <select
+                value={days}
+                onChange={(event) => setDays(Number(event.target.value))}
+                className={adminControlClassName}
+                aria-label="Analytics-Zeitraum"
+              >
+                <option value={7}>7 Tage</option>
+                <option value={30}>30 Tage</option>
+                <option value={90}>90 Tage</option>
+              </select>
+            </label>
+          </>
+        }
+      />
+      {error && <AdminNotice tone="error">{error}</AdminNotice>}
+      {discoveryMessage && (
+        <AdminNotice tone="success">{discoveryMessage}</AdminNotice>
+      )}
 
-    <section className="rounded-xl border bg-card p-5"><h2 className="font-semibold">Knowledge Gap erfassen</h2><p className="mt-1 text-sm text-muted-foreground">Nur das fehlende Wissensgebiet zusammenfassen; personenbezogene Daten werden serverseitig nochmals redigiert.</p><form onSubmit={createGap} className="mt-4 grid gap-3 md:grid-cols-[1fr_2fr_auto]"><input required value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Thema, z. B. SSO-Einrichtung" className="rounded-lg border bg-background px-3 py-2 text-sm" /><input required value={summary} onChange={(e) => setSummary(e.target.value)} placeholder="Welche Information fehlt?" className="rounded-lg border bg-background px-3 py-2 text-sm" /><button disabled={loading} className="rounded-lg bg-foreground px-4 py-2 text-sm text-background disabled:opacity-50">{loading ? "Speichert…" : "Erfassen"}</button></form></section>
+      {initialLoading && (
+        <p role="status" className="text-sm text-[#667694]">
+          Analytics werden geladen …
+        </p>
+      )}
 
-    <section className="rounded-xl border bg-card p-5"><div className="mb-4 flex items-center justify-between gap-3"><h2 className="font-semibold">Knowledge Gaps</h2><span className="text-xs text-muted-foreground">nach Häufigkeit sortiert</span></div><div className="space-y-3">{gaps.length ? gaps.map((gap) => <div key={gap.id} className="rounded-lg border p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="font-medium">{gap.topic}</p><span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">{gap.status}</span><span className="text-xs text-muted-foreground">{gap.occurrences}×</span></div><p className="mt-2 text-sm text-muted-foreground">{gap.summary}</p><p className="mt-2 text-xs text-muted-foreground">Zuletzt gesehen: {new Date(gap.lastSeenAt).toLocaleString("de-DE")}</p></div><div className="flex flex-wrap gap-2"><button onClick={() => setStatus(gap.id, "acknowledged")} className="rounded-lg border px-3 py-1.5 text-xs">Bestätigen</button><button onClick={() => setStatus(gap.id, "resolved")} className="rounded-lg border px-3 py-1.5 text-xs">Gelöst</button><button onClick={() => setStatus(gap.id, "ignored")} className="rounded-lg border px-3 py-1.5 text-xs">Ignorieren</button><button onClick={() => setStatus(gap.id, "open")} className="rounded-lg border px-3 py-1.5 text-xs">Öffnen</button></div></div></div>) : <p className="text-sm text-muted-foreground">Noch keine Knowledge Gaps erfasst.</p>}</div></section>
-  </main>;
-}
+      {metrics && (
+        <section
+          aria-label="Support-Kennzahlen"
+          className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6"
+        >
+          <Stat
+            title="Conversations"
+            value={metrics.conversations.total}
+            subtitle={metrics.conversations.resolved + " gelöst"}
+          />
+          <Stat
+            title="Resolution Rate"
+            value={percent(metrics.conversations.resolutionRate)}
+            subtitle="im Zeitraum"
+          />
+          <Stat
+            title="Handoff Rate"
+            value={percent(metrics.handoffs.rate)}
+            subtitle={metrics.handoffs.total + " Übergaben"}
+          />
+          <Stat
+            title="Offene Tickets"
+            value={metrics.tickets.open}
+            subtitle={metrics.tickets.resolved + " gelöst"}
+          />
+          <Stat
+            title="Zufriedenheit"
+            value={percent(metrics.feedback.satisfactionRate)}
+            subtitle={
+              metrics.feedback.positive +
+              " positiv · " +
+              metrics.feedback.negative +
+              " negativ"
+            }
+          />
+          <Stat
+            title="Knowledge Gaps"
+            value={metrics.knowledgeGaps.open}
+            subtitle={metrics.knowledgeGaps.occurrences + " Vorkommen"}
+          />
+        </section>
+      )}
 
-function Stat({ title, value, subtitle }: { title: string; value: number | string; subtitle: string }) {
-  return <div className="rounded-xl border bg-card p-5"><p className="text-sm text-muted-foreground">{title}</p><p className="mt-2 text-3xl font-semibold">{value}</p><p className="mt-2 text-xs text-muted-foreground">{subtitle}</p></div>;
+      <AdminPanel
+        title="Knowledge Gap erfassen"
+        description="Nur das fehlende Wissensgebiet zusammenfassen. Personenbezogene Daten werden serverseitig nochmals redigiert."
+      >
+        <form
+          onSubmit={createGap}
+          className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] md:items-end"
+        >
+          <label className="space-y-2 text-sm text-[#536584]">
+            <span className="block font-medium">Thema</span>
+            <input
+              required
+              value={topic}
+              onChange={(event) => setTopic(event.target.value)}
+              placeholder="z. B. SSO-Einrichtung"
+              className={adminControlClassName}
+            />
+          </label>
+          <label className="space-y-2 text-sm text-[#536584]">
+            <span className="block font-medium">Fehlende Information</span>
+            <input
+              required
+              value={summary}
+              onChange={(event) => setSummary(event.target.value)}
+              placeholder="Welche Information fehlt?"
+              className={adminControlClassName}
+            />
+          </label>
+          <AdminButton type="submit" disabled={loading || discovering}>
+            {loading ? "Speichert…" : "Erfassen"}
+          </AdminButton>
+        </form>
+      </AdminPanel>
+
+      <AdminPanel
+        title="Knowledge Gaps"
+        description="Erkannte Wissenslücken nach Häufigkeit sortiert."
+      >
+        {gaps.length === 0 ? (
+          <AdminEmpty
+            icon={BookOpenText}
+            title="Noch keine Knowledge Gaps erfasst"
+            description="Neue Lücken werden nach der Erkennung oder manuellen Erfassung hier angezeigt."
+          />
+        ) : (
+          <div className="space-y-3">
+            {gaps.map((gap) => (
+              <article
+                key={gap.id}
+                className="rounded-xl border border-[#e5eaf3] bg-[#f8faff] p-4"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-semibold text-[#172742]">
+                        {gap.topic}
+                      </h3>
+                      <AdminBadge tone={statusTone(gap.status)}>
+                        {gap.status}
+                      </AdminBadge>
+                      <span className="text-xs text-[#667694]">
+                        {gap.occurrences}×
+                      </span>
+                    </div>
+                    <p className="text-sm text-[#536584]">{gap.summary}</p>
+                    <p className="text-xs text-[#667694]">
+                      Zuletzt gesehen:{" "}
+                      {new Date(gap.lastSeenAt).toLocaleString("de-DE")}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {(
+                      [
+                        ["acknowledged", "Bestätigen"],
+                        ["resolved", "Gelöst"],
+                        ["ignored", "Ignorieren"],
+                        ["open", "Öffnen"],
+                      ] as const
+                    ).map(([status, label]) => (
+                      <AdminButton
+                        key={status}
+                        variant="secondary"
+                        disabled={processingGapId !== null}
+                        onClick={() => void setStatus(gap.id, status)}
+                      >
+                        {label}
+                      </AdminButton>
+                    ))}
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </AdminPanel>
+    </AdminPage>
+  );
 }
