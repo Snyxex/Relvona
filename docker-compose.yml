@@ -22,7 +22,7 @@ services:
       - redisdata:/data
 
   rustfs:
-    image: rustfs/rustfs:latest
+    image: rustfs/rustfs:1.0.6
     container_name: support_ai_rustfs
     restart: always
     environment:
