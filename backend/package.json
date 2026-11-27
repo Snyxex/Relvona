@@ -13,6 +13,7 @@
     "db:seed": "tsx src/db/seed.ts",
     "storage:migrate-avatars": "tsx src/scripts/migrateLegacyProfileAvatars.ts",
     "storage:verify": "tsx src/scripts/verifyObjectStorageConsistency.ts",
+    "platform-audit:checkpoint": "node dist/scripts/platformAuditCheckpoint.js",
     "test:security": "tsx src/tests/security.test.ts",
     "test:theme": "tsx src/tests/userTheme.test.ts",
     "test:error-responses": "tsx src/tests/errorResponses.test.ts",
