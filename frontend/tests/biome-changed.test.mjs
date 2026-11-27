@@ -56,7 +56,6 @@ test("changed-file Biome ignores unsupported inputs but rejects real errors", ()
   }
 });
 
-
 test("changed-file Biome excludes upstream-only changes after target advances", () => {
   const cwd = mkdtempSync(join(tmpdir(), "relvona-biome-diverged-"));
   const env = { ...process.env, CHANGE_TARGET: "main" };
