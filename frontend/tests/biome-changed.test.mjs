@@ -86,7 +86,10 @@ test("changed-file Biome excludes upstream-only changes after target advances", 
     git("add", ".");
     git("commit", "-m", "PR feature");
     git("checkout", "main");
-    writeFileSync(join(cwd, "upstream-only.js"), "export const upstream = 1;\n");
+    writeFileSync(
+      join(cwd, "upstream-only.js"),
+      "export const upstream = 1;\n",
+    );
     git("add", ".");
     git("commit", "-m", "unrelated upstream fix");
     git("update-ref", "refs/remotes/origin/main", "HEAD");
