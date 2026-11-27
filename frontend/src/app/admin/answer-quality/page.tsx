@@ -1,6 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { FileCheck2 } from "lucide-react";
+import {
+  AdminButton,
+  AdminHeader,
+  AdminNotice,
+  AdminPage,
+  AdminPanel,
+  adminControlClassName,
+} from "@/components/admin/admin-ui";
 import { api } from "@/lib/api";
 
 type KnowledgeSource = { id: string; title: string };
@@ -96,16 +105,15 @@ export default function AnswerQualityPage() {
     : "Keine heuristischen Auffälligkeiten";
 
   return (
-    <main className="mx-auto max-w-5xl space-y-6 p-6">
-      <header>
-        <h1 className="text-2xl font-semibold">Antwortqualität prüfen</h1>
-        <p className="mt-2 text-sm text-slate-500">
-          Manuelle Vorschau für Antwortentwürfe. Keine automatische
-          Veröffentlichung und keine inhaltliche Wahrheitsprüfung.
-        </p>
-      </header>
+    <AdminPage width="narrow">
+      <AdminHeader
+        eyebrow="KI & Wissen / Qualitätssicherung"
+        title="Antwortqualität prüfen"
+        description="Manuelle Vorschau für Antwortentwürfe. Keine automatische Veröffentlichung und keine inhaltliche Wahrheitsprüfung."
+        icon={FileCheck2}
+      />
 
-      <section className="space-y-4 rounded-xl border border-slate-300 p-5">
+      <AdminPanel title="Antwortentwurf und Quellen" description="Wähle die verwendeten Quellen aus und prüfe den Entwurf auf erkennbare Qualitätsprobleme.">
         <label
           className="block text-sm font-medium"
           htmlFor="answer-review-draft"
@@ -114,7 +122,7 @@ export default function AnswerQualityPage() {
         </label>
         <textarea
           id="answer-review-draft"
-          className="min-h-40 w-full rounded border border-slate-400 p-3 text-slate-900"
+          className={`${adminControlClassName} min-h-40 resize-y`}
           maxLength={12000}
           value={answer}
           onChange={(event) => {
@@ -133,7 +141,7 @@ export default function AnswerQualityPage() {
           {!loading && sources.length === 0 && (
             <p className="text-sm">Keine verfügbaren Quellen.</p>
           )}
-          <div className="max-h-64 space-y-2 overflow-auto rounded border border-slate-300 p-3">
+          <div className="max-h-64 space-y-2 overflow-auto rounded-xl border border-[#e5eaf3] bg-[#f8faff] p-3">
             {sources.map((source) => (
               <label key={source.id} className="flex items-start gap-2 text-sm">
                 <input
@@ -155,28 +163,21 @@ export default function AnswerQualityPage() {
           </div>
         </fieldset>
 
-        <button
-          type="button"
-          disabled={checking || loading || answer.length > 12000}
-          onClick={() => void inspect()}
-          className="rounded bg-slate-900 px-4 py-2 text-white disabled:opacity-50"
-        >
-          {checking ? "Prüfe…" : "Qualitätsvorschau starten"}
-        </button>
-      </section>
+        <div className="flex justify-end border-t border-[#edf0f6] pt-4">
+          <AdminButton
+            disabled={checking || loading || answer.length > 12000}
+            onClick={() => void inspect()}
+          >
+            {checking ? "Prüfe…" : "Qualitätsvorschau starten"}
+          </AdminButton>
+        </div>
+      </AdminPanel>
 
-      {error && (
-        <p
-          role="alert"
-          className="rounded border border-red-600 p-3 text-red-700"
-        >
-          {error}
-        </p>
-      )}
+      {error && <AdminNotice tone="error">{error}</AdminNotice>}
       {preview && (
         <section
           aria-live="polite"
-          className="space-y-3 rounded-xl border border-slate-300 p-5"
+          className="space-y-3 rounded-2xl border border-[#e5eaf3] bg-white p-5 shadow-sm sm:p-6"
         >
           <h2 className="text-lg font-semibold">Ergebnis: {resultTitle}</h2>
           <p className="text-sm">
@@ -198,13 +199,13 @@ export default function AnswerQualityPage() {
               </li>
             ))}
           </ul>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-[#667694]">
             Das Ergebnis prüft weder die sachliche Richtigkeit noch, ob einzelne
             Aussagen von den Quellen gedeckt sind. Vor dem Versenden müssen
             Quellen und Antwort manuell geprüft werden.
           </p>
         </section>
       )}
-    </main>
+    </AdminPage>
   );
 }

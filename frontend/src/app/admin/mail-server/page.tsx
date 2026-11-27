@@ -1,7 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, Mail, RefreshCw, Save, TestTube2 } from "lucide-react";
+import { Mail, RefreshCw, Save, TestTube2 } from "lucide-react";
+import {
+  AdminButton,
+  AdminHeader,
+  AdminNotice,
+  AdminPage,
+  AdminPanel,
+  adminControlClassName,
+} from "@/components/admin/admin-ui";
 import { api } from "@/lib/api";
 
 type MailSettings = {
@@ -30,15 +38,15 @@ const defaults: MailSettings = {
 
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
   return (
-    <label className="block space-y-1.5 text-sm">
-      <span className="font-medium text-slate-200">{label}</span>
+    <label className="block space-y-1.5 text-sm text-[#536584]">
+      <span className="font-medium text-[#172742]">{label}</span>
       {children}
-      {hint && <span className="block text-xs text-slate-500">{hint}</span>}
+      {hint && <span className="block text-xs text-[#667694]">{hint}</span>}
     </label>
   );
 }
 
-const inputClass = "w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20";
+const inputClass = adminControlClassName;
 
 export default function MailServerPage() {
   const [form, setForm] = useState<MailSettings>(defaults);
@@ -112,30 +120,27 @@ export default function MailServerPage() {
   }
 
   if (loading) {
-    return <main className="mx-auto max-w-4xl p-6 sm:p-10"><div className="h-96 animate-pulse rounded-xl bg-slate-800" /></main>;
+    return <AdminPage width="narrow"><AdminHeader eyebrow="Verwaltung / Kommunikation" title="Mailserver" description="SMTP für Terminbestätigungen konfigurieren." icon={Mail} /><AdminPanel><div role="status" aria-label="Mailserver-Einstellungen werden geladen" className="h-60 animate-pulse rounded-xl bg-[#f1f5fb]" /></AdminPanel></AdminPage>;
   }
 
   return (
-    <main className="mx-auto max-w-4xl space-y-6 p-4 text-slate-100 sm:p-10">
-      <header className="space-y-2">
-        <div className="flex items-center gap-3">
-          <span className="rounded-lg bg-blue-500/10 p-2 text-blue-300"><Mail size={22} /></span>
-          <div>
-            <h1 className="text-2xl font-bold">Mailserver</h1>
-            <p className="text-sm text-slate-400">SMTP für Terminbestätigungen konfigurieren.</p>
-          </div>
-        </div>
-      </header>
+    <AdminPage width="narrow">
+      <AdminHeader
+        eyebrow="Verwaltung / Kommunikation"
+        title="Mailserver"
+        description="SMTP für Terminbestätigungen konfigurieren."
+        icon={Mail}
+      />
 
-      {notice && <div role="status" className="flex items-center gap-2 rounded-lg border border-emerald-800 bg-emerald-950/50 p-3 text-sm text-emerald-300"><CheckCircle2 size={17} />{notice}</div>}
-      {error && <div role="alert" className="rounded-lg border border-red-900 bg-red-950/40 p-3 text-sm text-red-300">{error}</div>}
+      {notice && <AdminNotice tone="success">{notice}</AdminNotice>}
+      {error && <AdminNotice tone="error">{error}</AdminNotice>}
 
-      <section className="space-y-6 rounded-xl border border-slate-800 bg-slate-900 p-5 shadow-sm sm:p-6">
-        <label className="flex items-start gap-3 rounded-lg border border-slate-800 bg-slate-950/60 p-4">
+      <AdminPanel title="SMTP-Konfiguration" description="Zugangsdaten und Absenderinformationen für automatische Terminbestätigungen.">
+        <label className="flex items-start gap-3 rounded-xl border border-[#e5eaf3] bg-[#f8faff] p-4">
           <input type="checkbox" checked={form.enabled} onChange={(event) => change("enabled", event.target.checked)} className="mt-1 h-4 w-4" />
           <span>
             <span className="block font-medium">Terminbestätigungen per E-Mail aktivieren</span>
-            <span className="mt-1 block text-sm text-slate-400">Nach einer erfolgreich erstellten Kundenbuchung sendet Relvona automatisch eine Bestätigung. Ein Mailfehler macht die Buchung nicht rückgängig.</span>
+            <span className="mt-1 block text-sm text-[#667694]">Nach einer erfolgreich erstellten Kundenbuchung sendet Relvona automatisch eine Bestätigung. Ein Mailfehler macht die Buchung nicht rückgängig.</span>
           </span>
         </label>
 
@@ -178,17 +183,17 @@ export default function MailServerPage() {
           <input className={inputClass} type="email" value={form.replyTo || ""} onChange={(event) => change("replyTo", event.target.value)} placeholder="support@example.com" />
         </Field>
 
-        <div className="flex flex-col gap-3 border-t border-slate-800 pt-5 sm:flex-row sm:justify-end">
-          <button type="button" disabled={testing || saving} onClick={testConnection} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 px-4 py-2 text-sm font-medium hover:bg-slate-800 disabled:opacity-50">
+        <div className="flex flex-col gap-3 border-t border-[#edf0f6] pt-5 sm:flex-row sm:justify-end">
+          <AdminButton variant="secondary" disabled={testing || saving} onClick={testConnection}>
             {testing ? <RefreshCw size={16} className="animate-spin" /> : <TestTube2 size={16} />}
             Verbindung testen
-          </button>
-          <button type="button" disabled={saving || testing} onClick={save} className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50">
+          </AdminButton>
+          <AdminButton disabled={saving || testing} onClick={save}>
             {saving ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
             Speichern
-          </button>
+          </AdminButton>
         </div>
-      </section>
-    </main>
+      </AdminPanel>
+    </AdminPage>
   );
 }
