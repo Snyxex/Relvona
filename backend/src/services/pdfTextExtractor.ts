@@ -1,4 +1,5 @@
 import { Worker, type WorkerOptions } from "node:worker_threads";
+import { resolve } from "node:path";
 import { FileSecurity } from "./fileSecurity.js";
 
 export const MAX_PDF_BYTES = 10 * 1024 * 1024;
@@ -27,11 +28,12 @@ export function extractPdfText(
     return Promise.reject(new Error("PDF_TIMEOUT_CONFIG_INVALID"));
   }
 
-  // tsx development runs source .ts; production and CI use compiled .js.
-  const isSource = import.meta.url.endsWith(".ts");
-  const workerPath = new URL(
-    "./pdfTextWorker" + (isSource ? ".ts" : ".js"),
-    import.meta.url,
+  // The backend compiles to CommonJS. Resolve relative to this module
+  // both in tsx development and in compiled Node.js production.
+  const isSource = __filename.endsWith(".ts");
+  const workerPath = resolve(
+    __dirname,
+    "pdfTextWorker" + (isSource ? ".ts" : ".js"),
   );
   const workerOptions: WorkerOptions = {
     execArgv: isSource ? ["--import", "tsx"] : [],
