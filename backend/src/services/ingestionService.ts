@@ -1,4 +1,4 @@
-import pdfParse from "pdf-parse";
+import { extractPdfText, MAX_PDF_BYTES } from "./pdfTextExtractor.js";
 import crypto from "node:crypto";
 import { UniversalAIGateway } from "./aiGateway.js";
 import { CrawlerSecurity } from "./crawlerSecurity.js";
@@ -62,12 +62,19 @@ export class IngestionService {
     if (input.type === "pdf") {
       if (!organizationId) throw new Error("Organization context required for storage-backed PDF");
       const stored = await FileObjectService.readForOrganization(organizationId, input.objectId);
-      const buffers: Buffer[] = []; for await (const chunk of stored.body) buffers.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-      const buffer = Buffer.concat(buffers);
+      const buffers: Buffer[] = [];
+      let receivedBytes = 0;
+      for await (const chunk of stored.body) {
+        const piece = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        receivedBytes += piece.byteLength;
+        if (receivedBytes > MAX_PDF_BYTES) throw new Error("PDF_SIZE_LIMIT");
+        buffers.push(piece);
+      }
+      const buffer = Buffer.concat(buffers, receivedBytes);
       const validation = FileSecurity.validateUploadedFile(buffer, input.filename, "application/pdf");
       if (!validation.isValid) throw new Error("PDF validation failed");
-      const pdf = await pdfParse(buffer);
-      pageCount = pdf.numpages;
+      const pdf = await extractPdfText(buffer);
+      pageCount = pdf.pageCount;
       documents.push({ text: pdf.text, title: input.title });
     } else if (input.type === "website") {
       const root = new URL(input.targetUrl);
