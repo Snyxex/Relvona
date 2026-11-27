@@ -70,6 +70,7 @@ const groups = {
     "supportOperationsAnalytics.integration.test.ts",
     "schedulingConcurrency.integration.test.ts",
     "tenantIsolation.integration.test.ts",
+    "tenantRlsCoverage.integration.test.ts",
     "webhookOutbox.integration.test.ts",
   ],
 };
