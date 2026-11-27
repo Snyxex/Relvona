@@ -15,6 +15,7 @@ const groups = {
     "objectStorage.test.ts",
     "objectStorageConfig.test.ts",
     "profileAvatar.test.ts",
+    "platformAuditAttestation.test.ts",
     "platformRbac.test.ts",
     "routingAvailability.test.ts",
     "schedulingAudit.test.ts",

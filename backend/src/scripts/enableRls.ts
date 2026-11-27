@@ -46,6 +46,55 @@ async function main() {
       await client.query(`CREATE POLICY platform_audit_append_only ON public.platform_audit_logs FOR INSERT TO "${appRole}" WITH CHECK (true)`);
     }
 
+
+    // Optional independent read-only attestor login. This is not the tenant
+    // application account and MUST NOT inherit any application privileges.
+    const auditReaderRole = process.env.DATABASE_PLATFORM_AUDIT_READER_USER?.trim();
+    if (auditReaderRole) {
+      if (
+        !/^[a-z_][a-z0-9_]{0,62}$/i.test(auditReaderRole) ||
+        auditReaderRole === appRole
+      ) {
+        throw new Error("Invalid independent platform audit reader role");
+      }
+      const reader = await client.query(
+        "SELECT rolsuper, rolbypassrls, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname = $1",
+        [auditReaderRole],
+      );
+      if (
+        !reader.rowCount ||
+        reader.rows[0].rolsuper ||
+        reader.rows[0].rolbypassrls ||
+        reader.rows[0].rolcreatedb ||
+        reader.rows[0].rolcreaterole
+      ) {
+        throw new Error("Audit reader must be an existing unprivileged login role");
+      }
+      const membership = await client.query(
+        "SELECT pg_has_role($1, $2, 'MEMBER') AS reader_in_app, pg_has_role($2, $1, 'MEMBER') AS app_in_reader",
+        [auditReaderRole, appRole],
+      );
+      if (membership.rows[0].reader_in_app || membership.rows[0].app_in_reader) {
+        throw new Error("Audit reader and application roles must not inherit one another");
+      }
+      await client.query('GRANT USAGE ON SCHEMA public TO "' + auditReaderRole + '"');
+      await client.query('GRANT SELECT ON TABLE public.platform_audit_logs TO "' + auditReaderRole + '"');
+      await client.query("DROP POLICY IF EXISTS platform_audit_reader_select ON public.platform_audit_logs");
+      await client.query(
+        'CREATE POLICY platform_audit_reader_select ON public.platform_audit_logs FOR SELECT TO "' + auditReaderRole + '" USING (true)',
+      );
+      const privileges = await client.query(
+        "SELECT has_table_privilege($1, 'public.platform_audit_logs', 'INSERT') AS ins, " +
+        "has_table_privilege($1, 'public.platform_audit_logs', 'UPDATE') AS upd, " +
+        "has_table_privilege($1, 'public.platform_audit_logs', 'DELETE') AS del, " +
+        "has_table_privilege($1, 'public.platform_audit_logs', 'TRUNCATE') AS trunc",
+        [auditReaderRole],
+      );
+      if (Object.values(privileges.rows[0]).some(Boolean)) {
+        throw new Error("Audit reader has write privileges; revoke privileges and retry");
+      }
+    }
+
     const chunksExist = await client.query("SELECT to_regclass('public.document_chunks') AS table_name");
     const intelligenceExists = await client.query("SELECT to_regclass('public.knowledge_source_intelligence') AS table_name");
     if (chunksExist.rows[0]?.table_name && intelligenceExists.rows[0]?.table_name) {
