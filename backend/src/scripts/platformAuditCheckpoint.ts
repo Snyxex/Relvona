@@ -65,6 +65,34 @@ async function readEvidence(): Promise<PlatformAuditEvidenceRow[]> {
   const client = new pg.Client({ connectionString });
   await client.connect();
   try {
+    const role = await client.query<{
+      rolsuper: boolean;
+      rolbypassrls: boolean;
+      is_owner: boolean;
+      can_insert: boolean;
+      can_update: boolean;
+      can_delete: boolean;
+    }>(
+      "SELECT r.rolsuper, r.rolbypassrls, " +
+        "(r.oid = c.relowner) AS is_owner, " +
+        "has_table_privilege(current_user, 'public.platform_audit_logs', 'INSERT') AS can_insert, " +
+        "has_table_privilege(current_user, 'public.platform_audit_logs', 'UPDATE') AS can_update, " +
+        "has_table_privilege(current_user, 'public.platform_audit_logs', 'DELETE') AS can_delete " +
+        "FROM pg_roles r CROSS JOIN pg_class c " +
+        "WHERE r.rolname = current_user AND c.oid = 'public.platform_audit_logs'::regclass",
+    );
+    const access = role.rows[0];
+    if (
+      !access ||
+      access.rolsuper ||
+      access.rolbypassrls ||
+      access.is_owner ||
+      access.can_insert ||
+      access.can_update ||
+      access.can_delete
+    ) {
+      throw new Error("Audit attestor requires a strictly read-only non-owner DB role");
+    }
     const result = await client.query<PlatformAuditEvidenceRow>(
       "SELECT id::text AS id, actor_identity, actor_user_id::text AS actor_user_id, " +
         "action, resource_type, resource_id, metadata, ip_address, user_agent, " +
